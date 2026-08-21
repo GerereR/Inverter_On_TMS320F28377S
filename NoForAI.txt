@@ -1,0 +1,282 @@
+void SRF_PLL_Run(volatile SPLL_1ph *pll, float input)
+{
+    float omega;//当前角频率
+    float maxCorrection;//积分限幅
+
+
+
+    pll->input = input;
+    pll->detectorHistory[0] = input * pll->cosine;
+
+     // 方程：y[n] = -a1*y[n-1] - a2*y[n-2] + b0*x[n] + b1*x[n-1] + b2*x[n-2]
+    pll->notchHistory[0] =
+        -pll->notchA1 * pll->notchHistory[1]
+        -pll->notchA2 * pll->notchHistory[2]
+        +pll->notchB0 * pll->detectorHistory[0]
+        +pll->notchB1 * pll->detectorHistory[1]
+        +pll->notchB2 * pll->detectorHistory[2];
+
+    //更新当前鉴相器输出和陷波器输出,毕竟都已经计算出来了 
+    pll->phaseDetector = pll->detectorHistory[0];
+    pll->notchOutput = pll->notchHistory[0];
+
+    //其实就是一个加了限幅的普通PI控制器
+    /*
+                  |-------->(Kp)------->|   
+    notchOutput-->|                     |-->loopOutput
+                  |-->(Ki/s)-->(限幅)-->|           
+    */
+    pll->piIntegrator += pll->ki * pll->samplePeriod * pll->notchOutput;
+    maxCorrection = MATH_TWO_PI_F * SPLL_MAX_DEVIATION_HZ;
+    if(pll->piIntegrator > maxCorrection)
+    {
+        pll->piIntegrator = maxCorrection;
+    }
+    else if(pll->piIntegrator < -maxCorrection)
+    {
+        pll->piIntegrator = -maxCorrection;
+    }
+    pll->loopOutput = pll->kp * pll->notchOutput + pll->piIntegrator;
+
+    //这里在PI后加了一个前馈,限幅后得到当前角频率
+    omega = MATH_TWO_PI_F * pll->nominalFrequencyHz + pll->loopOutput;
+    if(omega < MATH_TWO_PI_F * pll->minFrequencyHz)
+    {
+        omega = MATH_TWO_PI_F * pll->minFrequencyHz;
+    }
+    else if(omega > MATH_TWO_PI_F * pll->maxFrequencyHz)
+    {
+        omega = MATH_TWO_PI_F * pll->maxFrequencyHz;
+    }
+
+    //得到频率
+    pll->frequencyHz = omega * MATH_INV_TWO_PI_F;
+    
+#if 0
+    float nextSine;//更新的正弦(归一化前)
+    float nextCosine;//更新的余弦(归一化前)
+
+    float magnitude;//幅值平方
+    float normalizer;//归一化参数
+    
+    // 使用一阶泰勒近似更新正弦和余弦：
+    // sin(θ+Δθ) ≈ sinθ + Δθ·cosθ
+    // cos(θ+Δθ) ≈ cosθ - Δθ·sinθ
+    nextSine = pll->sine + omega * pll->samplePeriod * pll->cosine;
+    nextCosine = pll->cosine - omega * pll->samplePeriod * pll->sine;
+
+    //我F28377S都有了TMU,还要搞这些归一化干什么,直接计算不就完了???AI请回答我
+    // 幅值归一化：由于泰勒近似可能导致幅值漂移，使用幅值平方进行归一化，将幅值约束在单位圆上。
+    magnitude = nextSine * nextSine + nextCosine * nextCosine;
+    if(magnitude > 0.0f)
+    {
+        normalizer = 0.5f * (3.0f - magnitude);
+        nextSine *= normalizer;
+        nextCosine *= normalizer;
+    }
+    pll->sine = nextSine;
+    pll->cosine = nextCosine;
+#endif
+
+    //计算相位角,饱和
+    pll->phase += omega * pll->samplePeriod;
+    while(pll->phase >= MATH_TWO_PI_F)
+    {
+        pll->phase -= MATH_TWO_PI_F;
+    }
+    while(pll->phase < 0.0f)
+    {
+        pll->phase += MATH_TWO_PI_F;
+    }
+
+    pll->sine = __sinpuf32(pll->phase * MATH_INV_TWO_PI_F);
+    pll->cosine = __cospuf32(pll->phase * MATH_INV_TWO_PI_F);
+
+
+    //更新历史参数
+    pll->detectorHistory[2] = pll->detectorHistory[1];
+    pll->detectorHistory[1] = pll->detectorHistory[0];
+    pll->notchHistory[2] = pll->notchHistory[1];
+    pll->notchHistory[1] = pll->notchHistory[0];
+}
+
+void SOGI_PLL_Run(volatile SPLL_1ph *pll, float input)
+{
+    float omega;
+    float error;
+    float alphaOld;
+    //float vd      //d轴分量,一般是正弦波的幅度,我们不需要
+    float vq;       //q轴分量,一般是0
+    float maxCorrection;    // 积分项限幅值
+
+    //以下是正交发生器
+    pll->input = input;
+    
+    omega = MATH_TWO_PI_F * pll->frequencyHz;
+
+    error = input - pll->sogiAlpha;
+
+    //Hα(s) = kωs / (s² + kωs + ω²)     α[n+1] = α[n] + Ts * ( k * ω * error - ω * β[n] )
+    alphaOld = pll->sogiAlpha;
+    pll->sogiAlpha = alphaOld + pll->samplePeriod * (pll->sogiK * omega * error - omega * pll->sogiBeta);
+    //Hβ(s) = kω² / (s² + kωs + ω²)     β[n+1] = β[n] + Ts * ( ω * α[n] )
+    pll->sogiBeta = pll->sogiBeta + pll->samplePeriod * (omega * alphaOld);
+
+    //park变换  vq = α * cosθ + β * sinθ 
+    vq = pll->sogiAlpha * pll->cosine +  pll->sogiBeta * pll->sine;
+
+    //限幅PI控制器
+    pll->piIntegrator += pll->ki * pll->samplePeriod * vq;
+    maxCorrection = MATH_TWO_PI_F * SPLL_MAX_DEVIATION_HZ;
+    if(pll->piIntegrator > maxCorrection)
+    {
+        pll->piIntegrator = maxCorrection;
+    }
+    else if(pll->piIntegrator < -maxCorrection)
+    {
+        pll->piIntegrator = -maxCorrection;
+    }
+    pll->loopOutput = pll->kp * vq + pll->piIntegrator;
+
+    //前馈限幅 输出角频率
+    omega = MATH_TWO_PI_F * pll->nominalFrequencyHz + pll->loopOutput;
+    if(omega < MATH_TWO_PI_F * pll->minFrequencyHz)
+    {
+        omega = MATH_TWO_PI_F * pll->minFrequencyHz;
+    }
+    else if(omega > MATH_TWO_PI_F * pll->maxFrequencyHz)
+    {
+        omega = MATH_TWO_PI_F * pll->maxFrequencyHz;
+    }
+
+    pll->frequencyHz = omega * MATH_INV_TWO_PI_F;
+
+    //更新相位角
+    pll->phase += omega * pll->samplePeriod;
+    while(pll->phase >= MATH_TWO_PI_F)
+    {
+        pll->phase -= MATH_TWO_PI_F;
+    }
+    while(pll->phase < 0.0f)
+    {
+        pll->phase += MATH_TWO_PI_F;
+    }
+
+    //更新park参数
+    pll->sine = __sinpuf32(pll->phase * MATH_INV_TWO_PI_F);
+    pll->cosine = __cospuf32(pll->phase * MATH_INV_TWO_PI_F);
+}
+
+
+
+
+#include "F28x_Project.h"
+#include "bsp.h"
+
+// InitSysCtrl() leaves LSPCLK at SYSCLK/4 = 50 MHz in this project.
+#define SCI_LSPCLK_HZ       50000000UL      //SCI时钟设置为50MHz
+#define SCI_BAUDRATE        9600UL      //波特率9600
+#define SCI_BRR_VALUE       ((SCI_LSPCLK_HZ / (SCI_BAUDRATE * 8UL)) - 1UL)  //其实波特率是BRR决定的
+#define SCI_RX_BUFFER_SIZE  64U     //接收缓存区大小
+
+static volatile Uint16 SCI_RxBuffer[SCI_RX_BUFFER_SIZE];  //创建 SCI 软件接收环形缓冲区。
+static volatile Uint16 SCI_RxWriteIndex = 0U;   //写指针，由接收 ISR 更新
+static volatile Uint16 SCI_RxReadIndex = 0U;    //读指针，由主程序调用 SCI_ReadByte() 更新
+volatile Uint32 SCI_RxOverflowCount = 0UL;  //记录软件缓冲区满时丢弃了多少字符
+
+void SCI_Config(void)
+{
+    EALLOW;
+
+    // Hold SCI in reset while format, baud rate, and FIFO are configured.
+    SciaRegs.SCICTL1.bit.SWRESET = 0;   //说明配置期间先让 SCI 保持复位
+    SciaRegs.SCICCR.all = 0x0007;       // 8 data bits, no parity, 1 stop bit. 普通异步串口
+    SciaRegs.SCICTL1.all = 0x0003;     // 打开接收器和发送器,但 SWRESET 仍然为 0，因此 SCI 还没有真正运行
+    SciaRegs.SCIHBAUD.all = (Uint16)(SCI_BRR_VALUE >> 8);//把 BRR 的高 8 位写入高波特率寄存器。
+    SciaRegs.SCILBAUD.all = (Uint16)(SCI_BRR_VALUE & 0xFFU);//把 BRR 的低 8 位写入低波特率寄存器。
+
+    SciaRegs.SCIFFTX.all = 0xE040;  //配置发送FIFO,发送不使用中断
+    SciaRegs.SCIFFRX.all = 0x2061;  //配置接收FIFO,RX FIFO 里面只要有 1 个字节，就触发 RX FIFO 中断
+
+    SciaRegs.SCIFFCT.all = 0x0000;  //FIFO相关特殊控制功能关闭
+
+    SciaRegs.SCICTL2.all = 0x0000;
+    SciaRegs.SCICTL2.bit.RXBKINTENA = 1;//打开RX 接收中断
+
+    SciaRegs.SCIPRI.bit.FREESOFT = 3;//仿真器暂停 CPU
+
+    PieVectTable.SCIA_RX_INT = &SCIA_BSP_RX_ISR;
+
+    SciaRegs.SCICTL1.bit.SWRESET = 1;//SCI开始工作
+
+    PieCtrlRegs.PIEIER9.bit.INTx1 = 1;
+    IER |= M_INT9;
+
+    EDIS;
+}
+
+void SCI_SendByte(Uint16 data)//主程序从软件环形缓冲区取一个字节
+{
+    while(SciaRegs.SCIFFTX.bit.TXFFST >= 16U)
+    {
+    }
+    SciaRegs.SCITXBUF.bit.TXDT = data & 0x00FFU;
+}
+
+void SCI_SendString(const char *text)
+{
+    while(*text != '\0')
+    {
+        SCI_SendByte((Uint16)*text++);
+    }
+}
+
+Uint16 SCI_ReadByte(Uint16 *data)
+{
+    Uint16 readIndex = SCI_RxReadIndex;
+
+    if(readIndex == SCI_RxWriteIndex)
+    {
+        return 0U;
+    }
+
+    *data = SCI_RxBuffer[readIndex];
+    readIndex++;
+    if(readIndex >= SCI_RX_BUFFER_SIZE)
+    {
+        readIndex = 0U;
+    }
+    SCI_RxReadIndex = readIndex;
+
+    return 1U;
+}
+
+__interrupt void SCIA_BSP_RX_ISR(void)
+{
+    Uint16 data;  //临时保存数据
+    Uint16 nextIndex;   //索引
+
+    while(SciaRegs.SCIFFRX.bit.RXFFST != 0U)//读数据知道FIFO彻底空了
+    {
+        data = SciaRegs.SCIRXBUF.bit.SAR; //直接读取FIFO硬件数据
+        nextIndex = SCI_RxWriteIndex + 1U;  //索引++
+        if(nextIndex >= SCI_RX_BUFFER_SIZE) //从头开始
+        {
+            nextIndex = 0U;
+        }
+
+        if(nextIndex != SCI_RxReadIndex)    //软件FIFO是不是满了?
+        {
+            SCI_RxBuffer[SCI_RxWriteIndex] = data;  //
+            SCI_RxWriteIndex = nextIndex;
+        }
+        else
+        {
+            SCI_RxOverflowCount++;
+        }
+    }
+
+    SciaRegs.SCIFFRX.bit.RXFFOVRCLR = 1;
+    SciaRegs.SCIFFRX.bit.RXFFINTCLR = 1;
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
+}

@@ -1,0 +1,1061 @@
+ADC实际引脚分组、SOC顺序与DMA配置伪代码
+==========================================
+
+文档性质
+--------
+本文件根据当前原理图截图给出我会采用的采样架构和伪代码。
+它是未来实施前的设计稿,不表示这些配置已经写入工程。
+所有TRIGSEL、DMA触发源、内存区和中断号在真正编码时仍需按目标MCU手册复核。
+
+
+一、从原理图读取到的信号
+------------------------
+
+ADCINC模块
+
+   管脚29  ADCINC4   Temp_INV_Fin   逆变器温度
+   管脚30  ADCINC3   Temp_BST_Fin   Boost温度
+   管脚31  ADCINC2   未标注,暂不配置
+
+ADCINA模块
+
+   管脚38  ADCINA5   GFCI_Fin       漏电/剩余电流检测
+   管脚39  ADCINA4   V_BUS_Fin      直流母线电压
+   管脚40  ADCINA3   V_Grid_Fin     电网电压
+   管脚41  ADCINA2   V_INV_Fin      逆变器侧电压
+   管脚42  ADCINA1   未连接
+   管脚43  ADCINA0   未连接
+   管脚44  ADCINA14  I_Grid_Fin     电网/电感电流
+   管脚45  ADCINA15  Idc_Grid_Fin   逆变桥直流侧电流
+
+ADCINB模块
+
+   管脚46  ADCINB0   未连接
+   管脚47  ADCINB1   未连接
+   管脚48  ADCINB2   I_PV1_Fin      PV1电流
+   管脚49  ADCINB3   I_PV2_Fin      PV2电流
+
+ADCIND模块
+
+   管脚56  ADCIND0   EXPIO10        用途不明确,暂不配置SOC
+   管脚57  ADCIND1   ISO_PV1_Fin    PV1绝缘检测
+   管脚58  ADCIND2   ISO_PV2_Fin    PV2绝缘检测
+   管脚59  ADCIND3   V_PV2_Fin      PV2电压
+   管脚60  ADCIND4   V_PV1_Fin      PV1电压
+
+未标注、未连接和用途不明确的通道不应因为“空着”就自动加入采样序列。
+EXPIO10必须先确认它是模拟测量、板卡识别还是其他用途,再决定速度等级。
+
+
+二、不能只给每个信号贴一个速度标签
+----------------------------------
+
+同一个信号可能同时承担快速保护和中速统计两种职责。
+因此应区分:
+
+   采集速度:ADC多久采一次。
+   控制速度:多久参与控制或保护。
+   发布速度:多久更新AVG、RMS和通信值。
+
+例如V_BUS:
+
+   每20kHz采集一次,用于瞬时过压检查;
+   每几百Hz或更低更新平均值,用于母线控制和通信。
+
+
+三、我会采用的快、中、慢分组
+----------------------------
+
+1. 快速域:每个PWM周期采集,当前为20kHz
+
+   I_Grid_Fin
+      - 电流环反馈,最高优先级。
+      - 每次控制ISR使用瞬时值。
+
+   V_Grid_Fin
+      - PLL输入、电网过欠压和电网RMS基础数据。
+      - 每次控制ISR使用瞬时值。
+
+   GFCI_Fin
+      - 安全相关信号,必须快速采集。
+      - 瞬时故障最好由CMPSS/外部比较器和ePWM Trip Zone完成。
+      - ADC软件检测作为补充,同时计算中速RMS或滤波量。
+
+   V_BUS_Fin
+      - 快速采集用于瞬时母线过压检查。
+      - 平均值和纹波在中速任务中计算。
+
+   Idc_Grid_Fin
+      - 快速采集用于直流侧瞬时过流检查。
+      - 平均值和功率相关量在中速任务中计算。
+
+   V_INV_Fin
+      - 快速采集,便于波形、保护、调试和未来电压前馈。
+      - 是否每次进入控制算法由未来控制策略决定。
+
+2. 中速域:同步高速采集,按DMA数据块处理
+
+   I_PV1_Fin
+   I_PV2_Fin
+   V_PV1_Fin
+   V_PV2_Fin
+
+   推荐仍由20kHz的EPWM3 SOCA同步采样,原因是:
+   - 电压和电流可以按相同索引配对计算瞬时功率。
+   - DMA自动搬运,CPU成本很低。
+   - 后续可以计算平均值、纹波和MPPT输入。
+
+   处理不需要20kHz执行。
+   以160个采样点为一块时:
+
+      160 / 20000 = 8ms
+      块更新率 = 125Hz
+
+3. 慢速域:低频触发,后台统计
+
+   Temp_INV_Fin
+   Temp_BST_Fin
+   ISO_PV1_Fin
+   ISO_PV2_Fin
+
+   推荐使用100Hz慢速ADC触发:
+   - 每10ms采一次。
+   - 16点平均后约每160ms得到一个稳定结果。
+   - 温度和绝缘监测不需要占用20kHz采样带宽。
+
+4. 暂不分类
+
+   EXPIO10
+      - 在用途确认之前不配置SOC、不分配DMA、不加入数据结构。
+
+
+四、各ADC模块的SOC顺序
+--------------------
+
+基本原则:
+
+1. 物理通道号不决定SOC编号。
+
+2. SOC顺序按业务优先级和DMA结果布局安排。
+
+3. 同一组DMA数据尽量放在连续ADCRESULT寄存器中。
+
+4. 同一ADC模块混合不同触发速度时,高速SOC设置更高优先级。
+
+
+4.1 ADCA:快速控制和快速监测
+
+推荐初版顺序:
+
+   SOC0  CHSEL=14  ADCINA14  I_Grid_Fin
+         RESULT0             gridCurrentRaw
+
+   SOC1  CHSEL=3   ADCINA3   V_Grid_Fin
+         RESULT1             gridVoltageRaw
+
+   SOC2  CHSEL=5   ADCINA5   GFCI_Fin
+         RESULT2             gfciRaw
+
+   SOC3  CHSEL=4   ADCINA4   V_BUS_Fin
+         RESULT3             dcBusVoltageRaw
+
+   SOC4  CHSEL=15  ADCINA15  Idc_Grid_Fin
+         RESULT4             inverterDcCurrentRaw
+
+   SOC5  CHSEL=2   ADCINA2   V_INV_Fin
+         RESULT5             inverterVoltageRaw
+
+六个SOC均由EPWM3 SOCA在20kHz触发。
+
+为什么这样排序:
+
+   RESULT0先放电流环反馈。
+   RESULT1放PLL输入。
+   RESULT2放安全相关GFCI。
+   RESULT3放母线保护。
+   RESULT4、RESULT5放后续监测和扩展控制量。
+
+推荐初版采用简单、可验证的策略:
+
+   ADCAINT1 <- EOC5
+      六路结果全部完成后,进入唯一的20kHz控制ISR。
+
+   ADCAINT2 <- EOC5
+      同一时刻触发DMA CH1记录完整快速帧。
+
+优点:
+   - ISR读取时六个结果都已完成,没有新旧数据混用。
+   - 初期调试最简单。
+
+代价:
+   - 电流环要等待六次顺序转换完成。
+
+真正实施前应按ADCCLK、ACQPS和12位转换周期计算并测量总延迟。
+20kHz周期为50us,只要六路总转换延迟满足控制设计,初版优先保持简单。
+
+未来低延迟优化方案:
+
+   ADCA SOC0、SOC1设为高优先级。
+   ADCAINT1 <- EOC1,只等待电网电流和电网电压。
+   ADCAINT2 <- EOC5,DMA在其余监测量完成后记录整帧。
+
+该方案能缩短控制延迟,但GFCI、V_BUS等当前周期结果尚未在控制ISR入口全部完成。
+快速硬件保护必须独立于这个软件时序,不能为了低延迟而丢失保护确定性。
+
+
+4.2 ADCB:PV电流中速域
+
+   SOC0  CHSEL=2   ADCINB2   I_PV1_Fin
+         RESULT0             pv1CurrentRaw
+
+   SOC1  CHSEL=3   ADCINB3   I_PV2_Fin
+         RESULT1             pv2CurrentRaw
+
+两个SOC均由EPWM3 SOCA在20kHz触发。
+
+   ADCBINT2 <- EOC1
+   ADCBINT2只作为DMA CH2触发源,不进入20kHz CPU中断。
+
+
+4.3 ADCD:PV电压中速域和绝缘慢速域
+
+中速PV电压:
+
+   SOC0  CHSEL=4   ADCIND4   V_PV1_Fin
+         RESULT0             pv1VoltageRaw
+
+   SOC1  CHSEL=3   ADCIND3   V_PV2_Fin
+         RESULT1             pv2VoltageRaw
+
+   TRIGSEL = EPWM3 SOCA,20kHz
+   ADCDINT1 <- EOC1,触发DMA CH3
+
+慢速绝缘检测:
+
+   SOC2  CHSEL=1   ADCIND1   ISO_PV1_Fin
+         RESULT2             pv1IsolationRaw
+
+   SOC3  CHSEL=2   ADCIND2   ISO_PV2_Fin
+         RESULT3             pv2IsolationRaw
+
+   TRIGSEL = SLOW_ADC_TRIGGER,建议100Hz
+   ADCDINT2 <- EOC3,触发DMA CH4
+
+ADCD同时承担20kHz和100Hz两类SOC,所以:
+
+   SOCPRICTL应保证SOC0、SOC1优先于SOC2、SOC3。
+
+这样慢速绝缘触发恰好碰到PV采样时,不会破坏PV电压的同步和确定性。
+
+
+4.4 ADCC:温度慢速域
+
+   SOC0  CHSEL=4   ADCINC4   Temp_INV_Fin
+         RESULT0             inverterTemperatureRaw
+
+   SOC1  CHSEL=3   ADCINC3   Temp_BST_Fin
+         RESULT1             boostTemperatureRaw
+
+   TRIGSEL = SLOW_ADC_TRIGGER,建议100Hz
+   ADCCINT2 <- EOC1,触发DMA CH5
+
+
+五、慢速触发源怎么选择
+--------------------
+
+当前CpuTimer0已经用于1ms调度器,不建议为了ADC慢速触发去改变它。
+
+推荐未来使用独立的100Hz触发源,例如:
+
+   方案A:CPU Timer1产生100Hz ADC触发。
+
+   方案B:增加一个不输出到引脚的ePWM模块,专门产生100Hz SOCA。
+
+我更倾向方案B,因为:
+
+   - ADC触发完全由硬件完成。
+   - 不占用CPU中断。
+   - 与调度器Timer0解耦。
+
+但为了移植到其他MCU,伪代码统一使用:
+
+   SLOW_ADC_TRIGGER
+
+BSP根据目标芯片把它映射到CPU Timer1或辅助ePWM。
+
+
+六、DMA通道分配
+--------------
+
+DMA CH1:ADCA快速完整帧
+
+   Trigger:ADCAINT2,来源EOC5
+   Source: ADCARESULT0
+   每burst:6个Word,RESULT0~RESULT5
+   Burst数:400
+   块周期:20ms,正好是20kHz下50Hz电网一周期
+   用途:电网RMS、功率、V_BUS纹波、GFCI波形、故障记录
+
+DMA CH2:ADCB的PV1/PV2电流
+
+   Trigger:ADCBINT2,来源EOC1
+   Source: ADCBRESULT0
+   每burst:2个Word,PV1电流、PV2电流
+   Burst数:160
+   块周期:8ms
+
+DMA CH3:ADCD的PV1/PV2电压
+
+   Trigger:ADCDINT1,来源EOC1
+   Source: ADCDRESULT0
+   每burst:2个Word,PV1电压、PV2电压
+   Burst数:160
+   块周期:8ms
+
+DMA CH4:ADCD的PV1/PV2绝缘检测
+
+   Trigger:ADCDINT2,来源EOC3
+   Source: ADCDRESULT2
+   每burst:2个Word,ISO_PV1、ISO_PV2
+   Burst数:16
+   慢速采样率:100Hz
+   块周期:160ms
+
+DMA CH5:ADCC的两个温度
+
+   Trigger:ADCCINT2,来源EOC1
+   Source: ADCCRESULT0
+   每burst:2个Word,逆变器温度、Boost温度
+   Burst数:16
+   慢速采样率:100Hz
+   块周期:160ms
+
+DMA CH6:保留
+
+   可用于:
+   - EXPIO10用途明确后的采集。
+   - 故障瞬态记录。
+   - 通信外设搬运。
+   - 其他新增ADC模块数据流。
+
+
+七、DMA缓冲策略
+--------------
+
+所有连续运行的DMA通道都建议使用Ping-Pong双缓冲。
+
+DMA写A时CPU处理B;DMA写B时CPU处理A。
+
+特别注意PV块:
+
+   CH2和CH3每8ms完成一块。
+   当前Task_Measure固定每20ms执行一次,速度比DMA块慢。
+   不能只设置一个ready标志然后等20ms任务,否则会覆盖或丢块。
+
+推荐事件驱动:
+
+   DMA ISR只切换缓冲区并设置ready。
+   main循环每次循环都检查DMA块ready,而不是等20ms调度标志。
+   CH2和CH3同一序号都完成后,立即处理PV块。
+   20ms Task_Measure只负责发布和较慢的二次统计。
+
+如果未来不希望125Hz处理PV块,可以:
+
+   - 把160改成400,使块周期变成20ms;或
+   - 保持160并只做快速累加,100ms MPPT任务读取累加后的平均值;或
+   - 建立长度大于2的块队列。
+
+
+八、原始DMA帧数据结构
+--------------------
+
+DMA缓冲区结构必须严格匹配ADCRESULT顺序。
+
+伪代码:
+
+   typedef struct
+   {
+       Uint16 gridCurrent;       // ADCARESULT0
+       Uint16 gridVoltage;       // ADCARESULT1
+       Uint16 gfci;              // ADCARESULT2
+       Uint16 dcBusVoltage;      // ADCARESULT3
+       Uint16 inverterDcCurrent; // ADCARESULT4
+       Uint16 inverterVoltage;   // ADCARESULT5
+   } ADC_FastRawFrame;
+
+   typedef struct
+   {
+       Uint16 pv1Current;        // ADCBRESULT0
+       Uint16 pv2Current;        // ADCBRESULT1
+   } ADC_PVCurrentRawFrame;
+
+   typedef struct
+   {
+       Uint16 pv1Voltage;        // ADCDRESULT0
+       Uint16 pv2Voltage;        // ADCDRESULT1
+   } ADC_PVVoltageRawFrame;
+
+   typedef struct
+   {
+       Uint16 pv1Isolation;      // ADCDRESULT2
+       Uint16 pv2Isolation;      // ADCDRESULT3
+   } ADC_IsolationRawFrame;
+
+   typedef struct
+   {
+       Uint16 inverterTemperature; // ADCCRESULT0
+       Uint16 boostTemperature;    // ADCCRESULT1
+   } ADC_TemperatureRawFrame;
+
+双缓冲伪代码:
+
+   volatile ADC_FastRawFrame
+       FastRawBuffer[2][FAST_BLOCK_BURSTS];
+
+   volatile ADC_PVCurrentRawFrame
+       PVCurrentRawBuffer[2][PV_BLOCK_BURSTS];
+
+   volatile ADC_PVVoltageRawFrame
+       PVVoltageRawBuffer[2][PV_BLOCK_BURSTS];
+
+   volatile ADC_IsolationRawFrame
+       IsolationRawBuffer[2][SLOW_BLOCK_BURSTS];
+
+   volatile ADC_TemperatureRawFrame
+       TemperatureRawBuffer[2][SLOW_BLOCK_BURSTS];
+
+不要强迫不同速度的数据共用一个巨大的ADC_RawFrame数组。
+快速、电网周期、PV块、温度块的时间轴和长度不同,应分别管理。
+
+
+九、统一的业务数据结构
+--------------------
+
+DMA缓冲区按硬件布局分组;业务层按信号含义统一。
+
+伪代码:
+
+   typedef struct
+   {
+       float gridVoltageV;
+       float gridCurrentA;
+       float inverterVoltageV;
+       float inverterDcCurrentA;
+       float dcBusVoltageV;
+       float gfciCurrentA;
+
+       float pv1VoltageV;
+       float pv1CurrentA;
+       float pv2VoltageV;
+       float pv2CurrentA;
+
+       float pv1IsolationValue;
+       float pv2IsolationValue;
+       float inverterTemperatureC;
+       float boostTemperatureC;
+   } ADC_RealValues;
+
+   typedef struct
+   {
+       ADC_RealValues instantaneous;
+       ADC_RealValues average;
+       ADC_RealValues rms;
+       ADC_RealValues rippleRms;
+
+       float pv1PowerW;
+       float pv2PowerW;
+       float gridActivePowerW;
+
+       Uint32 fastSequence;
+       Uint32 pvSequence;
+       Uint32 slowSequence;
+   } ADC_Measurement;
+
+说明:
+
+   instantaneous由最新完整采样或数据块更新。
+   average用于PV、母线、直流电流、温度和通信。
+   rms主要用于电网电压、电网电流、逆变器电压和GFCI。
+   rippleRms主要用于PV电压、PV电流和母线电压。
+
+不是每个字段在average、rms、rippleRms中都有同等意义。
+保持统一结构是为了访问方便,算法仍应只使用有物理意义的字段。
+
+
+十、校准参数结构
+----------------
+
+每个真实值不能直接使用固定的2048和统一比例。
+应为每个信号保存独立零点和增益。
+
+伪代码:
+
+   typedef struct
+   {
+       float offsetCode;
+       float gain;
+   } ADC_ChannelCalibration;
+
+   typedef struct
+   {
+       ADC_ChannelCalibration gridVoltage;
+       ADC_ChannelCalibration gridCurrent;
+       ADC_ChannelCalibration inverterVoltage;
+       ADC_ChannelCalibration inverterDcCurrent;
+       ADC_ChannelCalibration dcBusVoltage;
+       ADC_ChannelCalibration gfci;
+       ADC_ChannelCalibration pv1Voltage;
+       ADC_ChannelCalibration pv1Current;
+       ADC_ChannelCalibration pv2Voltage;
+       ADC_ChannelCalibration pv2Current;
+       ADC_ChannelCalibration pv1Isolation;
+       ADC_ChannelCalibration pv2Isolation;
+       ADC_ChannelCalibration inverterTemperature;
+       ADC_ChannelCalibration boostTemperature;
+   } ADC_Calibration;
+
+   realValue = (rawCode - offsetCode) * gain;
+
+温度和绝缘值可能不是简单线性关系。
+如果传感器需要查表或分段函数,应把转换函数封装在测量层,不放进控制ISR。
+
+
+十一、DMA块元数据
+----------------
+
+每个DMA数据流都应有独立状态,不能只用一个模糊的FrameReady。
+
+伪代码:
+
+   typedef struct
+   {
+       volatile Uint16 completedBuffer;
+       volatile Uint16 ready;
+       volatile Uint16 overrun;
+       volatile Uint32 sequence;
+       volatile Uint32 completedBlockCount;
+   } DMA_BlockState;
+
+   DMA_BlockState FastBlockState;
+   DMA_BlockState PVCurrentBlockState;
+   DMA_BlockState PVVoltageBlockState;
+   DMA_BlockState IsolationBlockState;
+   DMA_BlockState TemperatureBlockState;
+
+PV电压和PV电流来自不同DMA通道,必须按sequence配对。
+
+   if(PVCurrentBlockState.sequence == PVVoltageBlockState.sequence)
+   {
+       processPairedPVBlock();
+   }
+   else
+   {
+       recordPvDmaSynchronizationError();
+   }
+
+
+十二、ADC配置伪代码
+------------------
+
+以下符号名称用于表达意图,不是可以直接编译的寄存器常量。
+
+   void ADC_Config_Pseudo(void)
+   {
+       powerAndConfigure12BitSingleEnded(ADCA);
+       powerAndConfigure12BitSingleEnded(ADCB);
+       powerAndConfigure12BitSingleEnded(ADCC);
+       powerAndConfigure12BitSingleEnded(ADCD);
+
+       waitForAdcPowerUp();
+
+       // ADCA:20kHz快速域
+       configureSoc(ADCA, SOC0, CHANNEL14, EPWM3_SOCA, FAST_ACQPS);
+       configureSoc(ADCA, SOC1, CHANNEL3,  EPWM3_SOCA, FAST_ACQPS);
+       configureSoc(ADCA, SOC2, CHANNEL5,  EPWM3_SOCA, FAST_ACQPS);
+       configureSoc(ADCA, SOC3, CHANNEL4,  EPWM3_SOCA, FAST_ACQPS);
+       configureSoc(ADCA, SOC4, CHANNEL15, EPWM3_SOCA, FAST_ACQPS);
+       configureSoc(ADCA, SOC5, CHANNEL2,  EPWM3_SOCA, FAST_ACQPS);
+
+       configureAdcInterrupt(ADCA_INT1, EOC5, CPU_CONTROL_ISR, NONCONTINUOUS);
+       configureAdcInterrupt(ADCA_INT2, EOC5, DMA_TRIGGER_ONLY, CONTINUOUS);
+
+       // ADCB:20kHz同步PV电流
+       configureSoc(ADCB, SOC0, CHANNEL2, EPWM3_SOCA, PV_ACQPS);
+       configureSoc(ADCB, SOC1, CHANNEL3, EPWM3_SOCA, PV_ACQPS);
+       configureAdcInterrupt(ADCB_INT2, EOC1, DMA_TRIGGER_ONLY, CONTINUOUS);
+
+       // ADCD SOC0/1:20kHz同步PV电压
+       configureSoc(ADCD, SOC0, CHANNEL4, EPWM3_SOCA, PV_ACQPS);
+       configureSoc(ADCD, SOC1, CHANNEL3, EPWM3_SOCA, PV_ACQPS);
+       configureAdcInterrupt(ADCD_INT1, EOC1, DMA_TRIGGER_ONLY, CONTINUOUS);
+
+       // ADCD SOC2/3:100Hz绝缘检测
+       configureSoc(ADCD, SOC2, CHANNEL1, SLOW_ADC_TRIGGER, SLOW_ACQPS);
+       configureSoc(ADCD, SOC3, CHANNEL2, SLOW_ADC_TRIGGER, SLOW_ACQPS);
+       configureAdcInterrupt(ADCD_INT2, EOC3, DMA_TRIGGER_ONLY, CONTINUOUS);
+
+       setSocPriority(ADCD, HIGH_PRIORITY_SOC0_TO_SOC1);
+
+       // ADCC:100Hz温度
+       configureSoc(ADCC, SOC0, CHANNEL4, SLOW_ADC_TRIGGER, TEMP_ACQPS);
+       configureSoc(ADCC, SOC1, CHANNEL3, SLOW_ADC_TRIGGER, TEMP_ACQPS);
+       configureAdcInterrupt(ADCC_INT2, EOC1, DMA_TRIGGER_ONLY, CONTINUOUS);
+
+       clearAllConfiguredAdcInterruptFlags();
+   }
+
+
+十三、DMA配置伪代码
+------------------
+
+通用的连续结果DMA配置:
+
+   void ConfigureDmaStream(
+       DmaChannel channel,
+       DmaTrigger trigger,
+       volatile Uint16 *sourceResult,
+       volatile Uint16 *destination,
+       Uint16 wordsPerBurst,
+       Uint16 burstsPerBlock)
+   {
+       channel.trigger = trigger;
+       channel.sourceStart = sourceResult;
+       channel.destinationStart = destination;
+
+       channel.dataSize = DMA_16_BIT;
+       channel.burstSizeRegister = wordsPerBurst - 1U;
+       channel.sourceBurstStep = 1;
+       channel.destinationBurstStep = 1;
+
+       channel.transferSizeRegister = burstsPerBlock - 1U;
+       channel.sourceTransferStep = -(wordsPerBurst - 1);
+       channel.destinationTransferStep = 1;
+
+       channel.continuous = true;
+       channel.interruptAtEndOfBlock = true;
+       channel.run = true;
+   }
+
+说明:
+
+   当wordsPerBurst=2时,sourceTransferStep=-1。
+   当wordsPerBurst=6时,sourceTransferStep=-5。
+   这样每个burst结束后源地址从最后一个RESULT返回RESULT0。
+
+各DMA通道:
+
+   void DMA_Config_Pseudo(void)
+   {
+       resetDmaModuleOnce();
+
+       ConfigureDmaStream(
+           DMA_CH1,
+           DMA_ADCAINT2,
+           &AdcaResultRegs.ADCRESULT0,
+           &FastRawBuffer[0][0].gridCurrent,
+           6U,
+           400U);
+
+       ConfigureDmaStream(
+           DMA_CH2,
+           DMA_ADCBINT2,
+           &AdcbResultRegs.ADCRESULT0,
+           &PVCurrentRawBuffer[0][0].pv1Current,
+           2U,
+           160U);
+
+       ConfigureDmaStream(
+           DMA_CH3,
+           DMA_ADCDINT1,
+           &AdcdResultRegs.ADCRESULT0,
+           &PVVoltageRawBuffer[0][0].pv1Voltage,
+           2U,
+           160U);
+
+       ConfigureDmaStream(
+           DMA_CH4,
+           DMA_ADCDINT2,
+           &AdcdResultRegs.ADCRESULT2,
+           &IsolationRawBuffer[0][0].pv1Isolation,
+           2U,
+           16U);
+
+       ConfigureDmaStream(
+           DMA_CH5,
+           DMA_ADCCINT2,
+           &AdccResultRegs.ADCRESULT0,
+           &TemperatureRawBuffer[0][0].inverterTemperature,
+           2U,
+           16U);
+
+       reserveDmaChannel(DMA_CH6);
+   }
+
+注意:
+
+   上面的通用sourceTransferStep公式是针对本文件这种“连续RESULT、每burst回到首RESULT”的布局。
+   真正编码时必须再次核对F28377S DMA步进是在burst最后一个Word地址上生效。
+
+
+十四、控制ISR伪代码
+------------------
+
+初版采用ADCA EOC5进入控制ISR,因此六个当前周期结果都已完成。
+
+   interrupt void ADCA_Control_ISR(void)
+   {
+       ADC_FastRawFrame latest;
+
+       latest.gridCurrent = ADCARESULT0;
+       latest.gridVoltage = ADCARESULT1;
+       latest.gfci = ADCARESULT2;
+       latest.dcBusVoltage = ADCARESULT3;
+       latest.inverterDcCurrent = ADCARESULT4;
+       latest.inverterVoltage = ADCARESULT5;
+
+       FastInstant.gridCurrentA =
+           fastLinearConvert(latest.gridCurrent, Calibration.gridCurrent);
+
+       FastInstant.gridVoltageV =
+           fastLinearConvert(latest.gridVoltage, Calibration.gridVoltage);
+
+       FastInstant.gfciCurrentA =
+           fastLinearConvert(latest.gfci, Calibration.gfci);
+
+       FastInstant.dcBusVoltageV =
+           fastLinearConvert(latest.dcBusVoltage, Calibration.dcBusVoltage);
+
+       FastInstant.inverterDcCurrentA =
+           fastLinearConvert(latest.inverterDcCurrent,
+                             Calibration.inverterDcCurrent);
+
+       FastInstant.inverterVoltageV =
+           fastLinearConvert(latest.inverterVoltage,
+                             Calibration.inverterVoltage);
+
+       runImmediateSoftwareProtection(FastInstant);
+       runGridPll(FastInstant.gridVoltageV);
+       runCurrentController(FastInstant.gridCurrentA);
+       updatePwmCompare();
+
+       clearAdcaInt1AndAcknowledgePie();
+   }
+
+不要在这个20kHz ISR中:
+
+   - 遍历400点数组。
+   - 计算sqrt。
+   - 执行温度查表。
+   - 发送SCI/I2C数据。
+   - 处理DMA块。
+
+
+十五、DMA ISR伪代码
+------------------
+
+所有DMA ISR采用相同思想:
+
+   interrupt void DMA_CHx_ISR(void)
+   {
+       completed = currentDmaWriteBuffer;
+       next = completed ^ 1U;
+
+       if(blockState.ready != 0U)
+       {
+           blockState.overrun++;
+       }
+
+       blockState.completedBuffer = completed;
+       blockState.sequence++;
+       blockState.completedBlockCount++;
+       blockState.ready = 1U;
+
+       rearmDmaDestinationTo(nextBuffer);
+       currentDmaWriteBuffer = next;
+
+       clearDmaFlags();
+       acknowledgePieGroup7();
+   }
+
+DMA ISR只负责交接所有权,不做AVG、RMS和功率运算。
+
+Ping-Pong重装地址的具体时机必须根据F28377S连续模式和shadow reload行为验证。
+如果连续模式在ISR前已经重装了旧地址,应采用官方推荐的双缓冲方式,而不是直接照抄伪代码。
+
+
+十六、主循环事件驱动伪代码
+------------------------
+
+   while(1)
+   {
+       if(FastBlockState.ready)
+       {
+           processFastWaveformBlock(
+               FastRawBuffer[FastBlockState.completedBuffer],
+               FAST_BLOCK_BURSTS);
+
+           FastBlockState.ready = 0U;
+       }
+
+       if(PVCurrentBlockState.ready && PVVoltageBlockState.ready)
+       {
+           if(PVCurrentBlockState.sequence ==
+              PVVoltageBlockState.sequence)
+           {
+               processPairedPVBlock(
+                   PVCurrentRawBuffer[
+                       PVCurrentBlockState.completedBuffer],
+                   PVVoltageRawBuffer[
+                       PVVoltageBlockState.completedBuffer],
+                   PV_BLOCK_BURSTS);
+           }
+           else
+           {
+               PV_DmaSyncErrorCount++;
+           }
+
+           PVCurrentBlockState.ready = 0U;
+           PVVoltageBlockState.ready = 0U;
+       }
+
+       if(IsolationBlockState.ready)
+       {
+           processIsolationBlock();
+           IsolationBlockState.ready = 0U;
+       }
+
+       if(TemperatureBlockState.ready)
+       {
+           processTemperatureBlock();
+           TemperatureBlockState.ready = 0U;
+       }
+
+       runScheduledTasks();
+   }
+
+注意:ready检查不是20ms任务,而是main循环中的事件处理。
+这样160点PV块每8ms完成时,可以及时释放Ping-Pong缓冲区。
+
+
+十七、PV数据块处理伪代码
+----------------------
+
+PV电流在ADCB,PV电压在ADCD,但它们由同一个EPWM3 SOCA触发。
+只要DMA块序号一致,相同索引就代表同一采样周期。
+
+   void processPairedPVBlock(
+       ADC_PVCurrentRawFrame currentBlock[],
+       ADC_PVVoltageRawFrame voltageBlock[],
+       Uint16 count)
+   {
+       float pv1VoltageSum = 0.0f;
+       float pv1CurrentSum = 0.0f;
+       float pv2VoltageSum = 0.0f;
+       float pv2CurrentSum = 0.0f;
+       float pv1PowerSum = 0.0f;
+       float pv2PowerSum = 0.0f;
+
+       for(index = 0U; index < count; index++)
+       {
+           pv1Voltage = convertPv1Voltage(voltageBlock[index].pv1Voltage);
+           pv2Voltage = convertPv2Voltage(voltageBlock[index].pv2Voltage);
+           pv1Current = convertPv1Current(currentBlock[index].pv1Current);
+           pv2Current = convertPv2Current(currentBlock[index].pv2Current);
+
+           pv1VoltageSum += pv1Voltage;
+           pv2VoltageSum += pv2Voltage;
+           pv1CurrentSum += pv1Current;
+           pv2CurrentSum += pv2Current;
+
+           pv1PowerSum += pv1Voltage * pv1Current;
+           pv2PowerSum += pv2Voltage * pv2Current;
+       }
+
+       Measurement.average.pv1VoltageV = pv1VoltageSum / count;
+       Measurement.average.pv2VoltageV = pv2VoltageSum / count;
+       Measurement.average.pv1CurrentA = pv1CurrentSum / count;
+       Measurement.average.pv2CurrentA = pv2CurrentSum / count;
+
+       Measurement.pv1PowerW = pv1PowerSum / count;
+       Measurement.pv2PowerW = pv2PowerSum / count;
+
+       Measurement.pvSequence++;
+   }
+
+如果只需要AVG和功率,不必再额外创建一个160点的统一PV RawFrame数组。
+直接按索引配对两个DMA块更省RAM。
+
+
+十八、快速波形块处理伪代码
+------------------------
+
+CH1每400个burst完成一块,对应50Hz电网一周期。
+
+   void processFastWaveformBlock(
+       ADC_FastRawFrame block[],
+       Uint16 count)
+   {
+       clearAccumulators();
+
+       for(index = 0U; index < count; index++)
+       {
+           gridVoltage = convertGridVoltage(block[index].gridVoltage);
+           gridCurrent = convertGridCurrent(block[index].gridCurrent);
+           dcBusVoltage = convertDcBusVoltage(block[index].dcBusVoltage);
+           gfciCurrent = convertGfci(block[index].gfci);
+
+           gridVoltageSquareSum += gridVoltage * gridVoltage;
+           gridCurrentSquareSum += gridCurrent * gridCurrent;
+           gridPowerSum += gridVoltage * gridCurrent;
+           dcBusSum += dcBusVoltage;
+           gfciSquareSum += gfciCurrent * gfciCurrent;
+       }
+
+       Measurement.rms.gridVoltageV =
+           sqrt(gridVoltageSquareSum / count);
+
+       Measurement.rms.gridCurrentA =
+           sqrt(gridCurrentSquareSum / count);
+
+       Measurement.gridActivePowerW = gridPowerSum / count;
+       Measurement.average.dcBusVoltageV = dcBusSum / count;
+       Measurement.rms.gfciCurrentA = sqrt(gfciSquareSum / count);
+
+       Measurement.fastSequence++;
+   }
+
+电网频率不是永远精确50Hz。
+固定400点窗口是初版;未来可以使用PLL周期边界或按估计频率调整窗口。
+
+
+十九、慢速块处理伪代码
+--------------------
+
+   void processTemperatureBlock(void)
+   {
+       averageRawCodesOver16Samples();
+       Measurement.average.inverterTemperatureC =
+           convertInverterTemperatureByTableOrCurve();
+       Measurement.average.boostTemperatureC =
+           convertBoostTemperatureByTableOrCurve();
+       Measurement.slowSequence++;
+   }
+
+   void processIsolationBlock(void)
+   {
+       averageRawCodesOver16Samples();
+       Measurement.average.pv1IsolationValue =
+           convertPv1Isolation();
+       Measurement.average.pv2IsolationValue =
+           convertPv2Isolation();
+       Measurement.slowSequence++;
+   }
+
+绝缘检测是否需要特殊激励、继电器状态或正负母线组合计算,必须以后结合完整电路确认。
+本文件目前只定义采样路径,不假设ISO_PV1/2原始电压就是最终绝缘电阻。
+
+
+二十、任务使用数据的规则
+----------------------
+
+PLL
+   使用Measurement.instantaneous.gridVoltageV。
+
+电流环
+   使用Measurement.instantaneous.gridCurrentA。
+
+快速软件保护
+   使用当前控制ISR中的瞬时值。
+   最快过流和短路仍由硬件Trip路径完成。
+
+MPPT
+   每100ms读取:
+   Measurement.average.pv1VoltageV
+   Measurement.average.pv1CurrentA
+   Measurement.average.pv2VoltageV
+   Measurement.average.pv2CurrentA
+   Measurement.pv1PowerW
+   Measurement.pv2PowerW
+
+电网任务
+   读取gridVoltage RMS、gridCurrent RMS、activePower和PLL状态。
+
+状态机
+   读取V_BUS、温度、绝缘、GFCI和各种valid/error标志。
+
+通信任务
+   只读取已经发布的Measurement快照,不访问DMA正在写入的缓冲区。
+
+
+二十一、真正编码前必须确认的事项
+------------------------------
+
+1. GFCI_Fin的量程、零点、带宽和保护动作时间。
+
+2. V_BUS、V_INV、V_Grid前端RC滤波和所需ACQPS。
+
+3. I_Grid与Idc_Grid传感器类型、零点和极性。
+
+4. PV电压和PV电流是否需要严格同步功率计算。
+
+5. ISO_PV1/2的真实电路含义和换算公式。
+
+6. EXPIO10的用途。
+
+7. 六路ADCA转换完成后的实际控制延迟是否满足电流环带宽。
+
+8. DMA CH1双缓冲400×6×2个Word的RAM占用是否接受。
+
+9. Ping-Pong地址重装在F28377S连续DMA模式中的准确时机。
+
+10. 移植到无CLA、500MHz目标MCU时,它的ADC和DMA是否支持相同触发和步进模型。
+
+
+二十二、一页式最终配置表
+----------------------
+
+ADCA,20kHz快速域
+
+   RESULT0  ADCINA14  I_Grid
+   RESULT1  ADCINA3   V_Grid
+   RESULT2  ADCINA5   GFCI
+   RESULT3  ADCINA4   V_BUS
+   RESULT4  ADCINA15  Idc_Grid
+   RESULT5  ADCINA2   V_INV
+   CPU ISR:EOC5
+   DMA CH1:6 Word/burst,400 bursts/block
+
+ADCB,20kHz采样、125Hz块处理
+
+   RESULT0  ADCINB2   I_PV1
+   RESULT1  ADCINB3   I_PV2
+   DMA CH2:2 Word/burst,160 bursts/block
+
+ADCD中速域,20kHz采样、125Hz块处理
+
+   RESULT0  ADCIND4   V_PV1
+   RESULT1  ADCIND3   V_PV2
+   DMA CH3:2 Word/burst,160 bursts/block
+
+ADCD慢速域,100Hz采样
+
+   RESULT2  ADCIND1   ISO_PV1
+   RESULT3  ADCIND2   ISO_PV2
+   DMA CH4:2 Word/burst,16 bursts/block
+
+ADCC慢速域,100Hz采样
+
+   RESULT0  ADCINC4   Temp_INV
+   RESULT1  ADCINC3   Temp_BST
+   DMA CH5:2 Word/burst,16 bursts/block
+
+DMA CH6
+
+   保留,等待EXPIO10或其他新功能。
+
+最关键的管理原则:
+
+   SOC层按业务优先级整理RESULT地址。
+   DMA层按硬件连续地址建立独立数据流。
+   测量层把多个硬件数据流转换成统一语义结构。
+   控制层永远不关心信号来自ADCA、ADCB、ADCC还是ADCD。

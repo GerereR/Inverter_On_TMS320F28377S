@@ -1,0 +1,12 @@
+# CCS generated build directories
+/Debug/
+/Release/
+
+# C2000 compiler and linker output
+*.obj
+*.d
+*.d_raw
+*.out
+*.map
+*.hex
+*.bin
