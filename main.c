@@ -1,5 +1,6 @@
 // Prefer direct register access throughout the application layer.
 //testing git
+//基石版本,即现在引脚配置是虚假的,下一步就是配置真实引脚了.
 
 #include "F28x_Project.h"
 
