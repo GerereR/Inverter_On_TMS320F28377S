@@ -35,7 +35,7 @@
 #define SCI_STATUS_BAD_COMMAND     0x02U
 #define SCI_STATUS_BAD_PARAMETER   0x03U
 
-//协议解析器
+//数据帧接收窗口
 typedef enum
 {
     SCI_PARSE_WAIT_SOF1 = 0U,
@@ -49,7 +49,6 @@ typedef enum
     SCI_PARSE_CRC_HIGH
 } SCI_ParseState;
 
-//初始化当前状态
 static SCI_ParseState SCI_ParseStateCurrent = SCI_PARSE_WAIT_SOF1;
 static Uint16 SCI_ReceivedCommand = 0U;
 static Uint16 SCI_ReceivedSequence = 0U;
@@ -90,7 +89,7 @@ void Task_Comm(void)
     Uint16 processedBytes = 0U;
 
     /* The RX ISR only announces data; protocol work runs at the slow task rate. */
-    if(SCI_RxDataPending == 0U)
+    if(SCI_RxDataPending == 0U)//检查是否有数据
     {
         return;
     }
@@ -99,13 +98,15 @@ void Task_Comm(void)
     SCI_RxDataPending = 0U;
 
     /* Bound the work per scheduler tick so communication cannot starve control. */
+    //本次处理量没有超过限制值,且成功从软件环形缓冲区读出一个字节(多少不重要)
     while((processedBytes < SCI_TASK_MAX_RX_BYTES) && SCI_ReadByte(&receivedByte) != 0U)
     {
-        SCI_ParseByte(receivedByte);
+        SCI_ParseByte(receivedByte);//分析每一个八位数据(解析)
         processedBytes++;
     }
 }
 
+//计算 CRC, CRC-16/MODBUS 算法
 static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data)
 {
     Uint16 bitIndex;
@@ -140,6 +141,7 @@ static void SCI_PutWordLE(Uint16 *payload, Uint16 *index, Uint16 value)
     (*index)++;
 }
 
+//把执行结果重新组装成带帧头、命令、序号、长度和 CRC16 的响应帧发送给上位机
 static void SCI_SendResponse(Uint16 command,
                              Uint16 sequence,
                              const Uint16 *payload,
@@ -175,9 +177,10 @@ static void SCI_SendResponse(Uint16 command,
     SCI_SendWordLE(crc);
 }
 
+//执行上位机的命令
 static void SCI_HandleCommand(void)
 {
-    Uint16 responsePayload[SCI_FRAME_MAX_PAYLOAD];
+    Uint16 responsePayload[SCI_FRAME_MAX_PAYLOAD];//对应
     Uint16 responseLength = 1U;
     Uint16 requestedAmplitude;
     Uint16 responseIndex;
@@ -193,13 +196,11 @@ static void SCI_HandleCommand(void)
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.inductorCurrent);
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pvVoltage);
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pvCurrent);
-            SCI_PutWordLE(responsePayload, &responseIndex,
-                          gMachineData.gridFrequencyCentihertz);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.gridFrequencyCentihertz);
             responsePayload[responseIndex] = gMachineData.tripZoneFaulted;
             responseIndex++;
             responseLength = responseIndex;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
+            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
             break;
 
         case SCI_CMD_READ_PLL_STATUS:
@@ -289,35 +290,40 @@ static void SCI_ResetParser(void)
     SCI_CalculatedCrc = 0xFFFFU;
 }
 
+//使用状态机依次识别 AA 55 命令 序号 长度 数据 CRC16,也就是数据帧接收
 static void SCI_ParseByte(Uint16 receivedByte)
 {
     receivedByte &= 0x00FFU;
 
+    //其实这里是滑动的窗口
     switch(SCI_ParseStateCurrent)
     {
-        case SCI_PARSE_WAIT_SOF1:
+
+        //其实0xAA55就是1010 1010 0101 0101
+        case SCI_PARSE_WAIT_SOF1://窗口滑动到帧头1
             if(receivedByte == SCI_FRAME_SOF1)
             {
-                SCI_ParseStateCurrent = SCI_PARSE_WAIT_SOF2;
+                SCI_ParseStateCurrent = SCI_PARSE_WAIT_SOF2;//滑动窗口到帧头2
             }
             break;
 
-        case SCI_PARSE_WAIT_SOF2:
+        case SCI_PARSE_WAIT_SOF2://..
             if(receivedByte == SCI_FRAME_SOF2)
             {
-                SCI_ParseStateCurrent = SCI_PARSE_COMMAND;
+                SCI_ParseStateCurrent = SCI_PARSE_COMMAND;//继续滑动...
                 SCI_CalculatedCrc = 0xFFFFU;
             }
-            else if(receivedByte != SCI_FRAME_SOF1)
+            else if(receivedByte != SCI_FRAME_SOF1)//如果已经是在帧头2了,但还是持续接收到帧头1,没关系,说明上位机多次尝试通讯,可以忍受
             {
-                SCI_ResetParser();
+                
+                SCI_ResetParser();//如果已经是在帧头2了,接下来即收不到帧头1,也收不到帧头2,那就说明是偶发的
             }
             break;
 
         case SCI_PARSE_COMMAND:
-            SCI_ReceivedCommand = receivedByte;
-            SCI_CalculatedCrc = SCI_Crc16Update(SCI_CalculatedCrc, receivedByte);
-            SCI_ParseStateCurrent = SCI_PARSE_SEQUENCE;
+            SCI_ReceivedCommand = receivedByte;//保存
+            SCI_CalculatedCrc = SCI_Crc16Update(SCI_CalculatedCrc, receivedByte);//校验计算
+            SCI_ParseStateCurrent = SCI_PARSE_SEQUENCE;//滑动
             break;
 
         case SCI_PARSE_SEQUENCE:
@@ -340,14 +346,14 @@ static void SCI_ParseByte(Uint16 receivedByte)
                 SCI_ProtocolFormatErrorCount++;
                 SCI_ResetParser();
             }
-            else if(SCI_ReceivedLength == 0U)
+            else if(SCI_ReceivedLength == 0U)//如果长度为零，就跳过 PAYLOAD，直接接收 CRC
             {
-                SCI_ParseStateCurrent = SCI_PARSE_CRC_LOW;
+                SCI_ParseStateCurrent = SCI_PARSE_CRC_LOW;//滑动到CRC
             }
             else
             {
-                SCI_ReceivedPayloadIndex = 0U;
-                SCI_ParseStateCurrent = SCI_PARSE_PAYLOAD;
+                SCI_ReceivedPayloadIndex = 0U;//知悉接下来会有多少数据了,准备接收
+                SCI_ParseStateCurrent = SCI_PARSE_PAYLOAD;//滑动到接收窗口
             }
             break;
 
@@ -357,7 +363,7 @@ static void SCI_ParseByte(Uint16 receivedByte)
             SCI_CalculatedCrc = SCI_Crc16Update(SCI_CalculatedCrc, receivedByte);
             if(SCI_ReceivedPayloadIndex >= SCI_ReceivedLength)
             {
-                SCI_ParseStateCurrent = SCI_PARSE_CRC_LOW;
+                SCI_ParseStateCurrent = SCI_PARSE_CRC_LOW;//接收到了规定的量就进行CRC
             }
             break;
 
@@ -370,14 +376,14 @@ static void SCI_ParseByte(Uint16 receivedByte)
             SCI_ReceivedCrc |= receivedByte << 8U;
             if(SCI_ReceivedCrc == SCI_CalculatedCrc)
             {
-                SCI_ProtocolFrameCount++;
-                SCI_HandleCommand();
+                SCI_ProtocolFrameCount++;//正确次数加一
+                SCI_HandleCommand();//给出回应
             }
             else
             {
-                SCI_ProtocolCrcErrorCount++;
+                SCI_ProtocolCrcErrorCount++;//错误次数加一
             }
-            SCI_ResetParser();
+            SCI_ResetParser();//无论成功失败都准备下一次接收数据帧了
             break;
 
         default:

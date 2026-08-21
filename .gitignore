@@ -10,3 +10,7 @@
 *.map
 *.hex
 *.bin
+
+# Python host-tool cache
+__pycache__/
+*.pyc
