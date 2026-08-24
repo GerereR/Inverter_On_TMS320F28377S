@@ -6,7 +6,7 @@
 #define ECAP_CLOCK_HZ  200000000.0f
 
 static volatile Uint32 ECAP_PeriodTicks = 0;
-static volatile float ECAP_FrequencyHz = 0.0f;
+static volatile float ECAP_FreqHz = 0.0f;
 static Uint16 ECAP_CapturePrimed = 0;
 
 void ECAP_Config(void)
@@ -56,19 +56,19 @@ __interrupt void ECAP1_BSP_ISR(void)
         ECAP_PeriodTicks = periodTicks;
         if(periodTicks != 0UL)
         {
-            ECAP_FrequencyHz = ECAP_CLOCK_HZ / (float)periodTicks;
+            ECAP_FreqHz = ECAP_CLOCK_HZ / (float)periodTicks;
             //限幅
-            if(ECAP_FrequencyHz <= 0.0f)
+            if(ECAP_FreqHz <= 0.0f)
             {
-                gMachineData.gridFrequencyCentihertz = 0U;
+                gMachineData.ecapFreqCent = 0U;
             }
-            else if(ECAP_FrequencyHz >= 655.35f)
+            else if(ECAP_FreqHz >= 655.35f)
             {
-                gMachineData.gridFrequencyCentihertz = 65535U;
+                gMachineData.ecapFreqCent = 65535U;
             }
             else
             {
-                gMachineData.gridFrequencyCentihertz = (Uint16)(ECAP_FrequencyHz * 100.0f);
+                gMachineData.ecapFreqCent = (Uint16)(ECAP_FreqHz * 100.0f);
             }
         }
     }

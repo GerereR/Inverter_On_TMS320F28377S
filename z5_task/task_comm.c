@@ -24,7 +24,7 @@
 #define SCI_CMD_READ_MEASUREMENTS  0x01U
 #define SCI_CMD_READ_PLL_STATUS    0x03U
 #define SCI_CMD_READ_FAULT_STATUS  0x04U
-#define SCI_CMD_SET_INDUCTOR_CURRENT_AMPL   0x10U  
+#define SCI_CMD_SET_INDUCTOR_CURRENT_AMP    0x10U
 #define SCI_CMD_CLEAR_FAULT        0x20U
 #define SCI_CMD_READ_VERSION       0x30U
 
@@ -123,7 +123,6 @@ static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data)
             crc >>= 1U;
         }
     }
-
     return crc;
 }
 
@@ -133,6 +132,7 @@ static void SCI_SendWordLE(Uint16 value)
     SCI_SendByte((value >> 8U) & 0x00FFU);
 }
 
+//因为SCI是八位的,为得把16位数据拆开
 static void SCI_PutWordLE(Uint16 *payload, Uint16 *index, Uint16 value)
 {
     payload[*index] = value & 0x00FFU;
@@ -142,10 +142,7 @@ static void SCI_PutWordLE(Uint16 *payload, Uint16 *index, Uint16 value)
 }
 
 //把执行结果重新组装成带帧头、命令、序号、长度和 CRC16 的响应帧发送给上位机
-static void SCI_SendResponse(Uint16 command,
-                             Uint16 sequence,
-                             const Uint16 *payload,
-                             Uint16 payloadLength)
+static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payload, Uint16 payloadLength)
 {
     Uint16 index;
     Uint16 crc = 0xFFFFU;
@@ -180,9 +177,9 @@ static void SCI_SendResponse(Uint16 command,
 //执行上位机的命令
 static void SCI_HandleCommand(void)
 {
-    Uint16 responsePayload[SCI_FRAME_MAX_PAYLOAD];//对应
+    Uint16 responsePayload[SCI_FRAME_MAX_PAYLOAD];
     Uint16 responseLength = 1U;
-    Uint16 requestedAmplitude;
+    Uint16 requestedAmp;
     Uint16 responseIndex;
 
     responsePayload[0] = SCI_STATUS_OK;
@@ -192,57 +189,64 @@ static void SCI_HandleCommand(void)
         case SCI_CMD_READ_MEASUREMENTS:
             /* All measurements are returned as raw ADC codes for now. */
             responseIndex = 1U;
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.gridVoltage);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.inductorCurrent);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pvVoltage);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pvCurrent);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.gridFrequencyCentihertz);
-            responsePayload[responseIndex] = gMachineData.tripZoneFaulted;
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.gridVoltage);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.inductorCurrent);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.gfciCurrent);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.dcBusVoltage);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.gridDcCurrent);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.inverterVoltage);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv1Current);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv2Current);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv1Voltage);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv2Voltage);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv1Isolation);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv2Isolation);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.inverterTemperature);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.boostTemperature);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
+            responsePayload[responseIndex] = gSysFault.tzFault;
+            responseIndex++;
+            responseLength = responseIndex;//记录回复信息的长度
+            //上面的操作都只是为了把数据放到数组里面
+            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);//这一步才是正式应答
+            break;
+
+        case SCI_CMD_READ_PLL_STATUS:
+            responseIndex = 1U;
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pllFreqCent);
+            responsePayload[responseIndex] =
+                (gSysFault.pllFault == 0U) ? 1U : 0U;
             responseIndex++;
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
             break;
 
-        case SCI_CMD_READ_PLL_STATUS:
-            responseIndex = 1U;
-            SCI_PutWordLE(responsePayload, &responseIndex,
-                          gMachineData.gridFrequencyCentihertz);
-            SCI_PutWordLE(responsePayload, &responseIndex,
-                          gMachineData.pllPhaseMilliradian);
-            responsePayload[responseIndex] = gMachineData.pllLocked;
-            responseIndex++;
-            responseLength = responseIndex;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
-            break;
-
         case SCI_CMD_READ_FAULT_STATUS:
             responseLength = 2U;
-            responsePayload[1] = gMachineData.tripZoneFaulted;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
+            responsePayload[1] = gSysFault.tzFault;
+            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
             break;
 
-        case SCI_CMD_SET_INDUCTOR_CURRENT_AMPL:       
+        case SCI_CMD_SET_INDUCTOR_CURRENT_AMP:
             if(SCI_ReceivedLength != 2U)
             {
                 responsePayload[0] = SCI_STATUS_BAD_LENGTH;
             }
             else
             {
-                requestedAmplitude = SCI_ReceivedPayload[0] |
-                                     (SCI_ReceivedPayload[1] << 8U);
-                if(requestedAmplitude > 4096U)
+                requestedAmp = SCI_ReceivedPayload[0] |
+                               (SCI_ReceivedPayload[1] << 8U);
+                if(requestedAmp > 4096U)
                 {
                     responsePayload[0] = SCI_STATUS_BAD_PARAMETER;
                 }
                 else
                 {
                     /* Q12: 4096 represents a normalized amplitude of 1.0. */
-                    OpenLoopInductorCurrentAmplitude =
-                        (float)requestedAmplitude / 4096.0f;
-                    responsePayload[1] = requestedAmplitude & 0x00FFU;
-                    responsePayload[2] = (requestedAmplitude >> 8U) & 0x00FFU;
+                    InductorCurrentAmp_temporal = (float)requestedAmp / 4096.0f;
+                    responsePayload[1] = requestedAmp & 0x00FFU;
+                    responsePayload[2] = (requestedAmp >> 8U) & 0x00FFU;
                     responseLength = 3U;
                 }
             }
@@ -266,15 +270,14 @@ static void SCI_HandleCommand(void)
         case SCI_CMD_READ_VERSION:
             responseLength = 3U;
             responsePayload[1] = 1U; /* Protocol major version. */
-            responsePayload[2] = 0U; /* Protocol minor version. */
+            responsePayload[2] = 1U; /* Protocol minor version. */
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
                              responsePayload, responseLength);
             break;
 
         default:
             responsePayload[0] = SCI_STATUS_BAD_COMMAND;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
+            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
             break;
     }
 }

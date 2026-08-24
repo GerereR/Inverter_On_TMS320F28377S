@@ -107,7 +107,7 @@ void EPWM_Enable(void)
     EPwm3Regs.TZCLR.bit.OST = 1U;
     EPwm3Regs.TZCLR.bit.INT = 1U;
     EPWM3_TripZoneFaulted = 0U;
-    gMachineData.tripZoneFaulted = 0U;
+    gSysFault.tzFault = 0U;
 
     // Restore dead-band before releasing AQ so complementary switching always
     // resumes through the configured 1 us non-overlap interval.
@@ -136,7 +136,7 @@ void EPWM_TripZoneClear(void)
     EPwm3Regs.TZCLR.bit.OST = 1U;
     EPwm3Regs.TZCLR.bit.INT = 1U;
     EPWM3_TripZoneFaulted = 0U;
-    gMachineData.tripZoneFaulted = 0U;
+    gSysFault.tzFault = 0U;
 
     EDIS;
 }
@@ -146,7 +146,7 @@ __interrupt void EPWM3_TZ_BSP_ISR(void)
     // Record the fault and clear only the interrupt request. Keep OST latched
     // so the PWM outputs remain forced low until software explicitly clears it.
     EPWM3_TripZoneFaulted = 1U;
-    gMachineData.tripZoneFaulted = 1U;
+    gSysFault.tzFault = 1U;
     EPwm3Regs.TZCLR.bit.INT = 1U;
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP2;
 }

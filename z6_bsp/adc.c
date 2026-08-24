@@ -3,119 +3,251 @@
 #include "system.h"
 #include "variable.h"
 
-static volatile Uint16 ADC_GridVoltageBuffer[ADC_SAMPLE_BUFFER_SIZE];
-static volatile Uint16 ADC_InductorCurrentBuffer[ADC_SAMPLE_BUFFER_SIZE];
-static volatile Uint16 ADC_SampleIndex = 0U;
-static volatile Uint32 ADC_SampleCount = 0UL;
-volatile float OpenLoopInductorCurrentAmplitude = 0.8f;
-static volatile float OpenLoopInductorCurrentReference = 0.0f;
+volatile float InductorCurrentAmp_temporal = 0.8f;
+static volatile float InductorCurrentRef_temporal = 0.0f;
+
+/* PLL锁定门限均基于归一化输入,后续应结合实机波形和SCI记录继续整定。 */
+#define PLL_INPUT_ABS_FILTER_COEFF       0.001f
+#define PLL_LOCK_INPUT_ABS_MIN           0.10f
+#define PLL_UNLOCK_INPUT_ABS_MIN         0.05f
+#define PLL_LOCK_PHASE_ERROR_MAX         0.05f
+#define PLL_UNLOCK_PHASE_ERROR_MAX       0.10f
+#define PLL_LOCK_FREQ_MARGIN_HZ          0.25f
+#define PLL_UNLOCK_FREQ_MARGIN_HZ        0.05f
+#define PLL_LOCK_CONFIRM_SAMPLES         2000U  /* 20kHz下连续100ms合格后判定锁定 */
+#define PLL_UNLOCK_CONFIRM_SAMPLES       200U   /* 20kHz下连续10ms异常后判定失锁 */
+
+static void ADC_UpdateGridPllLock(float pllInput)
+{
+    static float inputAbsFiltered = 0.0f;
+    static Uint16 lockCounter = 0U;
+    static Uint16 unlockCounter = 0U;
+    float inputAbs;
+    float phaseErrorAbs;
+    Uint16 lockCondition;
+    Uint16 unlockCondition;
+
+    inputAbs = (pllInput >= 0.0f) ? pllInput : -pllInput;
+    phaseErrorAbs = (GridSPLL.notchOutput >= 0.0f) ?
+                    GridSPLL.notchOutput : -GridSPLL.notchOutput;
+    inputAbsFiltered += PLL_INPUT_ABS_FILTER_COEFF *
+                        (inputAbs - inputAbsFiltered);
+
+    lockCondition =
+        (inputAbsFiltered >= PLL_LOCK_INPUT_ABS_MIN) &&
+        (phaseErrorAbs <= PLL_LOCK_PHASE_ERROR_MAX) &&
+        (GridSPLL.frequencyHz > (GridSPLL.minFrequencyHz + PLL_LOCK_FREQ_MARGIN_HZ)) &&
+        (GridSPLL.frequencyHz < (GridSPLL.maxFrequencyHz - PLL_LOCK_FREQ_MARGIN_HZ));
+
+    unlockCondition =
+        (inputAbsFiltered < PLL_UNLOCK_INPUT_ABS_MIN) ||
+        (phaseErrorAbs > PLL_UNLOCK_PHASE_ERROR_MAX) ||
+        (GridSPLL.frequencyHz <= (GridSPLL.minFrequencyHz + PLL_UNLOCK_FREQ_MARGIN_HZ)) ||
+        (GridSPLL.frequencyHz >= (GridSPLL.maxFrequencyHz - PLL_UNLOCK_FREQ_MARGIN_HZ));
+
+    if(gSysFault.pllFault != 0U)
+    {
+        unlockCounter = 0U;
+        if(lockCondition != 0U)
+        {
+            if(lockCounter < PLL_LOCK_CONFIRM_SAMPLES)
+            {
+                lockCounter++;
+            }
+            if(lockCounter >= PLL_LOCK_CONFIRM_SAMPLES)
+            {
+                gSysFault.pllFault = 0U;
+                lockCounter = 0U;
+            }
+        }
+        else
+        {
+            lockCounter = 0U;
+        }
+    }
+    else
+    {
+        lockCounter = 0U;
+        if(unlockCondition != 0U)
+        {
+            if(unlockCounter < PLL_UNLOCK_CONFIRM_SAMPLES)
+            {
+                unlockCounter++;
+            }
+            if(unlockCounter >= PLL_UNLOCK_CONFIRM_SAMPLES)
+            {
+                gSysFault.pllFault = 1U;
+                unlockCounter = 0U;
+            }
+        }
+        else
+        {
+            unlockCounter = 0U;
+        }
+    }
+}
 
 void ADC_Config(void)
 {
     EALLOW;
 
-    // Power ADCA and ADCB in 12-bit single-ended mode with the same clock.
+    /* All four ADC modules use 12-bit single-ended conversion at the same clock. */
     AdcaRegs.ADCCTL2.bit.PRESCALE = 6U;
     AdcbRegs.ADCCTL2.bit.PRESCALE = 6U;
+    AdccRegs.ADCCTL2.bit.PRESCALE = 6U;
+    AdcdRegs.ADCCTL2.bit.PRESCALE = 6U;
     AdcSetMode(ADC_ADCA, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
     AdcSetMode(ADC_ADCB, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
+    AdcSetMode(ADC_ADCC, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
+    AdcSetMode(ADC_ADCD, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
+
+    /* Generate ADC interrupt pulses after result registers are updated. */
     AdcaRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
     AdcbRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
+    AdccRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
+    AdcdRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
+
     AdcaRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
     AdcbRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
+    AdccRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
+    AdcdRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
 
     EDIS;
     DELAY_US(1000);
     EALLOW;
 
-    // SOC0 samples grid voltage and SOC1 samples inductor current.
-    AdcaRegs.ADCSOC0CTL.bit.CHSEL = 0U;
-    AdcaRegs.ADCSOC0CTL.bit.ACQPS = 14U;
-    AdcaRegs.ADCSOC0CTL.bit.TRIGSEL = 9U;
+    /*
+     * ADCA fast frame, triggered once per 20 kHz PWM period:
+     * RESULT0 I_Grid_Fin, RESULT1 V_Grid_Fin, RESULT2 GFCI_Fin,
+     * RESULT3 V_BUS_Fin, RESULT4 Idc_Grid_Fin, RESULT5 V_INV_Fin.
+     */
+    AdcaRegs.ADCSOC0CTL.bit.CHSEL = 14U;
+    AdcaRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcaRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC1CTL.bit.CHSEL = 3U;
+    AdcaRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcaRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC2CTL.bit.CHSEL = 5U;
+    AdcaRegs.ADCSOC2CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcaRegs.ADCSOC2CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC3CTL.bit.CHSEL = 4U;
+    AdcaRegs.ADCSOC3CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcaRegs.ADCSOC3CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC4CTL.bit.CHSEL = 15U;
+    AdcaRegs.ADCSOC4CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcaRegs.ADCSOC4CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC5CTL.bit.CHSEL = 2U;
+    AdcaRegs.ADCSOC5CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcaRegs.ADCSOC5CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
 
-    AdcaRegs.ADCSOC1CTL.bit.CHSEL = 1U;
-    AdcaRegs.ADCSOC1CTL.bit.ACQPS = 14U;
-    AdcaRegs.ADCSOC1CTL.bit.TRIGSEL = 9U;
+    /* ADCB records the synchronized PV1/PV2 current pair at 20 kHz. */
+    AdcbRegs.ADCSOC0CTL.bit.CHSEL = 2U;
+    AdcbRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcbRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcbRegs.ADCSOC1CTL.bit.CHSEL = 3U;
+    AdcbRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcbRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
 
-    // ADCB0 samples PV voltage and ADCB1 samples PV current.
-    AdcbRegs.ADCSOC0CTL.bit.CHSEL = 0U;
-    AdcbRegs.ADCSOC0CTL.bit.ACQPS = 14U;
-    AdcbRegs.ADCSOC0CTL.bit.TRIGSEL = 9U;
+    /* ADCD RESULT0/1 records the synchronized PV1/PV2 voltage pair at 20 kHz. */
+    AdcdRegs.ADCSOC0CTL.bit.CHSEL = 4U;
+    AdcdRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcdRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcdRegs.ADCSOC1CTL.bit.CHSEL = 3U;
+    AdcdRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcdRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
 
-    AdcbRegs.ADCSOC1CTL.bit.CHSEL = 1U;
-    AdcbRegs.ADCSOC1CTL.bit.ACQPS = 14U;
-    AdcbRegs.ADCSOC1CTL.bit.TRIGSEL = 9U;
+    /* ADCD RESULT2/3 records PV1/PV2 isolation signals at 100 Hz. */
+    AdcdRegs.ADCSOC2CTL.bit.CHSEL = 1U;
+    AdcdRegs.ADCSOC2CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcdRegs.ADCSOC2CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
+    AdcdRegs.ADCSOC3CTL.bit.CHSEL = 2U;
+    AdcdRegs.ADCSOC3CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdcdRegs.ADCSOC3CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
 
-    //以下是ADC-A中断配置
-    // ADCINT1 drives the fast CPU control loop after SOC1 completes.
-    AdcaRegs.ADCINTSEL1N2.bit.INT1SEL = 1U;//EOC1触发ADCAINT1
-    AdcaRegs.ADCINTSEL1N2.bit.INT1CONT = 0U;//快环肯定不能连续
-    AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1U;//使能中断
+    /* SOC0 and SOC1 retain priority when fast and slow ADCD triggers overlap. */
+    AdcdRegs.ADCSOCPRICTL.bit.SOCPRIORITY = 2U;
 
-    // ADCINT2 is a continuous DMA trigger for the same two-result frame.
-    AdcaRegs.ADCINTSEL1N2.bit.INT2SEL = 1U;//EOC1也触发ADCAINT2
-    AdcaRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;//慢环肯定连续
+    /* ADCC records inverter and boost temperatures at 100 Hz. */
+    AdccRegs.ADCSOC0CTL.bit.CHSEL = 4U;
+    AdccRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdccRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
+    AdccRegs.ADCSOC1CTL.bit.CHSEL = 3U;
+    AdccRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
+    AdccRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
+
+    /* ADCA EOC5 drives both the fast CPU loop and DMA CH1. */
+    AdcaRegs.ADCINTSEL1N2.bit.INT1SEL = 5U;
+    AdcaRegs.ADCINTSEL1N2.bit.INT1CONT = 0U;
+    AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1U;
+    AdcaRegs.ADCINTSEL1N2.bit.INT2SEL = 5U;
+    AdcaRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;
     AdcaRegs.ADCINTSEL1N2.bit.INT2E = 1U;
 
-    //以下是ADC-B中断配置
-    // ADCBINT2 continuously triggers DMA CH2 after both PV results are ready.
-    AdcbRegs.ADCINTSEL1N2.bit.INT2SEL = 1U;//EOC1触发ADCBINT2
-    AdcbRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;//慢环使能连续
+    /* The remaining ADC interrupts are continuous DMA trigger sources only. */
+    AdcbRegs.ADCINTSEL1N2.bit.INT2SEL = 1U;
+    AdcbRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;
     AdcbRegs.ADCINTSEL1N2.bit.INT2E = 1U;
-    //总结:电网电压和电感电流同时触发快环和慢环,而PV电流和PV电压只触发慢环
+    AdcdRegs.ADCINTSEL1N2.bit.INT1SEL = 1U;
+    AdcdRegs.ADCINTSEL1N2.bit.INT1CONT = 1U;
+    AdcdRegs.ADCINTSEL1N2.bit.INT1E = 1U;
+    AdcdRegs.ADCINTSEL1N2.bit.INT2SEL = 3U;
+    AdcdRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;
+    AdcdRegs.ADCINTSEL1N2.bit.INT2E = 1U;
+    AdccRegs.ADCINTSEL1N2.bit.INT2SEL = 1U;
+    AdccRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;
+    AdccRegs.ADCINTSEL1N2.bit.INT2E = 1U;
 
-    //清除中断标志和中断溢出标志
+    /* Start every interrupt source from a known, non-overflowed state. */
     AdcaRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;
-    AdcaRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;
-
     AdcaRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
+    AdcaRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;
     AdcaRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;
-
     AdcbRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
     AdcbRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;
+    AdccRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
+    AdccRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;
+    AdcdRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;
+    AdcdRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
+    AdcdRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;
+    AdcdRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;
 
-    // Route ADCAINT1 to the CPU; DMA is initialized independently by System_Init.
     PieVectTable.ADCA1_INT = &ADCA1_CPU_ISR;
     PieCtrlRegs.PIEIER1.bit.INTx1 = 1U;
     IER |= M_INT1;
+
+    /* Timer1 runs freely at 100 Hz and triggers ADC SOCs without a CPU ISR. */
+    CpuTimer1Regs.TCR.bit.TSS = 1U;
+    CpuTimer1Regs.PRD.all = ADC_SLOW_TRIGGER_COUNTS - 1UL;
+    CpuTimer1Regs.TPR.all = 0U;
+    CpuTimer1Regs.TPRH.all = 0U;
+    CpuTimer1Regs.TCR.bit.TIE = 0U;
+    CpuTimer1Regs.TCR.bit.TIF = 1U;
+    CpuTimer1Regs.TCR.bit.TRB = 1U;
+    CpuTimer1Regs.TCR.bit.TSS = 0U;
 
     EDIS;
 }
 
 __interrupt void ADCA1_CPU_ISR(void)
 {
-    Uint16 gridVoltageSample = AdcaResultRegs.ADCRESULT0;
-    Uint16 inductorCurrentSample = AdcaResultRegs.ADCRESULT1;
-    Uint16 sampleIndex = ADC_SampleIndex;
-    float duty;
+    Uint16 gridVoltageRawSample;
+    float gridVoltagePllInput;
 
-    // Keep a full-rate CPU history for monitoring and future feedback control.
-    ADC_GridVoltageBuffer[sampleIndex] = gridVoltageSample;
-    ADC_InductorCurrentBuffer[sampleIndex] = inductorCurrentSample;
-    sampleIndex++;
-    if(sampleIndex >= ADC_SAMPLE_BUFFER_SIZE)
-    {
-        sampleIndex = 0U;
-    }
-    ADC_SampleIndex = sampleIndex;
-    ADC_SampleCount++;
+    /* The control loop consumes the current ADC frame directly. */
+    gridVoltageRawSample = AdcaResultRegs.ADCRESULT1;
 
-    // Convert the grid-voltage sample to the normalized PLL input.
-    SRF_PLL_Run(&GridSPLL, ((float)gridVoltageSample - 2048.0f) / 2048.0f);
-    gMachineData.pllPhaseMilliradian = (Uint16)(GridSPLL.phase * 1000.0f);
-    gMachineData.pllLocked =
-        (GridSPLL.frequencyHz >= GridSPLL.minFrequencyHz &&
-         GridSPLL.frequencyHz <= GridSPLL.maxFrequencyHz) ? 1U : 0U;
+    /* Convert the grid-voltage sample to the normalized PLL input. */
+    gridVoltagePllInput =
+        ((float)gridVoltageRawSample - gAdcCal.gridVoltage.offset) / ADC_BIPOLAR_ZERO;
+    SRF_PLL_Run(&GridSPLL, gridVoltagePllInput);
+    gMachineData.pllFreqCent = (Uint16)(GridSPLL.frequencyHz * 100.0f);
+    ADC_UpdateGridPllLock(gridVoltagePllInput);
 
-    //这里是未来放电流环的地方
-    // The current-control stage is intentionally open-loop until calibration
-    // and a current-feedback controller are defined.
-    OpenLoopInductorCurrentReference = OpenLoopInductorCurrentAmplitude * GridSPLL.sine;
-    duty = 0.5f * (1.0f + OpenLoopInductorCurrentReference);
-    EPWM_SetDuty(duty);
+    /* Open-loop placeholder until calibrated current feedback is implemented. */
+    InductorCurrentRef_temporal = InductorCurrentAmp_temporal * GridSPLL.sine;
+    EPWM_SetDuty(0.5f * (1.0f + InductorCurrentRef_temporal));
 
-    // Clear overflow before the interrupt flag so the next EOC is not lost.
-    // 其实ADC的中断只有ADCAINT1触发,所有只清除它
+    /* Clear the fast-loop request after all six results have been consumed. */
     if(AdcaRegs.ADCINTOVF.bit.ADCINT1 != 0U)
     {
         AdcaRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;

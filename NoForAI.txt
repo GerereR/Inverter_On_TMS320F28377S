@@ -280,3 +280,22 @@ __interrupt void SCIA_BSP_RX_ISR(void)
     SciaRegs.SCIFFRX.bit.RXFFINTCLR = 1;
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
 }
+
+
+
+
+2.ADC_Calibrationda,里面的偏置和增益用offset和gain就行,不要用高级词汇
+3.名称适当用缩写,gridFrequencyCentihertz;完全可以用gridFreqCent,
+                ADC_Calibration完全可以用ADC_Calibrate,
+                actualInstantaneous完全可以用actualInstant,
+                OpenLoopInductorCurrentAmplitude完全可以用InductorCurrentAmp_temporal(告诉自己和别人它是临时的就行),未来正式的要叫InductorCurrentAmp就行
+                凡此种种,你自己看着改,不要有歧义有重复就行,没必要过于详细了,而且常用的缩写大家都是知道的,因为这些代码主要还是面向工程师的
+4.不好简写的如actualData,可以同义词替换成realData,这也是你自己看着改
+5.跳匝故障,PLL锁相故障啥的放在另一个结构体,参考之前的老代码的union  SYS_FAULT_MESSAGE ,但是由于现在只是框架,你千万不能照抄
+6,这是我真正不太懂的,明明在variable.h里面都extern volatile DMA_BlockState ADC_FastDmaState;了,为什么在DMA还要再写一遍?
+7.Uint16 pllPhaseMilliradian;//这个不要了,实际上没人关心当前相位,即使关心,但是它变化太快了,记录后也处理不了
+8.再增加一个pll算出来的频率,也就是说ecap算出来的和pll算出来的我都要看
+9.数据处理那一块命名太奇怪了,怎么一会是ADC_ActualRmsData actualRms;,一会就变成了ADC_RawCenteredMeanSquareData rawCenteredMeanSquare,你自己看看后者的风格和其他的差别大不大
+10这也是我真不懂的地方,就是measure_task不能进行数据搬运和数据处理的任务吗?可以的话我可以把任务的时间设为3ms任务,这样的话原始数据和实际数据就不会出现不匹配的情况
+11.你重新给这几项任务定一下合适的触发时间,因为之前的时间是我随便写的
+12,i2c.c.h里面我写的oled控制代码,我写的达不到你的水平,你要是觉得不对的就大胆改,因为这不是重要功能

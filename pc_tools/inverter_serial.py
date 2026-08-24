@@ -28,7 +28,7 @@ SCI_DEFAULT_TIMEOUT_SECONDS = 2.0
 SCI_CMD_READ_MEASUREMENTS = 0x01
 SCI_CMD_READ_PLL_STATUS = 0x03
 SCI_CMD_READ_FAULT_STATUS = 0x04
-SCI_CMD_SET_INDUCTOR_CURRENT_AMPL = 0x10
+SCI_CMD_SET_INDUCTOR_CURRENT_AMP = 0x10
 SCI_CMD_CLEAR_FAULT = 0x20
 SCI_CMD_READ_VERSION = 0x30
 
@@ -209,19 +209,43 @@ class InverterSerialClient:
 
     def read_measurements(self) -> dict[str, int | float | bool]:
         payload = self.request(SCI_CMD_READ_MEASUREMENTS)
-        if len(payload) != 12:
-            raise ProtocolError(f"测量响应长度应为12字节，实际为{len(payload)}字节")
+        if len(payload) != 32:
+            raise ProtocolError(f"测量响应长度应为32字节，实际为{len(payload)}字节")
 
-        grid_voltage, inductor_current, pv_voltage, pv_current, frequency_centihertz = (
-            struct.unpack_from("<HHHHH", payload, 1)
-        )
+        (
+            grid_voltage,
+            inductor_current,
+            gfci_current,
+            dc_bus_voltage,
+            inverter_dc_current,
+            inverter_voltage,
+            pv1_current,
+            pv2_current,
+            pv1_voltage,
+            pv2_voltage,
+            pv1_isolation,
+            pv2_isolation,
+            inverter_temperature,
+            boost_temperature,
+            ecap_freq_cent,
+        ) = struct.unpack_from("<15H", payload, 1)
         return {
             "grid_voltage_raw": grid_voltage,
             "inductor_current_raw": inductor_current,
-            "pv_voltage_raw": pv_voltage,
-            "pv_current_raw": pv_current,
-            "grid_frequency_hz": frequency_centihertz / 100.0,
-            "trip_zone_faulted": bool(payload[11]),
+            "gfci_current_raw": gfci_current,
+            "dc_bus_voltage_raw": dc_bus_voltage,
+            "inverter_dc_current_raw": inverter_dc_current,
+            "inverter_voltage_raw": inverter_voltage,
+            "pv1_current_raw": pv1_current,
+            "pv2_current_raw": pv2_current,
+            "pv1_voltage_raw": pv1_voltage,
+            "pv2_voltage_raw": pv2_voltage,
+            "pv1_isolation_raw": pv1_isolation,
+            "pv2_isolation_raw": pv2_isolation,
+            "inverter_temperature_raw": inverter_temperature,
+            "boost_temperature_raw": boost_temperature,
+            "ecap_frequency_hz": ecap_freq_cent / 100.0,
+            "trip_zone_faulted": bool(payload[31]),
         }
 
     def read_pll_status(self) -> dict[str, int | float | bool]:
@@ -229,10 +253,10 @@ class InverterSerialClient:
         if len(payload) != 6:
             raise ProtocolError(f"PLL响应长度应为6字节，实际为{len(payload)}字节")
 
-        frequency_centihertz, phase_milliradian = struct.unpack_from("<HH", payload, 1)
+        ecap_freq_cent, pll_freq_cent = struct.unpack_from("<HH", payload, 1)
         return {
-            "grid_frequency_hz": frequency_centihertz / 100.0,
-            "pll_phase_radian": phase_milliradian / 1000.0,
+            "ecap_frequency_hz": ecap_freq_cent / 100.0,
+            "pll_frequency_hz": pll_freq_cent / 100.0,
             "pll_locked": bool(payload[5]),
         }
 
@@ -248,7 +272,7 @@ class InverterSerialClient:
 
         amplitude_q12 = round(amplitude * 4096.0)
         payload = self.request(
-            SCI_CMD_SET_INDUCTOR_CURRENT_AMPL,
+            SCI_CMD_SET_INDUCTOR_CURRENT_AMP,
             struct.pack("<H", amplitude_q12),
         )
         if len(payload) != 3:
@@ -272,15 +296,25 @@ class InverterSerialClient:
 def print_measurements(measurements: dict[str, int | float | bool]) -> None:
     print(f"电网电压ADC原始值：{measurements['grid_voltage_raw']}")
     print(f"电感电流ADC原始值：{measurements['inductor_current_raw']}")
-    print(f"PV电压ADC原始值：{measurements['pv_voltage_raw']}")
-    print(f"PV电流ADC原始值：{measurements['pv_current_raw']}")
-    print(f"电网频率：{measurements['grid_frequency_hz']:.2f} Hz")
+    print(f"GFCI电流ADC原始值：{measurements['gfci_current_raw']}")
+    print(f"母线电压ADC原始值：{measurements['dc_bus_voltage_raw']}")
+    print(f"逆变桥直流电流ADC原始值：{measurements['inverter_dc_current_raw']}")
+    print(f"逆变器侧电压ADC原始值：{measurements['inverter_voltage_raw']}")
+    print(f"PV1电流ADC原始值：{measurements['pv1_current_raw']}")
+    print(f"PV2电流ADC原始值：{measurements['pv2_current_raw']}")
+    print(f"PV1电压ADC原始值：{measurements['pv1_voltage_raw']}")
+    print(f"PV2电压ADC原始值：{measurements['pv2_voltage_raw']}")
+    print(f"PV1绝缘检测ADC原始值：{measurements['pv1_isolation_raw']}")
+    print(f"PV2绝缘检测ADC原始值：{measurements['pv2_isolation_raw']}")
+    print(f"逆变器温度ADC原始值：{measurements['inverter_temperature_raw']}")
+    print(f"Boost温度ADC原始值：{measurements['boost_temperature_raw']}")
+    print(f"ECAP频率：{measurements['ecap_frequency_hz']:.2f} Hz")
     print(f"Trip-Zone故障：{'是' if measurements['trip_zone_faulted'] else '否'}")
 
 
 def print_pll_status(pll_status: dict[str, int | float | bool]) -> None:
-    print(f"电网频率：{pll_status['grid_frequency_hz']:.2f} Hz")
-    print(f"PLL相位：{pll_status['pll_phase_radian']:.3f} rad")
+    print(f"ECAP频率：{pll_status['ecap_frequency_hz']:.2f} Hz")
+    print(f"PLL频率：{pll_status['pll_frequency_hz']:.2f} Hz")
     print(f"PLL锁定：{'是' if pll_status['pll_locked'] else '否'}")
 
 

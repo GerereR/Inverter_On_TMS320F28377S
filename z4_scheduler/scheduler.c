@@ -40,48 +40,54 @@ void Scheduler_ClearFlags(Uint16 flags)
 
 __interrupt void Scheduler_ISR(void)
 {
-    static Uint16 cnt10ms   = 0;
-    static Uint16 cnt20ms   = 0;
-    static Uint16 cnt50ms   = 0;
-    static Uint16 cnt100ms  = 0;
-    static Uint16 cnt500ms  = 0;
-    static Uint16 cntComm   = 0;
+    static Uint16 cntMeasure = 0U;
+    static Uint16 cntState = 0U;
+    static Uint16 cntGrid = 0U;
+    static Uint16 cntPower = 0U;
+    static Uint16 cntMppt = 0U;
+    static Uint16 cntUi = 0U;
+    static Uint16 cntComm = 0U;
 
     // Derive all cooperative task rates from the common 1 ms tick.
-    if(++cnt10ms >= 10)
+    if(++cntMeasure >= TASK_MEASURE_PERIOD_MS)
     {
-        cnt10ms = 0;
-        Scheduler_Flags |= TASK_STATE_FLAG;
-    }
-
-    if(++cnt20ms >= 20)
-    {
-        cnt20ms = 0;
+        cntMeasure = 0U;
         Scheduler_Flags |= TASK_MEASURE_FLAG;
     }
 
-    if(++cnt50ms >= 50)
+    if(++cntState >= TASK_STATE_PERIOD_MS)
     {
-        cnt50ms = 0;
+        cntState = 0U;
+        Scheduler_Flags |= TASK_STATE_FLAG;
+    }
+
+    if(++cntGrid >= TASK_GRID_PERIOD_MS)
+    {
+        cntGrid = 0U;
         Scheduler_Flags |= TASK_GRID_FLAG;
     }
 
-    if(++cnt100ms >= 100)
+    if(++cntPower >= TASK_POWER_PERIOD_MS)
     {
-        cnt100ms = 0;
-        Scheduler_Flags |= TASK_MPPT_FLAG;
-    }
-
-    if(++cnt500ms >= 500)
-    {
-        cnt500ms = 0;
+        cntPower = 0U;
         Scheduler_Flags |= TASK_POWER_FLAG;
     }
 
-    // Communication is a supervisory task and is serviced every 500 ms.
-    if(++cntComm >= 500)
+    if(++cntMppt >= TASK_MPPT_PERIOD_MS)
     {
-        cntComm = 0;
+        cntMppt = 0U;
+        Scheduler_Flags |= TASK_MPPT_FLAG;
+    }
+
+    if(++cntUi >= TASK_UI_PERIOD_MS)
+    {
+        cntUi = 0U;
+        Scheduler_Flags |= TASK_UI_FLAG;
+    }
+
+    if(++cntComm >= TASK_COMM_PERIOD_MS)
+    {
+        cntComm = 0U;
         Scheduler_Flags |= TASK_COMM_FLAG;
     }
 

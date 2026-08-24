@@ -58,6 +58,10 @@ void GPIO_Config(void)
     GpioCtrlRegs.GPAMUX2.bit.GPIO29 = 1;
 
     // I2CA: GPIO32 = SDA, GPIO33 = SCL. External pull-ups are still required.
+    // 说明:
+    //   - GPBPUD=0:使能内部上拉(仅弱上拉,400kHz 下通常仍需外部 4.7k 上拉)
+    //   - GPBQSEL1=3:异步输入、无去抖——I2C 需要亚微秒级信号沿,不能加滤波
+    //   - GMUX=0/MUX=1:选中 I2CA 外设功能(GPIO32/33 为 F28377S 的 I2CA 默认引脚)
     GpioCtrlRegs.GPBPUD.bit.GPIO32 = 0;
     GpioCtrlRegs.GPBPUD.bit.GPIO33 = 0;
     GpioCtrlRegs.GPBQSEL1.bit.GPIO32 = 3;

@@ -1,153 +1,524 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
+//DMA
+//起点(一般是ADC结果寄存器) --- 搬运 ---> 终点(我们指定的Buffer)
 
-// DMA stores ADCRESULT0/ADCRESULT1 pairs and interrupts after one block.
-volatile Uint16 ADC_DMA_Buffer[ADC_DMA_BUFFER_WORDS];//定义 DMA 目标缓冲区
-volatile Uint16 ADC_DMA_FrameReady = 0U;//DMA 数据块完成标志
-volatile Uint32 ADC_DMA_BlockCount = 0UL;//记录 DMA 完成了多少个数据块。
-volatile Uint16 ADC_DMA_LastGridAverage = 0U;//保存最近一个 DMA 数据块中，电网电压 ADC 原始码的平均值。
-volatile Uint16 ADC_DMA_LastInductorCurrentAverage = 0U;//保存最近一个 DMA 数据块中，电感电流 ADC 原始码的平均值。
+/* DMA状态只供本文件的ISR和后台处理函数使用。 */
+typedef struct
+{
+    Uint16 completedBuffer;
+    Uint16 ready;
+    Uint16 overrun;
+    Uint32 sequence;
+    Uint32 completedBlockCount;
+} DMA_BlockState;
 
-// Each array element matches one DMA burst: PV voltage followed by PV current.
-volatile ADC_PV_DMA_Burst ADC_PV_DMA_Buffer[ADC_PV_DMA_BURST_COUNT];
-volatile Uint16 ADC_PV_DMA_BlockReady = 0U;
-volatile Uint32 ADC_PV_DMA_BlockCount = 0UL;
+
+/* Each ping-pong half has its own linker section so large arrays never overlap. */
+//单独为这些buffer定义段的地硬件址
+#pragma DATA_SECTION(ADC_FastRawBuffer0, "adcFastDmaBuffer0")
+#pragma DATA_SECTION(ADC_FastRawBuffer1, "adcFastDmaBuffer1")
+#pragma DATA_SECTION(ADC_PvCurrentRawBuffer0, "adcPvCurrentDmaBuffer0")
+#pragma DATA_SECTION(ADC_PvCurrentRawBuffer1, "adcPvCurrentDmaBuffer1")
+#pragma DATA_SECTION(ADC_PvVoltageRawBuffer0, "adcPvVoltageDmaBuffer0")
+#pragma DATA_SECTION(ADC_PvVoltageRawBuffer1, "adcPvVoltageDmaBuffer1")
+#pragma DATA_SECTION(ADC_IsolationRawBuffer0, "adcIsolationDmaBuffer0")
+#pragma DATA_SECTION(ADC_IsolationRawBuffer1, "adcIsolationDmaBuffer1")
+#pragma DATA_SECTION(ADC_TemperatureRawBuffer0, "adcTemperatureDmaBuffer0")
+#pragma DATA_SECTION(ADC_TemperatureRawBuffer1, "adcTemperatureDmaBuffer1")
+
+//为了乒乓传输,所以定义了两个buffer,我建议不要太在意名字,因为是硬件设计不够完美,没有硬件上把快环,慢环分开
+//快环,正巧全在ADCA内,不需要拆分了
+volatile ADC_FastRawFrame ADC_FastRawBuffer0[ADC_FAST_BLOCK_BURSTS];
+volatile ADC_FastRawFrame ADC_FastRawBuffer1[ADC_FAST_BLOCK_BURSTS];
+
+//中环,一个在ADCB,一个在ADCD,不得不分开了
+volatile ADC_PvCurrentRawFrame ADC_PvCurrentRawBuffer0[ADC_PV_BLOCK_BURSTS];
+volatile ADC_PvCurrentRawFrame ADC_PvCurrentRawBuffer1[ADC_PV_BLOCK_BURSTS];
+
+volatile ADC_PvVoltageRawFrame ADC_PvVoltageRawBuffer0[ADC_PV_BLOCK_BURSTS];
+volatile ADC_PvVoltageRawFrame ADC_PvVoltageRawBuffer1[ADC_PV_BLOCK_BURSTS];
+
+//慢环,一个在ADCC,一个在ADCD,不得不分开了
+volatile ADC_IsolationRawFrame ADC_IsolationRawBuffer0[ADC_SLOW_BLOCK_BURSTS];
+volatile ADC_IsolationRawFrame ADC_IsolationRawBuffer1[ADC_SLOW_BLOCK_BURSTS];
+
+volatile ADC_TemperatureRawFrame ADC_TemperatureRawBuffer0[ADC_SLOW_BLOCK_BURSTS];
+volatile ADC_TemperatureRawFrame ADC_TemperatureRawBuffer1[ADC_SLOW_BLOCK_BURSTS];
+
+//五路DMA的完成状态由dma.c内部独占管理
+static volatile DMA_BlockState ADC_FastDmaState = {0};
+static volatile DMA_BlockState ADC_PvCurrentDmaState = {0};
+static volatile DMA_BlockState ADC_PvVoltageDmaState = {0};
+static volatile DMA_BlockState ADC_IsolationDmaState = {0};
+static volatile DMA_BlockState ADC_TemperatureDmaState = {0};
+
+//决定了到底使用哪一个buffer,也就是乒乓传输的选择
+static Uint16 ADC_FastDmaActiveBuffer = 0U;
+static Uint16 ADC_PvCurrentDmaActiveBuffer = 0U;
+static Uint16 ADC_PvVoltageDmaActiveBuffer = 0U;
+static Uint16 ADC_IsolationDmaActiveBuffer = 0U;
+static Uint16 ADC_TemperatureDmaActiveBuffer = 0U;
+
+//一定要记住,各速度环路的数据buffer,状态结构体和buffer选择都已经定义好了
+
+
+
+
+//一些是初始化用到的函数========================================================================================================================
+static void DMA_Config_CHx
+(
+    volatile struct CH_REGS *channel,//选择DMA通道
+    Uint16 channelNumber,           //触发源
+    volatile Uint16 *source,        //起点地址,也就是ADC结果寄存器
+    volatile Uint16 *destination,   //终点地址,也就是对应的buffer
+    Uint16 wordsPerBurst,           //一个burst由几个result组成?
+    Uint16 burstsPerBlock           //一个buffer由几个burst组成?
+)
+{
+    channel->MODE.all = 0U;//全部复位
+    channel->MODE.bit.PERINTSEL = channelNumber;
+    channel->MODE.bit.PERINTE = 1U;//使能中断
+    channel->MODE.bit.ONESHOT = 0U;//失能单次模式,允许连续响应多次触发
+
+    /* Stop after each block so the ISR can select the other ping-pong half. */
+    channel->MODE.bit.CONTINUOUS = 0U;//失能连续模式,搬完一个块就停，等CPU重启
+    channel->MODE.bit.OVRINTE = 0U;//溢出不触发中断
+    channel->MODE.bit.DATASIZE = 0U;//十六位数据
+    channel->MODE.bit.CHINTMODE = 1U;//块传输完才中断,也就是buffer填满才中断
+    channel->MODE.bit.CHINTE = 1U;//使能通道中断（允许向CPU发PIE中断）
+    //以上的配置是非常一般的配置
+  
+    channel->SRC_BEG_ADDR_SHADOW = (Uint32)source;
+    channel->SRC_ADDR_SHADOW = (Uint32)source;//当前起点地址,一般也确实是保持一致即可
+    channel->DST_BEG_ADDR_SHADOW = (Uint32)destination;
+    channel->DST_ADDR_SHADOW = (Uint32)destination;//当前终点地址,一般也确实是保持一致即可
+
+    /* DMA count registers store the requested quantity minus one. */
+    channel->BURST_SIZE.all = wordsPerBurst - 1U;//注意这里要减一,因为默认有一个data
+    channel->SRC_BURST_STEP = 1;//按顺序依次传输SOC1,SOC2....
+    channel->DST_BURST_STEP = 1;
+    channel->TRANSFER_SIZE = burstsPerBlock - 1U;//注意这里要减一,因为默认有一个burst
+
+    /* Return from the last ADCRESULT in one burst to RESULT0 for the next. */
+    //重点!回跳配置,因为终点地址一直加一没毛病,但是起点地址有且只有ADC结果寄存器
+    //Base + (N-1) - (N-1) = Base
+    channel->SRC_TRANSFER_STEP = -((int16)wordsPerBurst - 1);
+    channel->DST_TRANSFER_STEP = 1;
+
+    channel->SRC_WRAP_SIZE = 0xFFFFU;//不回绕
+    channel->SRC_WRAP_STEP = 0;
+    channel->DST_WRAP_SIZE = 0xFFFFU;
+    channel->DST_WRAP_STEP = 0;
+
+    channel->CONTROL.bit.PERINTCLR = 1U;// 清除外设中断挂起标志（清掉ADC的旧触发信号）
+    channel->CONTROL.bit.ERRCLR = 1U;// 清除错误标志（确保启动时无历史故障）
+}
 
 void DMA_Config(void)
 {
     EALLOW;
 
-    // Reset DMA and let transfers continue while the CPU is halted by a debugger.
-    DmaRegs.DMACTRL.bit.HARDRESET = 1U;//对 DMA 模块执行硬复位
-    __asm(" NOP");//文档要求至少一个NOP
-    DmaRegs.DEBUGCTRL.bit.FREE = 1U;//设置调试运行模式。
+    /* Reset the DMA once before configuring any channel. */
+    DmaRegs.DMACTRL.bit.HARDRESET = 1U;
+    __asm(" NOP");
+    DmaRegs.DEBUGCTRL.bit.FREE = 1U;
+    DmaRegs.PRIORITYCTRL1.bit.CH1PRIORITY = 1U;
 
-    // ADCINT2 is the DMA trigger; ADCINT1 remains dedicated to the control ISR.
-    DmaClaSrcSelRegs.DMACHSRCSEL1.bit.CH1 = DMA_ADCAINT2;//选择 DMA 通道 1 的触发源为 ADCINT2
-
-    // Each ADCINT2 trigger copies two 16-bit results: voltage, then current.
-    DmaRegs.CH1.MODE.bit.PERINTSEL = 1U;//设置 DMA 通道 1 使用自身的外设触发选择方式
-    DmaRegs.CH1.MODE.bit.PERINTE = 1U;//使能外设触发
-    DmaRegs.CH1.MODE.bit.ONESHOT = 0U;//关闭单次模式
-    DmaRegs.CH1.MODE.bit.CONTINUOUS = 1U;//开启连续模式
-    DmaRegs.CH1.MODE.bit.OVRINTE = 0U;//关闭 DMA 溢出中断
-    DmaRegs.CH1.MODE.bit.DATASIZE = 0U;//设置数据宽度为 16 位
-    DmaRegs.CH1.MODE.bit.CHINTMODE = 1U;//设置 DMA 通道中断在传输结束时产生
-    DmaRegs.CH1.MODE.bit.CHINTE = 1U;//使能 DMA 通道中断
-
-    DmaRegs.CH1.SRC_BEG_ADDR_SHADOW = (Uint32)&AdcaResultRegs.ADCRESULT0;//重装载起始地址
-    DmaRegs.CH1.SRC_ADDR_SHADOW = (Uint32)&AdcaResultRegs.ADCRESULT0;//第一次装载起始地址
-    DmaRegs.CH1.DST_BEG_ADDR_SHADOW = (Uint32)ADC_DMA_Buffer;//数据从 ADC_DMA_Buffer[0] 开始写
-    DmaRegs.CH1.DST_ADDR_SHADOW = (Uint32)ADC_DMA_Buffer;//第一次传输从 ADC_DMA_Buffer[0] 开始
-
-    DmaRegs.CH1.BURST_SIZE.all = 1U;//设置一次 burst 搬运 2 个字
-    DmaRegs.CH1.SRC_BURST_STEP = 1;//burst 内源地址每次增加 1
-    DmaRegs.CH1.DST_BURST_STEP = 1;//burst 内目标地址每次增加 1
-    DmaRegs.CH1.TRANSFER_SIZE = ADC_DMA_FRAME_COUNT - 1U;//设置一次完整 DMA 传输包含多少个 burst
-    DmaRegs.CH1.SRC_TRANSFER_STEP = -1;//高级功能,适配于一个数组存多个burst
-    DmaRegs.CH1.DST_TRANSFER_STEP = 1;//
-
-    // Disable wrapping; continuous mode reloads the shadow addresses per block.
-    DmaRegs.CH1.SRC_WRAP_SIZE = 0xFFFFU;//设置源地址回绕长度为最大值，等效于关闭源地址回绕。
-    DmaRegs.CH1.SRC_WRAP_STEP = 0;//即使发生源地址回绕，也不改变源地址,某种意义上这就是保护性代码
-    DmaRegs.CH1.DST_WRAP_SIZE = 0xFFFFU;//关闭目标地址回绕。
-    DmaRegs.CH1.DST_WRAP_STEP = 0;//目标地址回绕步长设置为 0。
-    DmaRegs.CH1.CONTROL.bit.PERINTCLR = 1U;//清除 DMA 可能残留的外设触发标志。
-    DmaRegs.CH1.CONTROL.bit.ERRCLR = 1U;//清除 DMA 通道错误状态。
-
-    // ADCBINT2 triggers DMA CH2 after PV voltage/current conversions finish.
+    DmaClaSrcSelRegs.DMACHSRCSEL1.bit.CH1 = DMA_ADCAINT2;
     DmaClaSrcSelRegs.DMACHSRCSEL1.bit.CH2 = DMA_ADCBINT2;
-    DmaRegs.CH2.MODE.bit.PERINTSEL = 2U;
-    DmaRegs.CH2.MODE.bit.PERINTE = 1U;
-    DmaRegs.CH2.MODE.bit.ONESHOT = 0U;
-    DmaRegs.CH2.MODE.bit.CONTINUOUS = 1U;
-    DmaRegs.CH2.MODE.bit.OVRINTE = 0U;
-    DmaRegs.CH2.MODE.bit.DATASIZE = 0U;
-    DmaRegs.CH2.MODE.bit.CHINTMODE = 1U;
-    DmaRegs.CH2.MODE.bit.CHINTE = 1U;
+    DmaClaSrcSelRegs.DMACHSRCSEL1.bit.CH3 = DMA_ADCDINT1;
+    DmaClaSrcSelRegs.DMACHSRCSEL1.bit.CH4 = DMA_ADCDINT2;
+    DmaClaSrcSelRegs.DMACHSRCSEL2.bit.CH5 = DMA_ADCCINT2;
 
-    DmaRegs.CH2.SRC_BEG_ADDR_SHADOW = (Uint32)&AdcbResultRegs.ADCRESULT0;
-    DmaRegs.CH2.SRC_ADDR_SHADOW = (Uint32)&AdcbResultRegs.ADCRESULT0;
-    DmaRegs.CH2.DST_BEG_ADDR_SHADOW =
-        (Uint32)&ADC_PV_DMA_Buffer[0U].pvVoltage;
-    DmaRegs.CH2.DST_ADDR_SHADOW =
-        (Uint32)&ADC_PV_DMA_Buffer[0U].pvVoltage;
+    DMA_Config_CHx
+    (
+        &DmaRegs.CH1, 
+        1U,
+        (volatile Uint16 *)&AdcaResultRegs.ADCRESULT0,
+        (volatile Uint16 *)ADC_FastRawBuffer0,
+        6U, 
+        ADC_FAST_BLOCK_BURSTS
+    );
 
-    // BURST_SIZE and TRANSFER_SIZE both store the desired count minus one.
-    DmaRegs.CH2.BURST_SIZE.all = 1U;
-    DmaRegs.CH2.SRC_BURST_STEP = 1;
-    DmaRegs.CH2.DST_BURST_STEP = 1;
-    DmaRegs.CH2.TRANSFER_SIZE = ADC_PV_DMA_BURST_COUNT - 1U;
-    DmaRegs.CH2.SRC_TRANSFER_STEP = -1;
-    DmaRegs.CH2.DST_TRANSFER_STEP = 1;
+    DMA_Config_CHx
+    (
+        &DmaRegs.CH2, 
+        2U,
+        (volatile Uint16 *)&AdcbResultRegs.ADCRESULT0,
+        (volatile Uint16 *)ADC_PvCurrentRawBuffer0,
+        2U, 
+        ADC_PV_BLOCK_BURSTS
+    );
 
-    // Disable wrapping; continuous mode reloads the block start addresses.
-    DmaRegs.CH2.SRC_WRAP_SIZE = 0xFFFFU;
-    DmaRegs.CH2.SRC_WRAP_STEP = 0;
-    DmaRegs.CH2.DST_WRAP_SIZE = 0xFFFFU;
-    DmaRegs.CH2.DST_WRAP_STEP = 0;
-    DmaRegs.CH2.CONTROL.bit.PERINTCLR = 1U;
-    DmaRegs.CH2.CONTROL.bit.ERRCLR = 1U;
+    DMA_Config_CHx
+    (
+        &DmaRegs.CH3, 
+        3U,
+        (volatile Uint16 *)&AdcdResultRegs.ADCRESULT0,
+        (volatile Uint16 *)ADC_PvVoltageRawBuffer0,
+        2U, 
+        ADC_PV_BLOCK_BURSTS
+    );
+
+    DMA_Config_CHx
+    (
+        &DmaRegs.CH4, 
+        4U,
+        (volatile Uint16 *)&AdcdResultRegs.ADCRESULT2,
+        (volatile Uint16 *)ADC_IsolationRawBuffer0,
+        2U, 
+        ADC_SLOW_BLOCK_BURSTS
+    );
+
+    DMA_Config_CHx
+    (
+        &DmaRegs.CH5, 
+        5U,
+        (volatile Uint16 *)&AdccResultRegs.ADCRESULT0,
+        (volatile Uint16 *)ADC_TemperatureRawBuffer0,
+        2U, 
+        ADC_SLOW_BLOCK_BURSTS
+    );
 
     PieVectTable.DMA_CH1_INT = &DMA_CH1_CPU_ISR;
     PieVectTable.DMA_CH2_INT = &DMA_CH2_CPU_ISR;
+    PieVectTable.DMA_CH3_INT = &DMA_CH3_CPU_ISR;
+    PieVectTable.DMA_CH4_INT = &DMA_CH4_CPU_ISR;
+    PieVectTable.DMA_CH5_INT = &DMA_CH5_CPU_ISR;
+    
     PieCtrlRegs.PIEIER7.bit.INTx1 = 1U;
     PieCtrlRegs.PIEIER7.bit.INTx2 = 1U;
-    IER |= M_INT7;//使能 PIE 第 7 组第 1 个中断。
+    PieCtrlRegs.PIEIER7.bit.INTx3 = 1U;
+    PieCtrlRegs.PIEIER7.bit.INTx4 = 1U;
+    PieCtrlRegs.PIEIER7.bit.INTx5 = 1U;
+    IER |= M_INT7;
 
-    DmaRegs.CH1.CONTROL.bit.RUN = 1U;//启动 DMA 通道 1
-    DmaRegs.CH2.CONTROL.bit.RUN = 1U;//启动 DMA 通道 2
+    DmaRegs.CH1.CONTROL.bit.RUN = 1U;
+    DmaRegs.CH2.CONTROL.bit.RUN = 1U;
+    DmaRegs.CH3.CONTROL.bit.RUN = 1U;
+    DmaRegs.CH4.CONTROL.bit.RUN = 1U;
+    DmaRegs.CH5.CONTROL.bit.RUN = 1U;
 
     EDIS;
 }
 
-__interrupt void DMA_CH1_CPU_ISR(void)
-{
-    Uint16 frameIndex;//定义数据帧索引
-    Uint32 gridSum = 0UL;//保存 16 个电网电压电流采样值的总和
-    Uint32 inductorCurrentSum = 0UL;
 
-    // Consume the completed block before DMA reloads the destination buffer.
-    for(frameIndex = 0U; frameIndex < ADC_DMA_FRAME_COUNT; frameIndex++)
+
+
+//以下是中断用到的函数=========================================================================================================================
+
+static void DMA_RecordCompletion(volatile DMA_BlockState *state,  Uint16 completedBuffer)
+{
+    /* A still-set ready flag means the foreground did not consume the prior block. */
+    if(state->ready != 0U)//DMA数据丢包计数
     {
-        gridSum += ADC_DMA_Buffer[2U * frameIndex];
-        inductorCurrentSum += ADC_DMA_Buffer[2U * frameIndex + 1U];
+        state->overrun++;
     }
 
-    ADC_DMA_LastGridAverage = (Uint16)(gridSum / ADC_DMA_FRAME_COUNT);
-    ADC_DMA_LastInductorCurrentAverage =
-        (Uint16)(inductorCurrentSum / ADC_DMA_FRAME_COUNT);
-    gMachineData.gridVoltage = ADC_DMA_LastGridAverage;
-    gMachineData.inductorCurrent = ADC_DMA_LastInductorCurrentAverage;
-    ADC_DMA_BlockCount++;
-    ADC_DMA_FrameReady = 1U;
+    state->completedBuffer = completedBuffer;//记录刚刚是哪一个buffer传输完成了
+    state->sequence++;//流水号,主要看有没有掉包,这个比丢包严重,因为丢包好歹CPU知道有这回事,但是掉包CPU根本没发觉
+    state->completedBlockCount++;//相当于心跳监控
+    state->ready = 1U;
+}
 
-    // Clear the DMA peripheral flag and release PIE group 7.
-    DmaRegs.CH1.CONTROL.bit.PERINTCLR = 1U;
-    DmaRegs.CH1.CONTROL.bit.ERRCLR = 1U;
+static void DMA_StartNextBlock(volatile struct CH_REGS *channel, volatile Uint16 *destination)
+{
+    channel->DST_BEG_ADDR_SHADOW = (Uint32)destination;//切换新的终点地址
+    channel->DST_ADDR_SHADOW = (Uint32)destination;
+
+    channel->CONTROL.bit.PERINTCLR = 1U;
+    channel->CONTROL.bit.ERRCLR = 1U;
+    
+    channel->CONTROL.bit.RUN = 1U;//等待下次ADC中断,把影子寄存器写进去
+}
+
+
+__interrupt void DMA_CH1_CPU_ISR(void)//进入了DMA中断,就说明当前的buffer满了
+{
+    DMA_RecordCompletion(&ADC_FastDmaState, ADC_FastDmaActiveBuffer);//统计一些信息,然后告诉CPU buffer可以准备来取了
+    ADC_FastDmaActiveBuffer ^= 1U;//这里(指的是中断)才是决定更新采样buffer的地方
+    //然后换挡,这段期间CPU可以取刚刚完成的buffer数据,处理数据和读取数据实现解耦
+    DMA_StartNextBlock
+    (
+        &DmaRegs.CH1,
+        (ADC_FastDmaActiveBuffer == 0U) ?
+        (volatile Uint16 *)ADC_FastRawBuffer0 :
+        (volatile Uint16 *)ADC_FastRawBuffer1
+    );
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP7;
 }
 
 __interrupt void DMA_CH2_CPU_ISR(void)
 {
-    Uint16 burstIndex;
-    Uint32 pvVoltageSum = 0UL;
-    Uint32 pvCurrentSum = 0UL;
-
-    // Average the completed PV block before DMA starts filling it again.
-    for(burstIndex = 0U; burstIndex < ADC_PV_DMA_BURST_COUNT; burstIndex++)
-    {
-        pvVoltageSum += ADC_PV_DMA_Buffer[burstIndex].pvVoltage;
-        pvCurrentSum += ADC_PV_DMA_Buffer[burstIndex].pvCurrent;
-    }
-    gMachineData.pvVoltage = (Uint16)(pvVoltageSum / ADC_PV_DMA_BURST_COUNT);
-    gMachineData.pvCurrent = (Uint16)(pvCurrentSum / ADC_PV_DMA_BURST_COUNT);
-
-    ADC_PV_DMA_BlockCount++;
-    ADC_PV_DMA_BlockReady = 1U;
-
-    DmaRegs.CH2.CONTROL.bit.PERINTCLR = 1U;
-    DmaRegs.CH2.CONTROL.bit.ERRCLR = 1U;
+    DMA_RecordCompletion(&ADC_PvCurrentDmaState,  ADC_PvCurrentDmaActiveBuffer);
+    ADC_PvCurrentDmaActiveBuffer ^= 1U;
+    DMA_StartNextBlock
+    (
+        &DmaRegs.CH2,
+        (ADC_PvCurrentDmaActiveBuffer == 0U) ?
+        (volatile Uint16 *)ADC_PvCurrentRawBuffer0 :
+        (volatile Uint16 *)ADC_PvCurrentRawBuffer1
+    );
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP7;
+}
+
+__interrupt void DMA_CH3_CPU_ISR(void)
+{
+    DMA_RecordCompletion(&ADC_PvVoltageDmaState,  ADC_PvVoltageDmaActiveBuffer);
+    ADC_PvVoltageDmaActiveBuffer ^= 1U;
+    DMA_StartNextBlock
+    (
+        &DmaRegs.CH3,
+        (ADC_PvVoltageDmaActiveBuffer == 0U) ?
+        (volatile Uint16 *)ADC_PvVoltageRawBuffer0 :
+        (volatile Uint16 *)ADC_PvVoltageRawBuffer1
+    );
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP7;
+}
+
+__interrupt void DMA_CH4_CPU_ISR(void)
+{
+    DMA_RecordCompletion(&ADC_IsolationDmaState, ADC_IsolationDmaActiveBuffer);
+    ADC_IsolationDmaActiveBuffer ^= 1U;
+    DMA_StartNextBlock
+    (
+        &DmaRegs.CH4,
+        (ADC_IsolationDmaActiveBuffer == 0U) ?
+        (volatile Uint16 *)ADC_IsolationRawBuffer0 :
+        (volatile Uint16 *)ADC_IsolationRawBuffer1
+    );
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP7;
+}
+
+__interrupt void DMA_CH5_CPU_ISR(void)
+{
+    DMA_RecordCompletion(&ADC_TemperatureDmaState, ADC_TemperatureDmaActiveBuffer);
+    ADC_TemperatureDmaActiveBuffer ^= 1U;
+    DMA_StartNextBlock
+    (
+        &DmaRegs.CH5,
+        (ADC_TemperatureDmaActiveBuffer == 0U) ?
+        (volatile Uint16 *)ADC_TemperatureRawBuffer0 :
+        (volatile Uint16 *)ADC_TemperatureRawBuffer1
+    );
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP7;
+}
+
+
+
+
+//以下是数据传输到的函数=========================================================================================================================
+
+static Uint16 DMA_ClaimCompletedBuffer(volatile DMA_BlockState *state, Uint16 *completedBuffer)//确认数据,更新状态
+{
+    Uint16 blockReady;
+
+    /* Keep the ISR from changing ready/completedBuffer between the two reads. */
+    DINT;//关中断????
+    //因为到了CPU确认数据的阶段,停止传输数据确实合理,但是关断全局的中断未必合理
+    blockReady = state->ready;
+    if(blockReady != 0U)
+    {
+        //注意,这一个函数不负责更新刚刚完成传输的buffer, 而且甚至不直接读取当前的已完成,因为它需要读取的是旧数据,管你当前是哪个buffer在工作
+        *completedBuffer = state->completedBuffer;
+        state->ready = 0U;
+    }
+    EINT;
+
+    return blockReady;//这里显式告诉你是否准备好,隐式告诉你一个用哪个buffer
+}
+
+Uint16 DMA_ProcessCompletedBlocks(ADC_RawData *rawInstant,
+                                  ADC_RawData *rawAvg,
+                                  ADC_RawMeanSqData *rawMeanSq,
+                                  const ADC_Calibrate *cal)
+{
+    Uint16 bufferIndex;
+    Uint16 sampleIndex;
+    Uint16 updated = 0U;
+
+    Uint32 sum0;
+    Uint32 sum1;
+    Uint32 sum2;
+    Uint32 sum3;
+    Uint32 sum4;
+    Uint32 sum5;
+
+    float squareSum0;
+    float squareSum1;
+    float squareSum2;
+    float squareSum3;
+    float squareSum4;
+    float squareSum5;
+
+    float centeredSample;
+
+    //以下就是轮询5个DMA通道的状态,看是否有数据更新
+
+    if(DMA_ClaimCompletedBuffer(&ADC_FastDmaState, &bufferIndex) != 0U)//如果快环数据更新
+    {
+        //这里的bufferIndex就是刚刚问DMA"你有哪个buffer是准备好的?" 这是DMA"回答"的结果
+        volatile ADC_FastRawFrame *buffer = (bufferIndex == 0U) ? ADC_FastRawBuffer0 : ADC_FastRawBuffer1;
+
+        sum0 = 0UL;
+        sum1 = 0UL;
+        sum2 = 0UL;
+        sum3 = 0UL;
+        sum4 = 0UL;
+        sum5 = 0UL;
+        squareSum0 = 0.0f;
+        squareSum1 = 0.0f;
+        squareSum2 = 0.0f;
+        squareSum3 = 0.0f;
+        squareSum4 = 0.0f;
+        squareSum5 = 0.0f;
+        for(sampleIndex = 0U; sampleIndex < ADC_FAST_BLOCK_BURSTS; sampleIndex++)
+        {
+            //注意,buffer里可全是原始数据
+            sum0 += buffer[sampleIndex].inductorCurrent;
+            sum1 += buffer[sampleIndex].gridVoltage;
+            sum2 += buffer[sampleIndex].gfciCurrent;
+            sum3 += buffer[sampleIndex].dcBusVoltage;
+            sum4 += buffer[sampleIndex].gridDcCurrent;
+            sum5 += buffer[sampleIndex].inverterVoltage;
+
+            //偏置
+            centeredSample = (float)buffer[sampleIndex].inductorCurrent - cal->inductorCurrent.offset;
+            squareSum0 += centeredSample * centeredSample;
+            centeredSample = (float)buffer[sampleIndex].gridVoltage - cal->gridVoltage.offset;
+            squareSum1 += centeredSample * centeredSample;
+            centeredSample = (float)buffer[sampleIndex].gfciCurrent - cal->gfciCurrent.offset;
+            squareSum2 += centeredSample * centeredSample;
+            centeredSample = (float)buffer[sampleIndex].dcBusVoltage - cal->dcBusVoltage.offset;
+            squareSum3 += centeredSample * centeredSample;
+            centeredSample = (float)buffer[sampleIndex].gridDcCurrent - cal->gridDcCurrent.offset;
+            squareSum4 += centeredSample * centeredSample;
+            centeredSample = (float)buffer[sampleIndex].inverterVoltage - cal->inverterVoltage.offset;
+            squareSum5 += centeredSample * centeredSample;
+        }
+
+        //保存本数据块最后一次采样和直流分量(avg)
+        rawInstant->inductorCurrent = buffer[ADC_FAST_BLOCK_BURSTS - 1U].inductorCurrent;
+        rawInstant->gridVoltage = buffer[ADC_FAST_BLOCK_BURSTS - 1U].gridVoltage;
+        rawInstant->gfciCurrent = buffer[ADC_FAST_BLOCK_BURSTS - 1U].gfciCurrent;
+        rawInstant->dcBusVoltage = buffer[ADC_FAST_BLOCK_BURSTS - 1U].dcBusVoltage;
+        rawInstant->gridDcCurrent = buffer[ADC_FAST_BLOCK_BURSTS - 1U].gridDcCurrent;
+        rawInstant->inverterVoltage = buffer[ADC_FAST_BLOCK_BURSTS - 1U].inverterVoltage;
+        rawAvg->inductorCurrent = (Uint16)(sum0 / ADC_FAST_BLOCK_BURSTS);
+        rawAvg->gridVoltage = (Uint16)(sum1 / ADC_FAST_BLOCK_BURSTS);
+        rawAvg->gfciCurrent = (Uint16)(sum2 / ADC_FAST_BLOCK_BURSTS);
+        rawAvg->dcBusVoltage = (Uint16)(sum3 / ADC_FAST_BLOCK_BURSTS);
+        rawAvg->gridDcCurrent = (Uint16)(sum4 / ADC_FAST_BLOCK_BURSTS);
+        rawAvg->inverterVoltage = (Uint16)(sum5 / ADC_FAST_BLOCK_BURSTS);
+
+        //算直流等效值(rms)
+        rawMeanSq->inductorCurrent = squareSum0 / (float)ADC_FAST_BLOCK_BURSTS;
+        rawMeanSq->gridVoltage = squareSum1 / (float)ADC_FAST_BLOCK_BURSTS;
+        rawMeanSq->gfciCurrent = squareSum2 / (float)ADC_FAST_BLOCK_BURSTS;
+        rawMeanSq->dcBusVoltage = squareSum3 / (float)ADC_FAST_BLOCK_BURSTS;
+        rawMeanSq->gridDcCurrent = squareSum4 / (float)ADC_FAST_BLOCK_BURSTS;
+        rawMeanSq->inverterVoltage = squareSum5 / (float)ADC_FAST_BLOCK_BURSTS;
+        updated |= DMA_UPDATE_FAST;
+    }
+
+    if(DMA_ClaimCompletedBuffer(&ADC_PvCurrentDmaState, &bufferIndex) != 0U)
+    {
+        volatile ADC_PvCurrentRawFrame *buffer =
+            (bufferIndex == 0U) ? ADC_PvCurrentRawBuffer0 : ADC_PvCurrentRawBuffer1;
+
+        sum0 = 0UL;
+        sum1 = 0UL;
+        squareSum0 = 0.0f;
+        squareSum1 = 0.0f;
+        for(sampleIndex = 0U; sampleIndex < ADC_PV_BLOCK_BURSTS; sampleIndex++)
+        {
+            sum0 += buffer[sampleIndex].pv1Current;
+            sum1 += buffer[sampleIndex].pv2Current;
+            centeredSample = (float)buffer[sampleIndex].pv1Current - cal->pv1Current.offset;
+            squareSum0 += centeredSample * centeredSample;
+            centeredSample = (float)buffer[sampleIndex].pv2Current - cal->pv2Current.offset;
+            squareSum1 += centeredSample * centeredSample;
+        }
+        rawInstant->pv1Current = buffer[ADC_PV_BLOCK_BURSTS - 1U].pv1Current;
+        rawInstant->pv2Current = buffer[ADC_PV_BLOCK_BURSTS - 1U].pv2Current;
+        rawAvg->pv1Current = (Uint16)(sum0 / ADC_PV_BLOCK_BURSTS);
+        rawAvg->pv2Current = (Uint16)(sum1 / ADC_PV_BLOCK_BURSTS);
+        rawMeanSq->pv1Current = squareSum0 / (float)ADC_PV_BLOCK_BURSTS;
+        rawMeanSq->pv2Current = squareSum1 / (float)ADC_PV_BLOCK_BURSTS;
+        updated |= DMA_UPDATE_PV_CURRENT;
+    }
+
+    if(DMA_ClaimCompletedBuffer(&ADC_PvVoltageDmaState, &bufferIndex) != 0U)
+    {
+        volatile ADC_PvVoltageRawFrame *buffer = (bufferIndex == 0U) ? ADC_PvVoltageRawBuffer0 : ADC_PvVoltageRawBuffer1;
+
+        sum0 = 0UL;
+        sum1 = 0UL;
+        squareSum0 = 0.0f;
+        squareSum1 = 0.0f;
+        for(sampleIndex = 0U; sampleIndex < ADC_PV_BLOCK_BURSTS; sampleIndex++)
+        {
+            sum0 += buffer[sampleIndex].pv1Voltage;
+            sum1 += buffer[sampleIndex].pv2Voltage;
+            centeredSample = (float)buffer[sampleIndex].pv1Voltage - cal->pv1Voltage.offset;
+            squareSum0 += centeredSample * centeredSample;
+            centeredSample = (float)buffer[sampleIndex].pv2Voltage - cal->pv2Voltage.offset;
+            squareSum1 += centeredSample * centeredSample;
+        }
+        rawInstant->pv1Voltage = buffer[ADC_PV_BLOCK_BURSTS - 1U].pv1Voltage;
+        rawInstant->pv2Voltage = buffer[ADC_PV_BLOCK_BURSTS - 1U].pv2Voltage;
+        rawAvg->pv1Voltage = (Uint16)(sum0 / ADC_PV_BLOCK_BURSTS);
+        rawAvg->pv2Voltage = (Uint16)(sum1 / ADC_PV_BLOCK_BURSTS);
+        rawMeanSq->pv1Voltage = squareSum0 / (float)ADC_PV_BLOCK_BURSTS;
+        rawMeanSq->pv2Voltage = squareSum1 / (float)ADC_PV_BLOCK_BURSTS;
+        updated |= DMA_UPDATE_PV_VOLTAGE;
+    }
+
+    if(DMA_ClaimCompletedBuffer(&ADC_IsolationDmaState, &bufferIndex) != 0U)
+    {
+        volatile ADC_IsolationRawFrame *buffer = (bufferIndex == 0U) ? ADC_IsolationRawBuffer0 : ADC_IsolationRawBuffer1;
+
+        sum0 = 0UL;
+        sum1 = 0UL;
+        squareSum0 = 0.0f;
+        squareSum1 = 0.0f;
+        for(sampleIndex = 0U; sampleIndex < ADC_SLOW_BLOCK_BURSTS; sampleIndex++)
+        {
+            sum0 += buffer[sampleIndex].pv1Isolation;
+            sum1 += buffer[sampleIndex].pv2Isolation;
+            centeredSample = (float)buffer[sampleIndex].pv1Isolation - cal->pv1Isolation.offset;
+            squareSum0 += centeredSample * centeredSample;
+            centeredSample = (float)buffer[sampleIndex].pv2Isolation - cal->pv2Isolation.offset;
+            squareSum1 += centeredSample * centeredSample;
+        }
+        rawInstant->pv1Isolation = buffer[ADC_SLOW_BLOCK_BURSTS - 1U].pv1Isolation;
+        rawInstant->pv2Isolation = buffer[ADC_SLOW_BLOCK_BURSTS - 1U].pv2Isolation;
+        rawAvg->pv1Isolation = (Uint16)(sum0 / ADC_SLOW_BLOCK_BURSTS);
+        rawAvg->pv2Isolation = (Uint16)(sum1 / ADC_SLOW_BLOCK_BURSTS);
+        rawMeanSq->pv1Isolation = squareSum0 / (float)ADC_SLOW_BLOCK_BURSTS;
+        rawMeanSq->pv2Isolation = squareSum1 / (float)ADC_SLOW_BLOCK_BURSTS;
+        updated |= DMA_UPDATE_ISOLATION;
+    }
+
+    if(DMA_ClaimCompletedBuffer(&ADC_TemperatureDmaState, &bufferIndex) != 0U)
+    {
+        volatile ADC_TemperatureRawFrame *buffer = (bufferIndex == 0U) ? ADC_TemperatureRawBuffer0 : ADC_TemperatureRawBuffer1;
+
+        sum0 = 0UL;
+        sum1 = 0UL;
+        for(sampleIndex = 0U; sampleIndex < ADC_SLOW_BLOCK_BURSTS; sampleIndex++)
+        {
+            sum0 += buffer[sampleIndex].inverterTemperature;
+            sum1 += buffer[sampleIndex].boostTemperature;
+        }
+        rawInstant->inverterTemperature = buffer[ADC_SLOW_BLOCK_BURSTS - 1U].inverterTemperature;
+        rawInstant->boostTemperature = buffer[ADC_SLOW_BLOCK_BURSTS - 1U].boostTemperature;
+        rawAvg->inverterTemperature = (Uint16)(sum0 / ADC_SLOW_BLOCK_BURSTS);
+        rawAvg->boostTemperature = (Uint16)(sum1 / ADC_SLOW_BLOCK_BURSTS);
+        updated |= DMA_UPDATE_TEMP;
+    }
+
+    return updated;
 }
