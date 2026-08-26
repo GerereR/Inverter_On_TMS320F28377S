@@ -13,10 +13,10 @@
  * Default measurement gains recovered from the legacy 5/6 kW design.
  * They are initialization values only; final hardware must be calibrated.
  */
-#define ADC_GRID_VOLTAGE_GAIN             (912.0f / ADC_FULL_SCALE)
-#define ADC_INVERTER_VOLTAGE_GAIN         (912.0f / ADC_FULL_SCALE)
-#define ADC_DC_BUS_VOLTAGE_GAIN           (604.8f / ADC_FULL_SCALE)
-#define ADC_PV_VOLTAGE_GAIN               (604.8f / ADC_FULL_SCALE)
+#define ADC_GRID_VOLTAGE_GAIN              (912.0f / ADC_FULL_SCALE)
+#define ADC_INVERTER_VOLTAGE_GAIN          (912.0f / ADC_FULL_SCALE)
+#define ADC_DC_BUS_VOLTAGE_GAIN            (604.8f / ADC_FULL_SCALE)
+#define ADC_PV_VOLTAGE_GAIN                (604.8f / ADC_FULL_SCALE)
 #define ADC_INDUCTOR_CURRENT_GAIN          (94.716f / ADC_FULL_SCALE)
 #define ADC_PV_CURRENT_GAIN                (24.0f / ADC_FULL_SCALE)
 #define ADC_GFCI_CURRENT_GAIN              (3000.0f / (ADC_FULL_SCALE * 2098.0f))
@@ -35,8 +35,7 @@
  * 按ASCII区间直接计算索引;不在支持集内的字符统一显示'?'。
  * 每字符 5 字节 = 5 列,每字节 bit0..7 对应页内 8 行像素的明暗;
  * 行尾补 1 列空白 → 占位 6 列/字符 → 128/6 = 21 字符/行。      */
-static const char OLED_FontSupported[] =
-    " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.:?!()-_~";
+static const char OLED_FontSupported[] = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.:?!()-_~";
 
 /* 字库索引布局(与 OLED_FontSupported / OLED_Font5x7 顺序绑定,
  * 调整字库时这些偏移需同步更新):
