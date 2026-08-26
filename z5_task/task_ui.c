@@ -3,30 +3,53 @@
 #include "task.h"
 #include "bsp.h"
 #include "variable.h"
+#include "constant.h"
+#include <string.h>
 
-/* ============================================================================
- * task_ui.c —— OLED 显示任务(慢任务,由主循环调度器按旗标调用)
- *
- * 职责:
- *   1. 初始化 OLED(失败不阻塞,按 tick 重试)
- *   2. 周期性从共享数据区快照电压/电流/频率/状态
- *   3. 写入 OLED 帧缓冲,并限流地把脏页刷上屏
- *
- * 关键设计:
- *   - UI_OledReady=0 时本任务只做"重试初始化"一件事,保证主循环不被
- *     I2C 错误拖死;OLED 每次上电初始化有 ~22 次 I2C 事务,若总线异常
- *     会逐条超时,所以重试间隔拉到 10 个 tick(2 秒)。
- *   - 测量数据由同一主循环中的 Task_Measure 统一发布,UI任务执行期间不会
- *     被其他主循环任务抢占;ISR更新的故障字段为16位,可直接原子读取。
- *   - 每 tick 最多刷 2 页(约 6ms 忙等),把 UI 的 I2C 占用封顶,
- *     让 20kHz ADCA1 ISR 和调度器主循环有充足时间窗。
- * ==========================================================================*/
+/* SSD1306配置和帧缓冲只属于UI任务，不暴露给其他任务。 */
+#define OLED_I2C_ADDR_7BIT       0x3CU
+#define OLED_WIDTH_COLUMNS       128U
+#define OLED_HEIGHT_PAGES        8U
+#define OLED_LINE_CHARS          21U
+#define OLED_I2C_TIMEOUT_US      3000U
+#define OLED_SEGMENT_REMAP       0xA1U
+#define OLED_COM_SCAN            0xC8U
+#define OLED_CONTROL_COMMAND     0x00U
+#define OLED_CONTROL_DATA        0x40U
+#define OLED_DIRTY_ALL_PAGES     0x00FFU
+
+static unsigned char OLED_FrameBuffer[OLED_WIDTH_COLUMNS * OLED_HEIGHT_PAGES];
+static Uint16 OLED_DirtyPages = OLED_DIRTY_ALL_PAGES;
+static Uint16 OLED_RefreshStartPage = 0U;
+static Uint16 OLED_CursorColumn = 0U;
+static Uint16 OLED_CursorPage = 0U;
+
+/* OLED驱动层私有函数声明。任务入口放在前面，具体实现集中放在文件后部。 */
+static Uint16 OLED_WriteCommand(unsigned char command);
+static void OLED_MarkPageDirty(Uint16 page);
+static void OLED_Clear(void);
+static Uint16 OLED_Init(void);
+static void OLED_SetCursor(Uint16 column, Uint16 page);
+static void OLED_WriteChar(char ch);
+static void OLED_WriteLine(Uint16 page, const char *text);
+static Uint16 OLED_RefreshPage(Uint16 page);
+static Uint16 OLED_RefreshDirty(Uint16 maxPages);
+static Uint16 OLED_RefreshAll(void);
+static void OLED_AppendChar(char *text, Uint16 *position, char ch);
+static void OLED_AppendString(char *text, Uint16 *position, const char *value);
+static void OLED_WriteFloat1Line(Uint16 page, const char *label, float value, const char *unit);
+static Uint16 OLED_BringupTest(void);
 
 /* OLED 是否已初始化成功;0=未就绪(每 UI_INIT_RETRY_DIVIDER 个 tick 重试一次) */
 static Uint16 UI_OledReady = 0U;
 /* 初始化重试分频器:每 tick 自增,计满 10(即 200ms×10=2s)触发一次重试 */
 static Uint16 UI_InitRetryDivider = 0U;
 #define UI_INIT_RETRY_DIVIDER   10U  /* 重试周期:tick 数 */
+#define UI_DISPLAY_SCREEN_COUNT 2U
+#define UI_INIT_RETRY_LIMIT     2U  /* 1.5 s * 2 = 3 s */
+#define UI_DISPLAY_PERIOD_TICKS 5U   /* Task_UI每200ms运行一次,每1s轮换页面 */
+
+static Uint16 UI_DisplayScreen = 0U;
 
 /* 写状态行:"PLL Lx TZ Fy" 形式的定长文本。
  * x = 锁相环锁定状态,y = 跳变区故障状态(0/1)。
@@ -87,9 +110,13 @@ void Task_UI_Init(void)
  *   2. OLED 就绪   → 快照共享数据 → 写帧缓冲(4 行) → 限流刷脏页    */
 void Task_UI(void)
 {
-    float gridVoltage;
-    float inductorCurrent;
+    float gridVoltageRms;
+    float inductorCurrentRms;
+    float pv1Voltage;
+    float pv1Current;
     float ecapFreq;
+    float pllFreq;
+    float inductorCurrentAmp;
     Uint16 pllLocked;
     Uint16 tzFault;
 
@@ -99,7 +126,7 @@ void Task_UI(void)
     if(UI_OledReady == 0U)
     {
         UI_InitRetryDivider++;
-        if(UI_InitRetryDivider >= UI_INIT_RETRY_DIVIDER)
+        if(UI_InitRetryDivider >= UI_INIT_RETRY_LIMIT)
         {
             UI_InitRetryDivider = 0U;
             Task_UI_Init();
@@ -109,22 +136,381 @@ void Task_UI(void)
 
     /* Task_Measure和Task_UI同属合作式主循环,测量快照读取期间不会被改写。
      * pllFault/tzFault由ISR写入,单个16位字段在C28x上可原子读取。 */
-    gridVoltage = gMachineData.realAvg.gridVoltage;
-    inductorCurrent = gMachineData.realAvg.inductorCurrent;
+    gridVoltageRms = gMachineData.realRms.gridVoltage;
+    inductorCurrentRms = gMachineData.realRms.inductorCurrent;
+    pv1Voltage = gMachineData.realAvg.pv1Voltage;
+    pv1Current = gMachineData.realAvg.pv1Current;
     ecapFreq = (float)gMachineData.ecapFreqCent * 0.01f;
+    pllFreq = (float)gMachineData.pllFreqCent * 0.01f;
+    inductorCurrentAmp = InductorCurrentAmp_temporal;
     pllLocked = (gSysFault.pllFault == 0U) ? 1U : 0U;
     tzFault = gSysFault.tzFault;
 
-    /* 只写帧缓冲(标脏页),不上屏——上屏在最后统一限流执行。
-     * 4 条数据行分别占页 4/5/6/7。                                 */
-    OLED_WriteFloat1Line(4U, "GRID", gridVoltage, "V");
-    OLED_WriteFloat1Line(5U, "I", inductorCurrent, "A");
-    OLED_WriteFloat1Line(6U, "ECAP", ecapFreq, "HZ");
-    UI_WriteStatusLine(7U, pllLocked, tzFault);
+    /* 两组页面轮换显示, 每组都覆盖相同的页面, 不会残留上一组内容。 */
+    if(UI_DisplayScreen == 0U)
+    {
+        OLED_WriteLine(0U, "MEASUREMENTS");
+        OLED_WriteFloat1Line(1U, "GRID RMS", gridVoltageRms, "V");
+        OLED_WriteFloat1Line(2U, "IND RMS", inductorCurrentRms, "A");
+        OLED_WriteFloat1Line(3U, "PV1 VOLT", pv1Voltage, "V");
+        OLED_WriteFloat1Line(4U, "PV1 CURR", pv1Current, "A");
+        OLED_WriteFloat1Line(5U, "DC BUS", gMachineData.realAvg.dcBusVoltage, "V");
+        OLED_WriteFloat1Line(6U, "INV VOLT", gMachineData.realAvg.inverterVoltage, "V");
+        OLED_WriteFloat1Line(7U, "IREF AMP", inductorCurrentAmp, "PU");
+    }
+    else
+    {
+        OLED_WriteLine(0U, "FREQUENCIES");
+        OLED_WriteFloat1Line(1U, "ECAP FREQ", ecapFreq, "HZ");
+        OLED_WriteFloat1Line(2U, "PLL FREQ", pllFreq, "HZ");
+        OLED_WriteLine(3U, "");
+        OLED_WriteLine(4U, "");
+        OLED_WriteLine(5U, "");
+        OLED_WriteLine(6U, "");
+        UI_WriteStatusLine(7U, pllLocked, tzFault);
+    }
+
+    /* UI任务每200ms运行一次, 每5次切换一组显示页面。 */
+    UI_DisplayScreen++;
+    if(UI_DisplayScreen >= UI_DISPLAY_SCREEN_COUNT)
+    {
+        UI_DisplayScreen = 0U;
+    }
 
     /* Bound UI work per tick: at most two 128-byte pages are pushed now. */
     /* 限流上屏:每 tick 最多刷 2 页。
      * 每页 = 3 条命令 + 129 字节数据帧 ≈ 2.9ms 忙等;
      * 轮转扫描保证4个脏页分两个tick全部上屏,不会饿死高页。          */
-    (void)OLED_RefreshDirty(2U);
+    (void)OLED_RefreshDirty(OLED_HEIGHT_PAGES);
+}
+
+/* OLED驱动层 =================================================================
+ * 完成初始化命令、帧缓冲绘制、脏页管理和I2C上屏。
+ * 它依赖通用I2C_MasterWrite，但不再占用i2c.c的底层驱动职责。         */
+
+static Uint16 OLED_WriteCommand(unsigned char command)
+{
+    unsigned char tx[2];
+    tx[0] = OLED_CONTROL_COMMAND;
+    tx[1] = command;
+    return I2C_MasterWrite(OLED_I2C_ADDR_7BIT, tx, 2U, OLED_I2C_TIMEOUT_US);
+}
+
+static void OLED_MarkPageDirty(Uint16 page)
+{
+    if(page < OLED_HEIGHT_PAGES)
+    {
+        OLED_DirtyPages |= (Uint16)(1U << page);
+    }
+}
+
+/* SSD1306没有直接清屏命令，因此清空软件帧缓冲并标记全部页面。 */
+static void OLED_Clear(void)
+{
+    memset(OLED_FrameBuffer, 0, sizeof(OLED_FrameBuffer));
+    OLED_CursorColumn = 0U;
+    OLED_CursorPage = 0U;
+    OLED_DirtyPages = OLED_DIRTY_ALL_PAGES;
+    OLED_RefreshStartPage = 0U;
+}
+
+static Uint16 OLED_Init(void)
+{
+    static const unsigned char initCommands[] =
+    {
+        0xAEU,       /* 关显示，配置期间禁止输出 */
+        0xD5U, 0x80U,/* 显示时钟分频比=1，振荡频率=8 */
+        0xA8U, 0x3FU,/* 64行复用率 */
+        0xD3U, 0x00U,/* 显示起始行偏移=0 */
+        0x40U,       /* 起始行地址=0 */
+        0x8DU, 0x14U,/* 使能内部电荷泵 */
+        0x20U, 0x02U,/* 页寻址模式 */
+        OLED_SEGMENT_REMAP,
+        OLED_COM_SCAN,
+        0xDAU, 0x12U,/* 128x64面板COM引脚配置 */
+        0x81U, 0xCFU,/* 对比度 */
+        0xD9U, 0xF1U,/* 预充电周期 */
+        0xDBU, 0x40U,/* VCOMH电平 */
+        0xA4U,       /* 按GDRAM内容显示 */
+        0xA6U,       /* 正常显示 */
+        0xAFU        /* 开显示 */
+    };
+    Uint16 index;
+    Uint16 status;
+
+    for(index = 0U; index < (sizeof(initCommands) / sizeof(initCommands[0])); index++)
+    {
+        status = OLED_WriteCommand(initCommands[index]);
+        if(status != I2C_STATUS_OK)
+        {
+            return status;
+        }
+    }
+
+    OLED_Clear();
+    return I2C_STATUS_OK;
+}
+
+static void OLED_SetCursor(Uint16 column, Uint16 page)
+{
+    if(column >= OLED_WIDTH_COLUMNS)
+    {
+        column = 0U;
+    }
+    if(page >= OLED_HEIGHT_PAGES)
+    {
+        page = 0U;
+    }
+    OLED_CursorColumn = column;
+    OLED_CursorPage = page;
+}
+
+/* 写一个字符只修改帧缓冲，不直接进行I2C传输。 */
+static void OLED_WriteChar(char ch)
+{
+    Uint16 fontIndex;
+    Uint16 bufferIndex;
+    Uint16 column;
+
+    if(OLED_CursorColumn > (OLED_WIDTH_COLUMNS - 6U))
+    {
+        OLED_CursorColumn = 0U;
+        OLED_CursorPage++;
+        if(OLED_CursorPage >= OLED_HEIGHT_PAGES)
+        {
+            OLED_CursorPage = 0U;
+        }
+    }
+
+    if(ch == ' ')
+    {
+        fontIndex = OLED_FONT_IDX_SPACE;
+    }
+    else if((ch >= '0') && (ch <= '9'))
+    {
+        fontIndex = (Uint16)(OLED_FONT_IDX_DIGIT + (Uint16)(ch - '0'));
+    }
+    else if((ch >= 'A') && (ch <= 'Z'))
+    {
+        fontIndex = (Uint16)(OLED_FONT_IDX_ALPHA + (Uint16)(ch - 'A'));
+    }
+    else if((ch >= 'a') && (ch <= 'z'))
+    {
+        fontIndex = (Uint16)(OLED_FONT_IDX_LOWER + (Uint16)(ch - 'a'));
+    }
+    else
+    {
+        switch(ch)
+        {
+            case '.': fontIndex = (Uint16)(OLED_FONT_IDX_SYMBOL + 0U); break;
+            case ':': fontIndex = (Uint16)(OLED_FONT_IDX_SYMBOL + 1U); break;
+            case '?': fontIndex = (Uint16)(OLED_FONT_IDX_SYMBOL + 2U); break;
+            case '!': fontIndex = (Uint16)(OLED_FONT_IDX_SYMBOL + 3U); break;
+            case '(': fontIndex = (Uint16)(OLED_FONT_IDX_SYMBOL + 4U); break;
+            case ')': fontIndex = (Uint16)(OLED_FONT_IDX_SYMBOL + 5U); break;
+            case '-': fontIndex = (Uint16)(OLED_FONT_IDX_SYMBOL + 6U); break;
+            case '_': fontIndex = (Uint16)(OLED_FONT_IDX_SYMBOL + 7U); break;
+            case '~': fontIndex = (Uint16)(OLED_FONT_IDX_SYMBOL + 8U); break;
+            default:  fontIndex = OLED_FONT_INDEX_QUESTION; break;
+        }
+    }
+
+    bufferIndex = (OLED_CursorPage * OLED_WIDTH_COLUMNS) + OLED_CursorColumn;
+    for(column = 0U; column < 5U; column++)
+    {
+        OLED_FrameBuffer[bufferIndex + column] = OLED_Font5x7[fontIndex][column];
+    }
+    OLED_FrameBuffer[bufferIndex + 5U] = 0U;
+    OLED_CursorColumn += 6U;
+    OLED_MarkPageDirty(OLED_CursorPage);
+}
+
+static void OLED_WriteLine(Uint16 page, const char *text)
+{
+    Uint16 written = 0U;
+
+    OLED_SetCursor(0U, page);
+    if(text != 0)
+    {
+        while((*text != '\0') && (written < OLED_LINE_CHARS))
+        {
+            OLED_WriteChar(*text);
+            text++;
+            written++;
+        }
+    }
+    while(written < OLED_LINE_CHARS)
+    {
+        OLED_WriteChar(' ');
+        written++;
+    }
+}
+
+/* 页寻址模式下，设定一次页和起始列后连续发送128字节。 */
+static Uint16 OLED_RefreshPage(Uint16 page)
+{
+    static unsigned char tx[1U + OLED_WIDTH_COLUMNS];
+    Uint16 column;
+    Uint16 status;
+
+    if(page >= OLED_HEIGHT_PAGES)
+    {
+        return I2C_STATUS_BAD_PARAMETER;
+    }
+
+    status = OLED_WriteCommand((unsigned char)(0xB0U | page));
+    if(status != I2C_STATUS_OK) { return status; }
+
+    status = OLED_WriteCommand(0x00U);
+    if(status != I2C_STATUS_OK) { return status; }
+
+    status = OLED_WriteCommand(0x10U);
+    if(status != I2C_STATUS_OK) { return status; }
+
+    tx[0] = OLED_CONTROL_DATA;
+    for(column = 0U; column < OLED_WIDTH_COLUMNS; column++)
+    {
+        tx[column + 1U] = OLED_FrameBuffer[(page * OLED_WIDTH_COLUMNS) + column];
+    }
+    return I2C_MasterWrite(OLED_I2C_ADDR_7BIT,
+                           tx,
+                           (Uint16)(1U + OLED_WIDTH_COLUMNS),
+                           OLED_I2C_TIMEOUT_US);
+}
+
+/* 轮转扫描脏页，每次最多刷新maxPages页。 */
+static Uint16 OLED_RefreshDirty(Uint16 maxPages)
+{
+    Uint16 scanStart = OLED_RefreshStartPage;
+    Uint16 pageOffset;
+    Uint16 page;
+    Uint16 refreshed = 0U;
+    Uint16 status;
+
+    for(pageOffset = 0U; pageOffset < OLED_HEIGHT_PAGES; pageOffset++)
+    {
+        page = scanStart + pageOffset;
+        if(page >= OLED_HEIGHT_PAGES)
+        {
+            page -= OLED_HEIGHT_PAGES;
+        }
+
+        if((OLED_DirtyPages & (Uint16)(1U << page)) == 0U)
+        {
+            continue;
+        }
+        if(refreshed >= maxPages)
+        {
+            break;
+        }
+
+        status = OLED_RefreshPage(page);
+        if(status != I2C_STATUS_OK)
+        {
+            OLED_RefreshStartPage = page;
+            return status;
+        }
+
+        OLED_DirtyPages &= (Uint16)~(1U << page);
+        refreshed++;
+        OLED_RefreshStartPage = page + 1U;
+        if(OLED_RefreshStartPage >= OLED_HEIGHT_PAGES)
+        {
+            OLED_RefreshStartPage = 0U;
+        }
+    }
+    return I2C_STATUS_OK;
+}
+
+static Uint16 OLED_RefreshAll(void)
+{
+    return OLED_RefreshDirty(OLED_HEIGHT_PAGES);
+}
+
+static void OLED_AppendChar(char *text, Uint16 *position, char ch)
+{
+    if(*position < OLED_LINE_CHARS)
+    {
+        text[*position] = ch;
+        (*position)++;
+        text[*position] = '\0';
+    }
+}
+
+static void OLED_AppendString(char *text, Uint16 *position, const char *value)
+{
+    if(value == 0)
+    {
+        return;
+    }
+    while((*value != '\0') && (*position < OLED_LINE_CHARS))
+    {
+        OLED_AppendChar(text, position, *value);
+        value++;
+    }
+}
+
+/* 手工格式化一位小数，避免引入printf浮点格式化开销。 */
+static void OLED_WriteFloat1Line(Uint16 page, const char *label, float value, const char *unit)
+{
+    char text[OLED_LINE_CHARS + 1U];
+    Uint16 position = 0U;
+    long scaled;
+    long integerPart;
+    long divisor;
+    Uint16 fractionPart;
+    Uint16 started = 0U;
+
+    text[0] = '\0';
+    if(value > 9999.9f)
+    {
+        value = 9999.9f;
+    }
+    else if(value < -9999.9f)
+    {
+        value = -9999.9f;
+    }
+
+    OLED_AppendString(text, &position, label);
+    OLED_AppendChar(text, &position, ' ');
+
+    scaled = (long)((value >= 0.0f) ? ((value * 10.0f) + 0.5f) : ((value * 10.0f) - 0.5f));
+    if(scaled < 0L)
+    {
+        OLED_AppendChar(text, &position, '-');
+        scaled = -scaled;
+    }
+    integerPart = scaled / 10L;
+    fractionPart = (Uint16)(scaled % 10L);
+
+    for(divisor = 10000L; divisor > 0L; divisor /= 10L)
+    {
+        Uint16 digit = (Uint16)((integerPart / divisor) % 10L);
+        if((digit != 0U) || (started != 0U) || (divisor == 1L))
+        {
+            OLED_AppendChar(text, &position, (char)('0' + digit));
+            started = 1U;
+        }
+    }
+    OLED_AppendChar(text, &position, '.');
+    OLED_AppendChar(text, &position, (char)('0' + fractionPart));
+    if(unit != 0)
+    {
+        OLED_AppendChar(text, &position, ' ');
+        OLED_AppendString(text, &position, unit);
+    }
+
+    OLED_WriteLine(page, text);
+}
+
+static Uint16 OLED_BringupTest(void)
+{
+    OLED_Clear();
+    OLED_WriteLine(0U, "INVERTER BASE");
+    OLED_WriteLine(1U, "OLED SSD1306 OK");
+    OLED_WriteLine(2U, "I2CA 7BIT 0X3C");
+    OLED_WriteLine(4U, "GRID ---.- V");
+    OLED_WriteLine(5U, "I ---.- A");
+    OLED_WriteLine(6U, "UI BOOT");
+    return OLED_RefreshAll();
 }

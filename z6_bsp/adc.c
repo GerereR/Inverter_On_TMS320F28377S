@@ -237,9 +237,9 @@ __interrupt void ADCA1_CPU_ISR(void)
     gridVoltageRawSample = AdcaResultRegs.ADCRESULT1;
 
     /* Convert the grid-voltage sample to the normalized PLL input. */
-    gridVoltagePllInput =
-        ((float)gridVoltageRawSample - gAdcCal.gridVoltage.offset) / ADC_BIPOLAR_ZERO;
-    SRF_PLL_Run(&GridSPLL, gridVoltagePllInput);
+    gridVoltagePllInput = ((float)gridVoltageRawSample - gAdcCal.gridVoltage.offset) / ADC_BIPOLAR_ZERO;
+    //SRF_PLL_Run(&GridSPLL, gridVoltagePllInput);
+    SOGI_PLL_Run(&GridSPLL, gridVoltagePllInput);
     gMachineData.pllFreqCent = (Uint16)(GridSPLL.frequencyHz * 100.0f);
     ADC_UpdateGridPllLock(gridVoltagePllInput);
 

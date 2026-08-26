@@ -75,33 +75,14 @@ void I2C_Config(void);
 /* I2C 轮询式主机发送:向 7 位地址从机写 length 字节,阻塞至完成/超时/出错。
  * timeoutUs=0 表示用默认超时(2ms)。返回上面的 I2C_STATUS_xxx。      */
 Uint16 I2C_MasterWrite(Uint16 slaveAddr7, const unsigned char *data, Uint16 length, Uint16 timeoutUs);
-
-/* SSD1306 OLED over I2CA. Implementation lives in i2c.c to keep BSP file count low. */
-/* ============= SSD1306 OLED 接口(i2c.c 实现)=============
- * 屏幕 128×64,页寻址,8 页 × 128 列;帧缓冲 + 脏页位图 + 限流刷新。 */
-#define OLED_I2C_ADDR_7BIT     0x3CU   /* SSD1306 常见 7 位从地址(SA0=0)   */
-#define OLED_WIDTH_COLUMNS     128U    /* 水平像素/列数                    */
-#define OLED_HEIGHT_PAGES      8U      /* 垂直页数(每页 8 行像素)          */
-#define OLED_LINE_CHARS        21U     /* 每行最多字符(128 列 ÷ 6 列/字符) */
-#define OLED_I2C_TIMEOUT_US    3000U   /* 单条 OLED I2C 事务超时 3ms       */
-
-
- /*   - 左右镜像 → OLED_SEGMENT_REMAP 在 0xA0 / 0xA1 之间切换
- *   - 上下颠倒 → OLED_COM_SCAN      在 0xC0 / 0xC8 之间切换*/
-#define OLED_SEGMENT_REMAP     0xA1U   //0xA0=正向 / 0xA1=水平镜像        
-#define OLED_COM_SCAN          0xC8U   //0xC0=自上而下 / 0xC8=自下而上
-
-Uint16 OLED_Init(void);                             /* 上电初始化命令序列 + 清软件缓冲 */
-void OLED_Clear(void);                              /* 缓冲清零 + 光标归位 + 整屏标脏 */
-Uint16 OLED_RefreshAll(void);                       /* 立即刷全部 8 页(阻塞)          */
-Uint16 OLED_RefreshDirty(Uint16 maxPages);          /* 最多刷 maxPages 个脏页(限流)   */
-void OLED_SetCursor(Uint16 column, Uint16 page);    /* 设置字符流输出光标              */
-void OLED_WriteChar(char ch);                       /* 光标处写 1 字符(6 列步进)      */
-void OLED_WriteString(const char *text);            /* 连续写字符串直到 '\0'          */
-void OLED_WriteLine(Uint16 page, const char *text); /* 整行写(定长补空格,最多 21 字符)*/
-void OLED_WriteFloat1Line(Uint16 page, const char *label, float value, const char *unit);
-                                                    /* "标签 值 单位",1 位小数        */
-Uint16 OLED_BringupTest(void);                      /* 开机自检画面并全量刷新         */
+Uint16 I2C_MasterRead(Uint16 slaveAddr7, unsigned char *data, Uint16 length, Uint16 timeoutUs);
+Uint16 I2C_MasterProbe(Uint16 slaveAddr7, Uint16 timeoutUs);
+Uint16 I2C_MasterWriteRead(Uint16 slaveAddr7,
+                           const unsigned char *writeData,
+                           Uint16 writeLength,
+                           unsigned char *readData,
+                           Uint16 readLength,
+                           Uint16 timeoutUs);
 
 void SCI_SendByte(Uint16 data);
 void SCI_SendString(const char *text);
@@ -111,7 +92,7 @@ extern volatile float InductorCurrentAmp_temporal;
 extern volatile Uint16 SCI_RxDataPending;
 
 __interrupt void ECAP1_BSP_ISR(void);
-__interrupt void SCIA_BSP_RX_ISR(void);
+__interrupt void SCIB_BSP_RX_ISR(void);
 __interrupt void ADCA1_CPU_ISR(void);
 __interrupt void DMA_CH1_CPU_ISR(void);
 __interrupt void DMA_CH2_CPU_ISR(void);

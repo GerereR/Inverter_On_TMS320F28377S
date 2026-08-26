@@ -17,28 +17,29 @@ void SCI_Config(void)
 {
     EALLOW;
 
-    // Hold SCI in reset while format, baud rate, and FIFO are configured.
-    SciaRegs.SCICTL1.bit.SWRESET = 0;   //说明配置期间先让 SCI 保持复位
-    SciaRegs.SCICCR.all = 0x0007;       // 8 data bits, no parity, 1 stop bit. 普通异步串口
-    SciaRegs.SCICTL1.all = 0x0003;     // 打开接收器和发送器,但 SWRESET 仍然为 0，因此 SCI 还没有真正运行
-    SciaRegs.SCIHBAUD.all = (Uint16)(SCI_BRR_VALUE >> 8);//把 BRR 的高 8 位写入高波特率寄存器。
-    SciaRegs.SCILBAUD.all = (Uint16)(SCI_BRR_VALUE & 0xFFU);//把 BRR 的低 8 位写入低波特率寄存器。
+    // Hold SCIB in reset while format, baud rate, and FIFO are configured.
+    ScibRegs.SCICTL1.bit.SWRESET = 0;   //说明配置期间先让 SCI 保持复位
+    ScibRegs.SCICCR.all = 0x0007;       // 8 data bits, no parity, 1 stop bit. 普通异步串口
+    ScibRegs.SCICTL1.all = 0x0003;     // 打开接收器和发送器,但 SWRESET 仍然为 0，因此 SCI 还没有真正运行
+    ScibRegs.SCIHBAUD.all = (Uint16)(SCI_BRR_VALUE >> 8);//把 BRR 的高 8 位写入高波特率寄存器。
+    ScibRegs.SCILBAUD.all = (Uint16)(SCI_BRR_VALUE & 0xFFU);//把 BRR 的低 8 位写入低波特率寄存器。
 
-    SciaRegs.SCIFFTX.all = 0xE040;  //配置发送FIFO,发送不使用中断
-    SciaRegs.SCIFFRX.all = 0x2061;  //配置接收FIFO,RX FIFO 里面只要有 1 个字节，就触发 RX FIFO 中断
+    ScibRegs.SCIFFTX.all = 0xE040;  //配置发送FIFO,发送不使用中断
+    ScibRegs.SCIFFRX.all = 0x2061;  //配置接收FIFO,RX FIFO 里面只要有 1 个字节，就触发 RX FIFO 中断
 
-    SciaRegs.SCIFFCT.all = 0x0000;  //FIFO相关特殊控制功能关闭
+    ScibRegs.SCIFFCT.all = 0x0000;  //FIFO相关特殊控制功能关闭
 
-    SciaRegs.SCICTL2.all = 0x0000;
-    SciaRegs.SCICTL2.bit.RXBKINTENA = 1;//打开RX 接收中断
+    ScibRegs.SCICTL2.all = 0x0000;
+    ScibRegs.SCICTL2.bit.RXBKINTENA = 1;//打开RX 接收中断
 
-    SciaRegs.SCIPRI.bit.FREESOFT = 3;//仿真器暂停 CPU
+    ScibRegs.SCIPRI.bit.FREESOFT = 3;//仿真器暂停 CPU
 
-    PieVectTable.SCIA_RX_INT = &SCIA_BSP_RX_ISR;
+    PieVectTable.SCIB_RX_INT = &SCIB_BSP_RX_ISR;
 
-    SciaRegs.SCICTL1.bit.SWRESET = 1;//SCI开始工作
+    ScibRegs.SCICTL1.bit.SWRESET = 1;//SCI开始工作
 
-    PieCtrlRegs.PIEIER9.bit.INTx1 = 1;
+    /* SCIB RX is PIE group 9, channel 3 (SCIA RX would be channel 1). */
+    PieCtrlRegs.PIEIER9.bit.INTx3 = 1;
     IER |= M_INT9;
 
     EDIS;
@@ -46,11 +47,11 @@ void SCI_Config(void)
 
 void SCI_SendByte(Uint16 data)
 {
-    while(SciaRegs.SCIFFTX.bit.TXFFST >= 16U)//如果FIFO满了
+    while(ScibRegs.SCIFFTX.bit.TXFFST >= 16U)//如果FIFO满了
     {
         //里面可以加上超时保护
     }
-    SciaRegs.SCITXBUF.bit.TXDT = data & 0x00FFU;//发送低八位
+    ScibRegs.SCITXBUF.bit.TXDT = data & 0x00FFU;//发送低八位
 }
 
 void SCI_SendString(const char *text)
@@ -82,14 +83,14 @@ Uint16 SCI_ReadByte(Uint16 *data)
     return 1U;
 }
 
-__interrupt void SCIA_BSP_RX_ISR(void)//存进软件buffer,至于用不用,需要task_comm判断
+__interrupt void SCIB_BSP_RX_ISR(void)//存进软件buffer,至于用不用,需要task_comm判断
 {
     Uint16 data;  //临时保存数据
     Uint16 nextIndex;   //索引
 
-    while(SciaRegs.SCIFFRX.bit.RXFFST != 0U)//读数据知道FIFO彻底空了
+    while(ScibRegs.SCIFFRX.bit.RXFFST != 0U)//读数据知道FIFO彻底空了
     {
-        data = SciaRegs.SCIRXBUF.bit.SAR; //直接读取FIFO硬件数据
+        data = ScibRegs.SCIRXBUF.bit.SAR; //直接读取FIFO硬件数据
         nextIndex = SCI_RxWriteIndex + 1U;  //索引++
         if(nextIndex >= SCI_RX_BUFFER_SIZE) //从头开始
         {
@@ -107,8 +108,8 @@ __interrupt void SCIA_BSP_RX_ISR(void)//存进软件buffer,至于用不用,需�
         }
     }
 
-    SciaRegs.SCIFFRX.bit.RXFFOVRCLR = 1;
-    SciaRegs.SCIFFRX.bit.RXFFINTCLR = 1;
+    ScibRegs.SCIFFRX.bit.RXFFOVRCLR = 1;
+    ScibRegs.SCIFFRX.bit.RXFFINTCLR = 1;
     SCI_RxDataPending = 1U;
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
 }

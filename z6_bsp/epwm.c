@@ -53,13 +53,18 @@ void EPWM_Config(void)
     EPwm3Regs.DBRED.bit.DBRED = EPWM3_DEADBAND_TICKS;//上升沿和下降沿死区都设置为 100 TBCLK： 
     EPwm3Regs.DBFED.bit.DBFED = EPWM3_DEADBAND_TICKS;//也就是1us
 
-    // Configure TZ1 as a one-shot shutdown source for both complementary outputs.
-    // An external comparator, GPIO/X-BAR route, or software force can assert TZ1.
+    // Configure the three board protection inputs as one-shot shutdown sources
+    // for both complementary outputs. They arrive through INPUT X-BAR 1/2/3.
     EPwm3Regs.TZSEL.bit.OSHT1 = 1U;
+    EPwm3Regs.TZSEL.bit.OSHT2 = 1U;
+    EPwm3Regs.TZSEL.bit.OSHT3 = 1U;
     EPwm3Regs.TZCTL.bit.TZA = TZ_FORCE_LO;
     EPwm3Regs.TZCTL.bit.TZB = TZ_FORCE_LO;
     EPwm3Regs.TZEINT.bit.OST = 1U;
     EPwm3Regs.TZCLR.bit.OST = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST1 = 1U;  // Clear the TZ1-specific one-shot latch.
+    EPwm3Regs.TZOSTCLR.bit.OST2 = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;
     EPwm3Regs.TZCLR.bit.INT = 1U;
 
     // EPWM3 TZ is PIE group 2, interrupt channel 3.
@@ -105,6 +110,9 @@ void EPWM_Enable(void)
 
     // Clear a previous one-shot trip before allowing PWM outputs to resume.
     EPwm3Regs.TZCLR.bit.OST = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST1 = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST2 = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;
     EPwm3Regs.TZCLR.bit.INT = 1U;
     EPWM3_TripZoneFaulted = 0U;
     gSysFault.tzFault = 0U;
@@ -134,6 +142,9 @@ void EPWM_TripZoneClear(void)
 
     // Clear the one-shot latch; outputs remain under normal AQ/dead-band control.
     EPwm3Regs.TZCLR.bit.OST = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST1 = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST2 = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;
     EPwm3Regs.TZCLR.bit.INT = 1U;
     EPWM3_TripZoneFaulted = 0U;
     gSysFault.tzFault = 0U;

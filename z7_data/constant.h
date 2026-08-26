@@ -31,8 +31,8 @@
  * OLED_FontSupported:本字库支持的全部字符,共 72 个 =
  *   空格 + 数字0-9 + 大写A-Z + 小写a-z + 符号 . : ? ! ( ) - _ ~
  *   (空格和句点用于显示 "GRID 220.3 V" 这类带小数和间隔的行)
- * OLED_Font5x7 与支持串一一对应,查表由 i2c.c 的 OLED_FontGetColumns()
- * 线性查找完成;不在支持集内的字符统一显示 '?'。
+ * OLED_Font5x7 与支持串一一对应,task_ui.c 的 OLED_WriteChar()
+ * 按ASCII区间直接计算索引;不在支持集内的字符统一显示'?'。
  * 每字符 5 字节 = 5 列,每字节 bit0..7 对应页内 8 行像素的明暗;
  * 行尾补 1 列空白 → 占位 6 列/字符 → 128/6 = 21 字符/行。      */
 static const char OLED_FontSupported[] =

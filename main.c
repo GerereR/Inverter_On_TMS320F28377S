@@ -14,14 +14,17 @@ int main(void)
     Uint16 schedulerFlags;
 
     // Peripheral interrupts are configured first and enabled together here.
-    SRF_PLL_Init(&GridSPLL, 50.0f, 20000.0f);//PLL state is consumed by ADCA1 ISR
+    //SRF_PLL_Init(&GridSPLL, 50.0f, 20000.0f);//PLL state is consumed by ADCA1 ISR
+    SOGI_PLL_Init(&GridSPLL, 50.0f, 20000.0f);//PLL state is consumed by ADCA1 ISR
 
     System_Init();
 
+    /* Load persistent calibration before the runtime tasks start. */
+    Task_Eeprom_Init();
     Task_Comm_Init();
-    // Polled OLED bring-up runs before the power stage starts; failure must not block startup.
-    Task_UI_Init();
+    Task_UI_Init();// Polled OLED bring-up runs before the power stage starts; failure must not block startup.
     // Start PWM only after the CPU ADC interrupt path is configured.
+
     EPWM_Start();
 
     Scheduler_Config();
@@ -70,8 +73,13 @@ int main(void)
             Scheduler_ClearFlags(TASK_COMM_FLAG);
             Task_Comm();
         }
-
-        if(schedulerFlags & TASK_UI_FLAG)          // 200 ms, refresh is page-limited
+        if(schedulerFlags & TASK_EEPROM_FLAG)      // 1 s check; writes are request-driven
+        {
+            Scheduler_ClearFlags(TASK_EEPROM_FLAG);
+            Task_Eeprom();
+        }
+        
+        if(schedulerFlags & TASK_UI_FLAG)          // 1.5 s, refresh one complete screen
         {
             Scheduler_ClearFlags(TASK_UI_FLAG);
             Task_UI();

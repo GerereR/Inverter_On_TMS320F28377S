@@ -10,8 +10,8 @@
 #define SRF_PLL_DEFAULT_KP         60.0f
 #define SRF_PLL_DEFAULT_KI         2000.0f
 
-#define SOGI_PLL_DEFAULT_KP     60.0f
-#define SOGI_PLL_DEFAULT_KI     2000.0f
+#define SOGI_PLL_DEFAULT_KP         90.0f
+#define SOGI_PLL_DEFAULT_KI         4000.0f
 
 #define SRF_PLL_DEFAULT_NOTCH_B0   1.3853181f
 #define SRF_PLL_DEFAULT_NOTCH_B1   -2.7692690f
@@ -188,8 +188,7 @@ void SOGI_PLL_Run(volatile SPLL_1ph *pll, float input)
 
     error = input - pll->sogiAlpha;
     alphaOld = pll->sogiAlpha;
-    pll->sogiAlpha = alphaOld + pll->samplePeriod *
-                     (pll->sogiK * omega * error - omega * pll->sogiBeta);
+    pll->sogiAlpha = alphaOld + pll->samplePeriod * (pll->sogiK * omega * error - omega * pll->sogiBeta);
     pll->sogiBeta += pll->samplePeriod * (omega * alphaOld);
 
     vq = pll->sogiAlpha * pll->cosine + pll->sogiBeta * pll->sine;
@@ -197,8 +196,7 @@ void SOGI_PLL_Run(volatile SPLL_1ph *pll, float input)
     pll->notchOutput = vq;
 
     pll->piIntegrator += pll->ki * pll->samplePeriod * vq;
-    maxCorrection = MATH_TWO_PI_F *
-                    (pll->maxFrequencyHz - pll->nominalFrequencyHz);
+    maxCorrection = MATH_TWO_PI_F * (pll->maxFrequencyHz - pll->nominalFrequencyHz);
     if(pll->piIntegrator > maxCorrection)
     {
         pll->piIntegrator = maxCorrection;

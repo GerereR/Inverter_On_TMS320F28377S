@@ -20,4 +20,9 @@ void Task_Comm(void);
 void Task_UI_Init(void);
 void Task_UI(void);
 
+void Task_Eeprom_Init(void);
+void Task_Eeprom(void);
+#define EEPROM_SAVE_CALIBRATION  1U
+void EEPROM_RequestSave(Uint16 saveGroup);
+
 #endif

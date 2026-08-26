@@ -47,6 +47,7 @@ __interrupt void Scheduler_ISR(void)
     static Uint16 cntMppt = 0U;
     static Uint16 cntUi = 0U;
     static Uint16 cntComm = 0U;
+    static Uint16 cntEeprom = 0U;
 
     // Derive all cooperative task rates from the common 1 ms tick.
     if(++cntMeasure >= TASK_MEASURE_PERIOD_MS)
@@ -89,6 +90,12 @@ __interrupt void Scheduler_ISR(void)
     {
         cntComm = 0U;
         Scheduler_Flags |= TASK_COMM_FLAG;
+    }
+
+    if(++cntEeprom >= TASK_EEPROM_PERIOD_MS)
+    {
+        cntEeprom = 0U;
+        Scheduler_Flags |= TASK_EEPROM_FLAG;
     }
 
     CpuTimer0Regs.TCR.bit.TIF = 1;
