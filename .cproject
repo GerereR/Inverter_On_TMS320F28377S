@@ -88,7 +88,7 @@
                         </toolChain>
                     </folderInfo>
                     <sourceEntries>
-                        <entry excluding="z6_bsp/i2c_backup.c|f2837xs" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+                        <entry excluding="f2837xs" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
                     </sourceEntries>
                 </configuration>
             </storageModule>

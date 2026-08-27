@@ -1,22 +1,45 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 
-/* Board pin map from 引脚配置.xlsx.  ADC pin/SOC settings remain in adc.c. */
+#define GPIO_KEY_COUNT             4U
+#define GPIO_KEY_DEBOUNCE_SAMPLES  4U  /* Task_State runs every 5 ms: about 20 ms. */
 
+static Uint16 GPIO_ReadKeyPressed(Uint16 keyNumber);
+static void GPIO_KeyDebounceInit(void);
+
+static Uint16 GPIO_KeyStablePressed[GPIO_KEY_COUNT] = {0U, 0U, 0U, 0U};
+static Uint16 GPIO_KeyLastPressed[GPIO_KEY_COUNT] = {0U, 0U, 0U, 0U};
+static Uint16 GPIO_KeyDebounceCount[GPIO_KEY_COUNT] = {0U, 0U, 0U, 0U};
+static Uint16 GPIO_KeyPendingEvents = 0U;
+
+
+/* Board pin map from 引脚配置.xlsx.  ADC pin/SOC settings remain in adc.c. */
 void GPIO_Config(void)
 {
     EALLOW;
 
     /* Gate-driver PWM outputs: GPIO0/1=EPWM1, GPIO2/3=EPWM2,
-     * GPIO4/5=EPWM3, GPIO6/7=EPWM4.  Only EPWM3 is configured today. */
+     * GPIO4/5=EPWM3 (dual Boost). GPIO6/7=EPWM4 remain reserved for the
+     * old EPWM6-style ZVT function. */
     GpioCtrlRegs.GPAPUD.all |= 0x000000FFUL;
-    GpioCtrlRegs.GPAGMUX1.all &= (Uint16)~0x00FFU;
-    GpioCtrlRegs.GPAMUX1.all &= (Uint16)~0x00FFU;
-    /* Only the active EPWM3 pair is muxed now; future PWM pairs stay GPIO. */
+    GpioCtrlRegs.GPAGMUX1.all &= ~0x0000FFFFUL;
+    GpioCtrlRegs.GPAMUX1.all &= ~0x0000FFFFUL;
+    /* GPIO0..7 use mux function 1 for EPWMxA/EPWMxB on F28377S. */
+    GpioCtrlRegs.GPAMUX1.bit.GPIO0 = 1U;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO1 = 1U;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO2 = 1U;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO3 = 1U;
     GpioCtrlRegs.GPAMUX1.bit.GPIO4 = 1U;
     GpioCtrlRegs.GPAMUX1.bit.GPIO5 = 1U;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO6 = 1U;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO7 = 1U;
     GpioCtrlRegs.GPADIR.all |= 0x000000FFUL;
     GpioDataRegs.GPASET.all = 0x000000FFUL;
+
+    /* Passive buzzer: GPIO8 is EPWM5A (the tone is generated in epwm.c). */
+    GpioCtrlRegs.GPAPUD.bit.GPIO8 = 1U;
+    GpioCtrlRegs.GPAGMUX1.bit.GPIO8 = 0U;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO8 = 1U;
 
     /* Board digital inputs: POWER_SW1..3, KEY1..4, OVP_BUS, FAN_STATE.
      * The switches and keys pull to ground when pressed, so their internal
@@ -86,12 +109,6 @@ void GPIO_Config(void)
     GpioCtrlRegs.GPBDIR.bit.GPIO34 = 1U;
     GpioDataRegs.GPBSET.bit.GPIO34 = 1U; /* LED2 */
 
-    GpioCtrlRegs.GPBPUD.bit.GPIO56 = 1U;
-    GpioCtrlRegs.GPBGMUX2.bit.GPIO56 = 0U;
-    GpioCtrlRegs.GPBMUX2.bit.GPIO56 = 0U;
-    GpioCtrlRegs.GPBDIR.bit.GPIO56 = 1U;
-    GpioDataRegs.GPBCLEAR.bit.GPIO56 = 1U; /* BEEP off */
-
     /* GPIO67 is the M24C64 WP pin. Low keeps write-protect deasserted so the
      * EEPROM task can save parameters; software can drive it high later. */
     GpioCtrlRegs.GPCPUD.bit.GPIO67 = 1U;
@@ -131,6 +148,18 @@ void GPIO_Config(void)
     GpioDataRegs.GPCSET.all = (1UL << 24U) | (1UL << 25U) | (1UL << 26U) |
                                (1UL << 27U) | (1UL << 28U) | (1UL << 29U) |
                                (1UL << 30U);
+
+    /* Grid_Relay4_L and Grid_Relay_OFF_L use GPIO10 and GPIO11. */
+    GpioCtrlRegs.GPAPUD.bit.GPIO10 = 1U;
+    GpioCtrlRegs.GPAPUD.bit.GPIO11 = 1U;
+    GpioCtrlRegs.GPAGMUX1.bit.GPIO10 = 0U;
+    GpioCtrlRegs.GPAGMUX1.bit.GPIO11 = 0U;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO10 = 0U;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO11 = 0U;
+    GpioCtrlRegs.GPADIR.bit.GPIO10 = 1U;
+    GpioCtrlRegs.GPADIR.bit.GPIO11 = 1U;
+    GpioDataRegs.GPASET.bit.GPIO10 = 1U;
+    GpioDataRegs.GPASET.bit.GPIO11 = 1U;
 
     /* Remaining active-low status/control outputs on GPIO18..21. */
     GpioCtrlRegs.GPAPUD.bit.GPIO18 = 1U;
@@ -202,29 +231,109 @@ void GPIO_Config(void)
     InputXbarRegs.INPUT2SELECT = 63U;
     InputXbarRegs.INPUT3SELECT = 64U;
 
-    /* Clear a stale PWM trip after routing the new TZ1 input. */
+    /* Clear any startup trip flags after routing the three TZ inputs. */
+    EPwm1Regs.TZCLR.bit.OST = 1U;
+    EPwm1Regs.TZCLR.bit.INT = 1U;
     EPwm3Regs.TZCLR.bit.OST = 1U;
     EPwm3Regs.TZOSTCLR.bit.OST1 = 1U;
     EPwm3Regs.TZOSTCLR.bit.OST2 = 1U;
     EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;
     EPwm3Regs.TZCLR.bit.INT = 1U;
+    EPwm4Regs.TZCLR.bit.OST = 1U;
+    EPwm4Regs.TZCLR.bit.INT = 1U;
+
+    GPIO_KeyDebounceInit();
 
     EDIS;
 }
 
-/* The table defines two common-anode LEDs. Driving their GPIO low turns them on. */
-void LED_Ctrl(Uint16 ledNumber, Uint16 state)
+/* Read one active-low key. The GPIO register access is kept inside the BSP. */
+static Uint16 GPIO_ReadKeyPressed(Uint16 keyNumber)
 {
-    if(ledNumber == LED_NUMBER_1)
+    Uint16 isPressed = 0U;
+
+    switch(keyNumber)
     {
-        if(state == LED_STATE_ON) GpioDataRegs.GPACLEAR.bit.GPIO31 = 1U;
-        else if(state == LED_STATE_OFF) GpioDataRegs.GPASET.bit.GPIO31 = 1U;
-        else if(state == LED_STATE_TOGGLE) GpioDataRegs.GPATOGGLE.bit.GPIO31 = 1U;
+        case KEY_NUMBER_1:
+            isPressed = (GpioDataRegs.GPCDAT.bit.GPIO85 == 0U) ? 1U : 0U;
+            break;
+        case KEY_NUMBER_2:
+            isPressed = (GpioDataRegs.GPCDAT.bit.GPIO83 == 0U) ? 1U : 0U;
+            break;
+        case KEY_NUMBER_3:
+            isPressed = (GpioDataRegs.GPCDAT.bit.GPIO81 == 0U) ? 1U : 0U;
+            break;
+        case KEY_NUMBER_4:
+            isPressed = (GpioDataRegs.GPCDAT.bit.GPIO79 == 0U) ? 1U : 0U;
+            break;
+        default:
+            isPressed = 0U;
+            break;
     }
-    else if(ledNumber == LED_NUMBER_2)
+
+    return isPressed;
+}
+
+static void GPIO_KeyDebounceInit(void)
+{
+    Uint16 keyIndex;
+    Uint16 pressed;
+
+    for(keyIndex = 0U; keyIndex < GPIO_KEY_COUNT; keyIndex++)
     {
-        if(state == LED_STATE_ON) GpioDataRegs.GPBCLEAR.bit.GPIO34 = 1U;
-        else if(state == LED_STATE_OFF) GpioDataRegs.GPBSET.bit.GPIO34 = 1U;
-        else if(state == LED_STATE_TOGGLE) GpioDataRegs.GPBTOGGLE.bit.GPIO34 = 1U;
+        pressed = GPIO_ReadKeyPressed((Uint16)(keyIndex + 1U));
+        GPIO_KeyStablePressed[keyIndex] = pressed;
+        GPIO_KeyLastPressed[keyIndex] = pressed;
+        GPIO_KeyDebounceCount[keyIndex] = 0U;
     }
+    GPIO_KeyPendingEvents = 0U;
+}
+
+/* Scan all keys and return only newly confirmed press events. */
+Uint16 GPIO_GetKeyEvents(void)
+{
+    Uint16 keyIndex;
+    Uint16 pressed;
+    Uint16 eventMask = 0U;
+    const Uint16 keyEventMasks[GPIO_KEY_COUNT] =
+        {KEY_EVENT_1, KEY_EVENT_2, KEY_EVENT_3, KEY_EVENT_4};
+
+    for(keyIndex = 0U; keyIndex < GPIO_KEY_COUNT; keyIndex++)
+    {
+        pressed = GPIO_ReadKeyPressed((Uint16)(keyIndex + 1U));
+
+        if(pressed == GPIO_KeyStablePressed[keyIndex])
+        {
+            GPIO_KeyDebounceCount[keyIndex] = 0U;
+            GPIO_KeyLastPressed[keyIndex] = pressed;
+        }
+        else if(pressed == GPIO_KeyLastPressed[keyIndex])
+        {
+            if(GPIO_KeyDebounceCount[keyIndex] < GPIO_KEY_DEBOUNCE_SAMPLES)
+            {
+                GPIO_KeyDebounceCount[keyIndex]++;
+            }
+
+            if(GPIO_KeyDebounceCount[keyIndex] >= GPIO_KEY_DEBOUNCE_SAMPLES)
+            {
+                GPIO_KeyStablePressed[keyIndex] = pressed;
+                GPIO_KeyDebounceCount[keyIndex] = 0U;
+
+                if(pressed != 0U)
+                {
+                    eventMask |= keyEventMasks[keyIndex];
+                }
+            }
+        }
+        else
+        {
+            GPIO_KeyLastPressed[keyIndex] = pressed;
+            GPIO_KeyDebounceCount[keyIndex] = 1U;
+        }
+    }
+
+    GPIO_KeyPendingEvents |= eventMask;
+    eventMask = GPIO_KeyPendingEvents;
+    GPIO_KeyPendingEvents = 0U;
+    return eventMask;
 }

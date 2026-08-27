@@ -16,14 +16,16 @@
 #define SCI_FRAME_SOF1             0xAAU//帧头
 #define SCI_FRAME_SOF2             0x55U
 
-#define SCI_FRAME_MAX_PAYLOAD      32U//数据长度32字节
+#define SCI_FRAME_MAX_PAYLOAD      64U//最大响应Payload为64字节
 #define SCI_TASK_MAX_RX_BYTES      512U//通讯任务处理字节上限
 
 /* Commands sent by the host computer. */
 //命令宏
-#define SCI_CMD_READ_MEASUREMENTS  0x01U
+#define SCI_CMD_READ_MEASUREMENTS       0x01U
+#define SCI_CMD_READ_REAL_MEASUREMENTS  0x02U
 #define SCI_CMD_READ_PLL_STATUS    0x03U
 #define SCI_CMD_READ_FAULT_STATUS  0x04U
+#define SCI_CMD_READ_RMS_MEASUREMENTS   0x05U
 #define SCI_CMD_SET_INDUCTOR_CURRENT_AMP    0x10U
 #define SCI_CMD_CLEAR_FAULT        0x20U
 #define SCI_CMD_READ_VERSION       0x30U
@@ -66,6 +68,7 @@ volatile Uint32 SCI_ProtocolFrameCount = 0UL;
 static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data);//使用一个新字节更新 CRC16 校验值。
 static void SCI_SendWordLE(Uint16 value);//以小端格式发送一个 16 位数据：
 static void SCI_PutWordLE(Uint16 *payload, Uint16 *index, Uint16 value);//把一个 16 位数据按小端格式写入响应数据数组，并自动移动数组下标。
+static void SCI_PutFloatLE(Uint16 *payload, Uint16 *index, float value);
 
 //组装并发送完整协议响应帧，包括：
 static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payload, Uint16 payloadLength);
@@ -141,6 +144,26 @@ static void SCI_PutWordLE(Uint16 *payload, Uint16 *index, Uint16 value)
     (*index)++;
 }
 
+/* Serialize an IEEE-754 float as four little-endian payload bytes. */
+static void SCI_PutFloatLE(Uint16 *payload, Uint16 *index, float value)
+{
+    union
+    {
+        float floatValue;
+        Uint32 integerValue;
+    } bits;
+
+    bits.floatValue = value;
+    payload[*index] = (Uint16)(bits.integerValue & 0x000000FFUL);
+    (*index)++;
+    payload[*index] = (Uint16)((bits.integerValue >> 8U) & 0x000000FFUL);
+    (*index)++;
+    payload[*index] = (Uint16)((bits.integerValue >> 16U) & 0x000000FFUL);
+    (*index)++;
+    payload[*index] = (Uint16)((bits.integerValue >> 24U) & 0x000000FFUL);
+    (*index)++;
+}
+
 //把执行结果重新组装成带帧头、命令、序号、长度和 CRC16 的响应帧发送给上位机
 static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payload, Uint16 payloadLength)
 {
@@ -209,6 +232,52 @@ static void SCI_HandleCommand(void)
             responseLength = responseIndex;//记录回复信息的长度
             //上面的操作都只是为了把数据放到数组里面
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);//这一步才是正式应答
+            break;
+
+        case SCI_CMD_READ_REAL_MEASUREMENTS:
+            /* Return calibrated average values, frequencies and reference. */
+            responseIndex = 1U;
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.gridVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.inductorCurrent);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.gfciCurrent);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.dcBusVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.gridDcCurrent);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.inverterVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv1Current);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv2Current);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv1Voltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv2Voltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv1IsolationVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv2IsolationVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.inverterTemp);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.boostTemp);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pllFreqCent);
+            SCI_PutWordLE(responsePayload, &responseIndex,
+                          (Uint16)(InductorCurrentAmp_temporal * 4096.0f));
+            responseLength = responseIndex;
+            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
+                             responsePayload, responseLength);
+            break;
+
+        case SCI_CMD_READ_RMS_MEASUREMENTS:
+            /* Return calibrated RMS values for all linear ADC channels. */
+            responseIndex = 1U;
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.gridVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.inductorCurrent);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.gfciCurrent);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.dcBusVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.gridDcCurrent);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.inverterVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv1Current);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv2Current);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv1Voltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv2Voltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv1IsolationVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv2IsolationVoltage);
+            responseLength = responseIndex;
+            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
+                             responsePayload, responseLength);
             break;
 
         case SCI_CMD_READ_PLL_STATUS:

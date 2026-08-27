@@ -8,6 +8,8 @@
     py pc_tools/inverter_serial.py list-ports
     py pc_tools/inverter_serial.py --port COM3
     py pc_tools/inverter_serial.py --port COM3 measurements
+    py pc_tools/inverter_serial.py --port COM3 real
+    py pc_tools/inverter_serial.py --port COM3 rms
     py pc_tools/inverter_serial.py --port COM3 set-current 0.5
 """
 
@@ -22,12 +24,14 @@ from typing import Optional
 
 SCI_BAUDRATE = 9600
 SCI_FRAME_SOF = b"\xAA\x55"
-SCI_FRAME_MAX_PAYLOAD = 32
+SCI_FRAME_MAX_PAYLOAD = 64
 SCI_DEFAULT_TIMEOUT_SECONDS = 2.0
 
 SCI_CMD_READ_MEASUREMENTS = 0x01
+SCI_CMD_READ_REAL_MEASUREMENTS = 0x02
 SCI_CMD_READ_PLL_STATUS = 0x03
 SCI_CMD_READ_FAULT_STATUS = 0x04
+SCI_CMD_READ_RMS_MEASUREMENTS = 0x05
 SCI_CMD_SET_INDUCTOR_CURRENT_AMP = 0x10
 SCI_CMD_CLEAR_FAULT = 0x20
 SCI_CMD_READ_VERSION = 0x30
@@ -71,7 +75,7 @@ def build_frame(command: int, sequence: int, payload: bytes = b"") -> bytes:
     if not 0 <= sequence <= 0xFF:
         raise ValueError("序号必须在0～255之间")
     if len(payload) > SCI_FRAME_MAX_PAYLOAD:
-        raise ValueError("Payload超过32字节")
+        raise ValueError(f"Payload超过{SCI_FRAME_MAX_PAYLOAD}字节")
 
     frame_body = bytes((command, sequence)) + struct.pack("<H", len(payload)) + payload
     return SCI_FRAME_SOF + frame_body + struct.pack("<H", crc16_modbus(frame_body))
@@ -248,6 +252,56 @@ class InverterSerialClient:
             "trip_zone_faulted": bool(payload[31]),
         }
 
+    def read_real_measurements(self) -> dict[str, float | int]:
+        payload = self.request(SCI_CMD_READ_REAL_MEASUREMENTS)
+        if len(payload) != 63:
+            raise ProtocolError(f"real测量响应长度应为63字节，实际为{len(payload)}字节")
+
+        values = struct.unpack_from("<14fHHH", payload, 1)
+        names = (
+            "grid_voltage",
+            "inductor_current",
+            "gfci_current",
+            "dc_bus_voltage",
+            "grid_dc_current",
+            "inverter_voltage",
+            "pv1_current",
+            "pv2_current",
+            "pv1_voltage",
+            "pv2_voltage",
+            "pv1_isolation_voltage",
+            "pv2_isolation_voltage",
+            "inverter_temperature",
+            "boost_temperature",
+        )
+        result = dict(zip(names, values[:14]))
+        result["ecap_frequency_hz"] = values[14] / 100.0
+        result["pll_frequency_hz"] = values[15] / 100.0
+        result["inductor_current_amp"] = values[16] / 4096.0
+        return result
+
+    def read_rms_measurements(self) -> dict[str, float]:
+        payload = self.request(SCI_CMD_READ_RMS_MEASUREMENTS)
+        if len(payload) != 49:
+            raise ProtocolError(f"RMS测量响应长度应为49字节，实际为{len(payload)}字节")
+
+        values = struct.unpack_from("<12f", payload, 1)
+        names = (
+            "grid_voltage",
+            "inductor_current",
+            "gfci_current",
+            "dc_bus_voltage",
+            "grid_dc_current",
+            "inverter_voltage",
+            "pv1_current",
+            "pv2_current",
+            "pv1_voltage",
+            "pv2_voltage",
+            "pv1_isolation_voltage",
+            "pv2_isolation_voltage",
+        )
+        return dict(zip(names, values))
+
     def read_pll_status(self) -> dict[str, int | float | bool]:
         payload = self.request(SCI_CMD_READ_PLL_STATUS)
         if len(payload) != 6:
@@ -312,6 +366,21 @@ def print_measurements(measurements: dict[str, int | float | bool]) -> None:
     print(f"Trip-Zone故障：{'是' if measurements['trip_zone_faulted'] else '否'}")
 
 
+def print_real_measurements(measurements: dict[str, float | int]) -> None:
+    for name, value in measurements.items():
+        if name.endswith("frequency_hz"):
+            print(f"{name}: {value:.2f} Hz")
+        elif name == "inductor_current_amp":
+            print(f"{name}: {value:.4f}")
+        else:
+            print(f"{name}: {value:.4f}")
+
+
+def print_rms_measurements(measurements: dict[str, float]) -> None:
+    for name, value in measurements.items():
+        print(f"{name}: {value:.4f}")
+
+
 def print_pll_status(pll_status: dict[str, int | float | bool]) -> None:
     print(f"ECAP频率：{pll_status['ecap_frequency_hz']:.2f} Hz")
     print(f"PLL频率：{pll_status['pll_frequency_hz']:.2f} Hz")
@@ -327,6 +396,8 @@ def run_interactive(client: InverterSerialClient) -> None:
         "4 设置电感电流幅值\n"
         "5 清除Trip-Zone故障\n"
         "6 读取协议版本\n"
+        "7 读取实际平均值\n"
+        "8 读取RMS值\n"
         "q 退出\n"
     )
 
@@ -350,6 +421,10 @@ def run_interactive(client: InverterSerialClient) -> None:
             elif selection == "6":
                 major, minor = client.read_version()
                 print(f"协议版本：{major}.{minor}")
+            elif selection == "7":
+                print_real_measurements(client.read_real_measurements())
+            elif selection == "8":
+                print_rms_measurements(client.read_rms_measurements())
             elif selection in {"q", "quit", "exit"}:
                 return
             else:
@@ -397,8 +472,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("interactive", help="进入交互菜单（默认）")
     subparsers.add_parser("list-ports", help="列出电脑上的串口")
     subparsers.add_parser("measurements", help="读取测量数据")
+    subparsers.add_parser("real", help="读取校准后的实际平均值")
     subparsers.add_parser("pll", help="读取PLL状态")
     subparsers.add_parser("fault", help="读取Trip-Zone故障状态")
+    subparsers.add_parser("rms", help="读取校准后的RMS值")
     set_current_parser = subparsers.add_parser("set-current", help="设置电感电流幅值")
     set_current_parser.add_argument("amplitude", type=float, help="0.0～1.0归一化幅值")
     subparsers.add_parser("clear-fault", help="清除Trip-Zone故障")
@@ -427,10 +504,14 @@ def main() -> int:
                 run_interactive(client)
             elif operation == "measurements":
                 print_measurements(client.read_measurements())
+            elif operation == "real":
+                print_real_measurements(client.read_real_measurements())
             elif operation == "pll":
                 print_pll_status(client.read_pll_status())
             elif operation == "fault":
                 print(f"Trip-Zone故障：{'是' if client.read_fault_status() else '否'}")
+            elif operation == "rms":
+                print_rms_measurements(client.read_rms_measurements())
             elif operation == "set-current":
                 accepted = client.set_inductor_current_amplitude(arguments.amplitude)
                 print(f"MCU已接受幅值：{accepted:.4f}")

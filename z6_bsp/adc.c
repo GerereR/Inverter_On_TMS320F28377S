@@ -96,18 +96,18 @@ void ADC_Config(void)
     AdcbRegs.ADCCTL2.bit.PRESCALE = 6U;
     AdccRegs.ADCCTL2.bit.PRESCALE = 6U;
     AdcdRegs.ADCCTL2.bit.PRESCALE = 6U;
-    AdcSetMode(ADC_ADCA, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
+    AdcSetMode(ADC_ADCA, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);//实在是有点长,直接用driver库了
     AdcSetMode(ADC_ADCB, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
     AdcSetMode(ADC_ADCC, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
     AdcSetMode(ADC_ADCD, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
 
     /* Generate ADC interrupt pulses after result registers are updated. */
-    AdcaRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
+    AdcaRegs.ADCCTL1.bit.INTPULSEPOS = 1U;//ADC自身中断配置,转换完成后中断
     AdcbRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
     AdccRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
     AdcdRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
 
-    AdcaRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
+    AdcaRegs.ADCCTL1.bit.ADCPWDNZ = 1U;//ADC上电
     AdcbRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
     AdccRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
     AdcdRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
@@ -121,40 +121,41 @@ void ADC_Config(void)
      * RESULT0 I_Grid_Fin, RESULT1 V_Grid_Fin, RESULT2 GFCI_Fin,
      * RESULT3 V_BUS_Fin, RESULT4 Idc_Grid_Fin, RESULT5 V_INV_Fin.
      */
-    AdcaRegs.ADCSOC0CTL.bit.CHSEL = 14U;
-    AdcaRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcaRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+     //采样顺序配置
+    AdcaRegs.ADCSOC0CTL.bit.CHSEL = 14U;//ADC采样通道,要和引脚对应
+    AdcaRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;//采样窗口
+    AdcaRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;//触发源
     AdcaRegs.ADCSOC1CTL.bit.CHSEL = 3U;
     AdcaRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcaRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
     AdcaRegs.ADCSOC2CTL.bit.CHSEL = 5U;
     AdcaRegs.ADCSOC2CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcaRegs.ADCSOC2CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC2CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
     AdcaRegs.ADCSOC3CTL.bit.CHSEL = 4U;
     AdcaRegs.ADCSOC3CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcaRegs.ADCSOC3CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC3CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
     AdcaRegs.ADCSOC4CTL.bit.CHSEL = 15U;
     AdcaRegs.ADCSOC4CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcaRegs.ADCSOC4CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC4CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
     AdcaRegs.ADCSOC5CTL.bit.CHSEL = 2U;
     AdcaRegs.ADCSOC5CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcaRegs.ADCSOC5CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcaRegs.ADCSOC5CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
 
     /* ADCB records the synchronized PV1/PV2 current pair at 20 kHz. */
     AdcbRegs.ADCSOC0CTL.bit.CHSEL = 2U;
     AdcbRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcbRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcbRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
     AdcbRegs.ADCSOC1CTL.bit.CHSEL = 3U;
     AdcbRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcbRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcbRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
 
     /* ADCD RESULT0/1 records the synchronized PV1/PV2 voltage pair at 20 kHz. */
     AdcdRegs.ADCSOC0CTL.bit.CHSEL = 4U;
     AdcdRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcdRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcdRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
     AdcdRegs.ADCSOC1CTL.bit.CHSEL = 3U;
     AdcdRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcdRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM3_SOCA;
+    AdcdRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
 
     /* ADCD RESULT2/3 records PV1/PV2 isolation signals at 100 Hz. */
     AdcdRegs.ADCSOC2CTL.bit.CHSEL = 1U;
@@ -176,9 +177,9 @@ void ADC_Config(void)
     AdccRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
 
     /* ADCA EOC5 drives both the fast CPU loop and DMA CH1. */
-    AdcaRegs.ADCINTSEL1N2.bit.INT1SEL = 5U;
-    AdcaRegs.ADCINTSEL1N2.bit.INT1CONT = 0U;
-    AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1U;
+    AdcaRegs.ADCINTSEL1N2.bit.INT1SEL = 5U;//SOCx完成后触发中断
+    AdcaRegs.ADCINTSEL1N2.bit.INT1CONT = 0U;//非连续模式
+    AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1U;//启用中断
     AdcaRegs.ADCINTSEL1N2.bit.INT2SEL = 5U;
     AdcaRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;
     AdcaRegs.ADCINTSEL1N2.bit.INT2E = 1U;
@@ -198,9 +199,9 @@ void ADC_Config(void)
     AdccRegs.ADCINTSEL1N2.bit.INT2E = 1U;
 
     /* Start every interrupt source from a known, non-overflowed state. */
-    AdcaRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;
+    AdcaRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;//清除中断标志
     AdcaRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
-    AdcaRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;
+    AdcaRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;//清除中断溢出标志
     AdcaRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;
     AdcbRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
     AdcbRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;

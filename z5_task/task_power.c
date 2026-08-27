@@ -5,5 +5,5 @@
 void Task_Power(void)
 {
     // Temporary heartbeat until power management is implemented.
-    LED_Ctrl(LED_NUMBER_2, LED_STATE_TOGGLE);
+    LED2_TOGGLE();
 }

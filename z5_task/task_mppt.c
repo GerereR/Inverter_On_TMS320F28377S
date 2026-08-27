@@ -4,6 +4,5 @@
 
 void Task_MPPT(void)
 {
-    // Temporary heartbeat until the MPPT algorithm is implemented.
-    LED_Ctrl(LED_NUMBER_3, LED_STATE_TOGGLE);
+    // Reserved for the MPPT algorithm; only LED1 and LED2 are available.
 }

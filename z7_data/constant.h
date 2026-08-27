@@ -9,10 +9,8 @@
 #define ADC_FULL_SCALE                 4096.0f
 #define ADC_BIPOLAR_ZERO               2048.0f
 
-/*
- * Default measurement gains recovered from the legacy 5/6 kW design.
- * They are initialization values only; final hardware must be calibrated.
- */
+ /* Default measurement gains recovered from the legacy 5/6 kW design.
+ * They are initialization values only; final hardware must be calibrated.*/
 #define ADC_GRID_VOLTAGE_GAIN              (912.0f / ADC_FULL_SCALE)
 #define ADC_INVERTER_VOLTAGE_GAIN          (912.0f / ADC_FULL_SCALE)
 #define ADC_DC_BUS_VOLTAGE_GAIN            (604.8f / ADC_FULL_SCALE)
@@ -24,27 +22,11 @@
 #define ADC_ISOLATION_VOLTAGE_GAIN         0.732f
 
 /* Legacy 4.7 kOhm NTC divider and piecewise temperature-curve constants. */
-#define ADC_TEMP_DIVIDER_RESISTANCE       4700.0f
+#define ADC_TEMP_DIVIDER_RESISTANCE        4700.0f
 #define ADC_DECI_C_TO_C                    0.1f
 
-/* ================= SSD1306 5×7 点阵字库 =================
- * OLED_FontSupported:本字库支持的全部字符,共 72 个 =
- *   空格 + 数字0-9 + 大写A-Z + 小写a-z + 符号 . : ? ! ( ) - _ ~
- *   (空格和句点用于显示 "GRID 220.3 V" 这类带小数和间隔的行)
- * OLED_Font5x7 与支持串一一对应,task_ui.c 的 OLED_WriteChar()
- * 按ASCII区间直接计算索引;不在支持集内的字符统一显示'?'。
- * 每字符 5 字节 = 5 列,每字节 bit0..7 对应页内 8 行像素的明暗;
- * 行尾补 1 列空白 → 占位 6 列/字符 → 128/6 = 21 字符/行。      */
+// 字库索引布局
 static const char OLED_FontSupported[] = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.:?!()-_~";
-
-/* 字库索引布局(与 OLED_FontSupported / OLED_Font5x7 顺序绑定,
- * 调整字库时这些偏移需同步更新):
- *   0      空格
- *   1~10   数字 0-9
- *   11~36  大写 A-Z
- *   37~62  小写 a-z
- *   63~71  符号 . : ? ! ( ) - _ ~
- * OLED_FontGetColumns() 按 ASCII 区间直接计算下标(O(1)),不做线性查找。 */
 #define OLED_FONT_IDX_SPACE     0U
 #define OLED_FONT_IDX_DIGIT     1U
 #define OLED_FONT_IDX_ALPHA     11U
@@ -96,6 +78,42 @@ static const unsigned char OLED_Font5x7[][5] =
     {0x00U,0x1CU,0x22U,0x41U,0x00U}, {0x00U,0x41U,0x22U,0x1CU,0x00U},
     {0x08U,0x08U,0x08U,0x08U,0x08U}, {0x40U,0x40U,0x40U,0x40U,0x40U},
     {0x08U,0x08U,0x2AU,0x1CU,0x08U}
+};
+
+typedef struct
+{
+    float nominalVoltageRms;//正常电压
+    float nominalFreqHz;//正常频率
+
+    float overVoltageTripRms;//过压阈值
+    float underVoltageTripRms;//欠压阈值
+
+    float overFreqTripHz;//过频阈值
+    float underFreqTripHz;//欠频阈值
+
+    float reconnVoltageMaxRms;//过压重连阈值
+    float reconnVoltageMinRms;//欠压重连阈值
+    
+    float reconnFreqMaxHz;//过频重连阈值
+    float reconnFreqMinHz;//欠频重连阈值
+} ChinaGridSafetyParam;
+
+static const ChinaGridSafetyParam ChinaGridSafety =
+{
+    220.0f, 
+    50.0f,  
+
+    242.0f, 
+    187.0f, 
+
+    50.5f,  
+    49.5f,  
+
+    242.0f,
+    187.0f, 
+    
+    50.5f   
+    49.5f,  
 };
 
 #endif

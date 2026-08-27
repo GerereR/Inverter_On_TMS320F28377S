@@ -2,169 +2,296 @@
 #include "bsp.h"
 #include "variable.h"
 
-// Up-down mode: 100 MHz / (2 * 2500) = 20 kHz switching frequency.
-#define EPWM3_PERIOD_TICKS    2500U
-// One TBCLK is 10 ns, so 100 ticks gives 1 us dead time on both edges.
-#define EPWM3_DEADBAND_TICKS   100U
-#define EPWM_AQ_FORCE_DISABLED   0U
-#define EPWM_AQ_FORCE_LOW        1U
-#define EPWM_AQ_FORCE_IMMEDIATE  3U
+#define EPWM_PERIOD_TICKS          2500U
+#define EPWM_DEADBAND_TICKS        100U
+#define EPWM_AQ_FORCE_DISABLED      0U
+#define EPWM_AQ_FORCE_LOW           1U
+#define EPWM_AQ_FORCE_HIGH          2U
+#define EPWM_AQ_FORCE_IMMEDIATE     3U
 
-static volatile Uint16 EPWM3_TripZoneFaulted = 0U;
+/* Time-base synchronization modes used by the power-stage channels. */
+#define EPWM_SYNC_INDEPENDENT       0U
+#define EPWM_SYNC_MASTER            1U
+#define EPWM_SYNC_SLAVE             2U
+
+#define BEEP_PWM_CLOCK_HZ           25000000UL
+#define BEEP_DEFAULT_FREQUENCY_HZ   2000U
+#define BEEP_MIN_FREQUENCY_HZ       400U
+#define BEEP_MAX_FREQUENCY_HZ       10000U
+
+static volatile Uint16 EPWM_TripZoneFaulted = 0U;
+
+static void EPWM_ConfigPowerStage(volatile struct EPWM_REGS *pwm,
+                                  Uint16 syncMode,
+                                  Uint16 useDeadband,
+                                  Uint16 useTz1,
+                                  Uint16 useTz2,
+                                  Uint16 useTz3)
+{
+    pwm->TBCTL.all = 0U;
+    pwm->TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN;
+    pwm->TBCTL.bit.PHSEN = (syncMode == EPWM_SYNC_SLAVE) ? TB_ENABLE : TB_DISABLE;
+    if(syncMode == EPWM_SYNC_MASTER)
+    {
+        pwm->TBCTL.bit.SYNCOSEL = TB_CTR_ZERO;
+    }
+    else if(syncMode == EPWM_SYNC_SLAVE)
+    {
+        pwm->TBCTL.bit.SYNCOSEL = TB_SYNC_IN;
+    }
+    else
+    {
+        pwm->TBCTL.bit.SYNCOSEL = TB_SYNC_DISABLE;
+    }
+    pwm->TBCTL.bit.PRDLD = TB_SHADOW;
+    pwm->TBCTL.bit.HSPCLKDIV = TB_DIV1;
+    pwm->TBCTL.bit.CLKDIV = TB_DIV1;
+    pwm->TBCTL.bit.FREE_SOFT = 2U;
+    pwm->TBPRD = EPWM_PERIOD_TICKS;
+    pwm->TBPHS.all = 0U;
+    pwm->TBCTR = 0U;
+
+    pwm->CMPCTL.all = 0U;
+    pwm->CMPCTL.bit.SHDWAMODE = CC_SHADOW;
+    pwm->CMPCTL.bit.SHDWBMODE = CC_SHADOW;
+    pwm->CMPCTL.bit.LOADAMODE = CC_CTR_ZERO_PRD;
+    pwm->CMPCTL.bit.LOADBMODE = CC_CTR_ZERO_PRD;
+    pwm->CMPA.bit.CMPA = EPWM_PERIOD_TICKS / 2U;
+
+    pwm->AQSFRC.bit.RLDCSF = EPWM_AQ_FORCE_IMMEDIATE;
+    pwm->AQCTLA.all = 0U;
+    pwm->AQCTLA.bit.CAU = AQ_SET;
+    pwm->AQCTLA.bit.CAD = AQ_CLEAR;
+    pwm->AQCTLB.all = 0U;
+    if(useDeadband != 0U)
+    {
+        /* Inverter bridge: B is generated as the delayed complement of A. */
+        pwm->DBCTL.all = 0U;
+        pwm->DBCTL.bit.OUT_MODE = DB_FULL_ENABLE;
+        pwm->DBCTL.bit.IN_MODE = DBA_ALL;
+        pwm->DBCTL.bit.POLSEL = DB_ACTV_HIC;
+        pwm->DBRED.bit.DBRED = EPWM_DEADBAND_TICKS;
+        pwm->DBFED.bit.DBFED = EPWM_DEADBAND_TICKS;
+    }
+    else
+    {
+        /* Dual Boost: A and B are independent outputs on one shared timer. */
+        pwm->DBCTL.all = 0U;
+        pwm->AQCTLB.bit.CBU = AQ_CLEAR;
+        pwm->AQCTLB.bit.CBD = AQ_SET;
+        pwm->CMPB.bit.CMPB = EPWM_PERIOD_TICKS / 2U;
+    }
+
+    pwm->TZSEL.all = 0U;
+    pwm->TZSEL.bit.OSHT1 = useTz1;
+    pwm->TZSEL.bit.OSHT2 = useTz2;
+    pwm->TZSEL.bit.OSHT3 = useTz3;
+    pwm->TZCTL.bit.TZA = TZ_FORCE_LO;
+    pwm->TZCTL.bit.TZB = TZ_FORCE_LO;
+    pwm->TZEINT.bit.OST = ((useTz1 != 0U) || (useTz2 != 0U) ||
+                           (useTz3 != 0U)) ? 1U : 0U;
+    pwm->TZCLR.bit.OST = 1U;
+    pwm->TZOSTCLR.bit.OST1 = 1U;
+    pwm->TZOSTCLR.bit.OST2 = 1U;
+    pwm->TZOSTCLR.bit.OST3 = 1U;
+    pwm->TZCLR.bit.INT = 1U;
+    pwm->AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_LOW;
+    pwm->AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_LOW;
+}
 
 void EPWM_Config(void)
 {
     EALLOW;
 
-    // SYSCLK is 200 MHz. EPWMCLK is divided by 2 to obtain 100 MHz TBCLK.
-    CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 0;//关闭所有 ePWM 模块的时基时钟同步。
-    ClkCfgRegs.PERCLKDIVSEL.bit.EPWMCLKDIV = 1;//后续没有额外分频，所以 TBCLK 也是 100 MHz：
+    /* Freeze all ePWM time bases while configuring the power stage. */
+    CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 0U;
+    ClkCfgRegs.PERCLKDIVSEL.bit.EPWMCLKDIV = 1U;
 
-    // Center-aligned time base with shadow-loaded period and compare values.
-    EPwm3Regs.TBCTL.all = 0;//先清空 EPWM3时基控制寄存器
-    EPwm3Regs.TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN;//设置为增减计数模式：0 → 2500 → 0 → 2500 → 0
-    EPwm3Regs.TBCTL.bit.PHSEN = TB_DISABLE;//不进行相位同步
-    EPwm3Regs.TBCTL.bit.PRDLD = TB_SHADOW;//使用影子寄存器,其实用处不大,又不变频
-    EPwm3Regs.TBCTL.bit.HSPCLKDIV = TB_DIV1;//不分100Mhz的频
-    EPwm3Regs.TBCTL.bit.CLKDIV = TB_DIV1;   //不分100Mhz的频
-    EPwm3Regs.TBCTL.bit.FREE_SOFT = 2;//配置仿真暂停行为。
-    EPwm3Regs.TBPRD = EPWM3_PERIOD_TICKS;//100 MHz / (2 × 2500) = 20 kHz
-    EPwm3Regs.TBPHS.all = 0;//相位寄存器清零
-    EPwm3Regs.TBCTR = 0;//把计数器初始值设为 0
+    /* Functional mapping: old EPWM2/3 -> inverter EPWM1/2; old EPWM4 ->
+     * dual-Boost EPWM3; old EPWM6 remains a TZ2/ZVT support module. */
+    EPWM_ConfigPowerStage(&EPwm1Regs, EPWM_SYNC_MASTER,      1U, 0U, 0U, 1U); /* old EPWM2, TZ3 */
+    EPWM_ConfigPowerStage(&EPwm2Regs, EPWM_SYNC_SLAVE,       1U, 0U, 0U, 1U); /* old EPWM3, TZ3 */
+    EPWM_ConfigPowerStage(&EPwm3Regs, EPWM_SYNC_INDEPENDENT, 0U, 1U, 0U, 0U); /* old EPWM4, dual Boost */
 
-    EPwm3Regs.CMPCTL.all = 0;//清空比较控制寄存器
-    EPwm3Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;//CMPA 使用影子寄存器
-    EPwm3Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;//波谷装载
-    EPwm3Regs.CMPA.bit.CMPA = EPWM3_PERIOD_TICKS / 2U;
+    /* Old EPWM6 was not a power PWM. Keep EPWM4 as a TZ2 monitor/reserved
+     * ZVT carrier so its dedicated interrupt remains available. */
+    EPwm4Regs.TBCTL.all = 0U;
+    EPwm4Regs.TZSEL.all = 0U;
+    EPwm4Regs.TZSEL.bit.OSHT2 = 1U;
+    EPwm4Regs.TZCTL.bit.TZA = TZ_FORCE_LO;
+    EPwm4Regs.TZCTL.bit.TZB = TZ_FORCE_LO;
+    EPwm4Regs.TZEINT.bit.OST = 1U;
+    EPwm4Regs.TZCLR.bit.OST = 1U;
+    EPwm4Regs.TZCLR.bit.INT = 1U;
 
-    // EPWM3A is the dead-band source; EPWM3B is generated by the DB module.
-    EPwm3Regs.AQCTLA.all = 0;//清空 EPWM3A 的动作限定配置。
-    EPwm3Regs.AQCTLA.bit.CAU = AQ_CLEAR;//计数器向上计数并遇到 CMPA 时，将 EPWM3A 清零。
-    EPwm3Regs.AQCTLA.bit.CAD = AQ_SET;//计数器向下计数并遇到 CMPA 时，将 EPWM3A 置高
-    EPwm3Regs.AQCTLB.all = 0;//清空 EPWM3B 的动作限定配置。
-    EPwm3Regs.AQSFRC.bit.RLDCSF = EPWM_AQ_FORCE_IMMEDIATE;//将连续软件强制 AQCSFRC配置为立即生效,为之后的disable铺垫
-    EPwm3Regs.AQCSFRC.all = 0;//清空 EPWM3B 的 AQ 动作。因为此时PWMB是由PWMA互补得到的
+    /* TZ3 is shared by EPWM1/2. EPWM1 owns the single CPU interrupt so the
+     * same physical trip is not reported twice and EPWM2 cannot leave a
+     * pending, unserviced TZ interrupt flag. */
+    EPwm2Regs.TZEINT.bit.OST = 0U;
+    EPwm2Regs.TZCLR.bit.INT = 1U;
 
-    // Derive active-high complementary outputs from EPWM3A with 1 us dead time.
-    EPwm3Regs.DBCTL.all = 0;//清空 Dead-Band 控制寄存器
-    EPwm3Regs.DBCTL.bit.OUT_MODE = DB_FULL_ENABLE;//同时启用上升沿延迟 RED 和下降沿延迟 FED。
-    EPwm3Regs.DBCTL.bit.POLSEL = DB_ACTV_HIC;//选择高电平有效的互补输出模式。
-    EPwm3Regs.DBCTL.bit.IN_MODE = DBA_ALL;//Dead-Band 的 RED 和 FED 两条路径都以 EPWM3A为输入。和上面的PWMB不配置呼应了
-    EPwm3Regs.DBRED.bit.DBRED = EPWM3_DEADBAND_TICKS;//上升沿和下降沿死区都设置为 100 TBCLK： 
-    EPwm3Regs.DBFED.bit.DBFED = EPWM3_DEADBAND_TICKS;//也就是1us
+    /* EPWM1 is the master ADC trigger at CTR=ZERO. */
+    EPwm1Regs.ETSEL.bit.SOCAEN = 0U;
+    EPwm1Regs.ETSEL.bit.SOCASEL = ET_CTR_ZERO;
+    EPwm1Regs.ETPS.bit.SOCAPRD = ET_1ST;
+    EPwm1Regs.ETCLR.bit.SOCA = 1U;
+    EPwm1Regs.ETSEL.bit.SOCAEN = 1U;
 
-    // Configure the three board protection inputs as one-shot shutdown sources
-    // for both complementary outputs. They arrive through INPUT X-BAR 1/2/3.
-    EPwm3Regs.TZSEL.bit.OSHT1 = 1U;
-    EPwm3Regs.TZSEL.bit.OSHT2 = 1U;
-    EPwm3Regs.TZSEL.bit.OSHT3 = 1U;
-    EPwm3Regs.TZCTL.bit.TZA = TZ_FORCE_LO;
-    EPwm3Regs.TZCTL.bit.TZB = TZ_FORCE_LO;
-    EPwm3Regs.TZEINT.bit.OST = 1U;
-    EPwm3Regs.TZCLR.bit.OST = 1U;
-    EPwm3Regs.TZOSTCLR.bit.OST1 = 1U;  // Clear the TZ1-specific one-shot latch.
-    EPwm3Regs.TZOSTCLR.bit.OST2 = 1U;
-    EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;
-    EPwm3Regs.TZCLR.bit.INT = 1U;
-
-    // EPWM3 TZ is PIE group 2, interrupt channel 3.
+    /* One ISR per physical protection group. TZ3 is shared by EPWM1/2. */
+    PieVectTable.EPWM1_TZ_INT = &EPWM1_TZ_BSP_ISR;
     PieVectTable.EPWM3_TZ_INT = &EPWM3_TZ_BSP_ISR;
+    PieVectTable.EPWM4_TZ_INT = &EPWM4_TZ_BSP_ISR;
+    PieCtrlRegs.PIEIER2.bit.INTx1 = 1U;
     PieCtrlRegs.PIEIER2.bit.INTx3 = 1U;
+    PieCtrlRegs.PIEIER2.bit.INTx4 = 1U;
     IER |= M_INT2;
 
-    // Trigger ADCA SOC0 once at the end/start boundary of every PWM period.
-    EPwm3Regs.ETSEL.bit.SOCAEN = 0;//配置触发源之前，暂时关闭 EPWM3 SOCA。
-    EPwm3Regs.ETSEL.bit.SOCASEL = ET_CTR_ZERO;//选择计数器到零作为 SOCA 触发事件。
-    EPwm3Regs.ETPS.bit.SOCAPRD = ET_1ST;//每次满足 CTR = 0条件时都产生 SOCA，不进行事件分频。
-    //什么两者配合可以产生多种触发周期
-    EPwm3Regs.ETCLR.bit.SOCA = 1;//清除可能残留的 SOCA 事件标志，保证第一次触发从干净状态开始。
-    EPwm3Regs.ETSEL.bit.SOCAEN = 1;//正式允许 EPWM3产生 SOCA。
+    /* EPWM5A drives the passive buzzer on GPIO8 and starts silent. */
+    EPwm5Regs.TBCTL.all = 0U;
+    EPwm5Regs.TBCTL.bit.CTRMODE = TB_COUNT_UP;
+    EPwm5Regs.TBCTL.bit.PRDLD = TB_SHADOW;
+    EPwm5Regs.TBCTL.bit.HSPCLKDIV = TB_DIV4;
+    EPwm5Regs.TBCTL.bit.CLKDIV = TB_DIV1;
+    EPwm5Regs.TBPRD = (Uint16)(BEEP_PWM_CLOCK_HZ / BEEP_DEFAULT_FREQUENCY_HZ - 1UL);
+    EPwm5Regs.CMPCTL.all = 0U;
+    EPwm5Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;
+    EPwm5Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;
+    EPwm5Regs.CMPA.bit.CMPA = EPwm5Regs.TBPRD / 2U;
+    EPwm5Regs.AQCTLA.all = 0U;
+    EPwm5Regs.AQCTLA.bit.ZRO = AQ_SET;
+    EPwm5Regs.AQCTLA.bit.CAU = AQ_CLEAR;
+    EPwm5Regs.AQSFRC.bit.RLDCSF = EPWM_AQ_FORCE_IMMEDIATE;
+    EPwm5Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_LOW;
 
+    EDIS;
+}
+
+void BEEP_SetFrequency(Uint16 frequencyHz)
+{
+    Uint32 periodTicks;
+
+    if(frequencyHz < BEEP_MIN_FREQUENCY_HZ)
+    {
+        frequencyHz = BEEP_MIN_FREQUENCY_HZ;
+    }
+    else if(frequencyHz > BEEP_MAX_FREQUENCY_HZ)
+    {
+        frequencyHz = BEEP_MAX_FREQUENCY_HZ;
+    }
+
+    periodTicks = BEEP_PWM_CLOCK_HZ / (Uint32)frequencyHz;
+    if(periodTicks > 0UL)
+    {
+        periodTicks--;
+    }
+    if(periodTicks > 65535UL)
+    {
+        periodTicks = 65535UL;
+    }
+
+    EALLOW;
+    EPwm5Regs.TBPRD = (Uint16)periodTicks;
+    EPwm5Regs.CMPA.bit.CMPA = (Uint16)(periodTicks / 2UL);
     EDIS;
 }
 
 void EPWM_Start(void)
 {
-    // GPIO muxing and ADC setup are complete before synchronized counting starts.
     EALLOW;
-    CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1;//给心跳所有计数器开始启动
+    CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1U;
+    /* main() starts the time base through this API; release the startup clamp. */
+    EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
+    EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+    EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
+    EPwm2Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+    EPwm3Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
+    EPwm3Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+    EPwm4Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
+    EPwm4Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
     EDIS;
 }
 
 void EPWM_Disable(void)
 {
     EALLOW;
-
-    // DB normally derives complementary B from A, so bypass it before forcing
-    // both raw AQ outputs low. The time base and ADC SOCA keep running.
-    EPwm3Regs.DBCTL.bit.OUT_MODE = DB_DISABLE;//死区模块旁路
-    EPwm3Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_LOW;//A通道强制置0
-    EPwm3Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_LOW;//B通道强制置0
-
+    EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_LOW;
+    EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_LOW;
+    EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_LOW;
+    EPwm2Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_LOW;
+    EPwm3Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_LOW;
+    EPwm3Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_LOW;
+    EPwm4Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_LOW;
+    EPwm4Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_LOW;
     EDIS;
 }
 
 void EPWM_Enable(void)
 {
     EALLOW;
-
-    // Clear a previous one-shot trip before allowing PWM outputs to resume.
+    EPwm1Regs.TZCLR.bit.OST = 1U;
+    EPwm2Regs.TZCLR.bit.OST = 1U;
     EPwm3Regs.TZCLR.bit.OST = 1U;
-    EPwm3Regs.TZOSTCLR.bit.OST1 = 1U;
-    EPwm3Regs.TZOSTCLR.bit.OST2 = 1U;
-    EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;
-    EPwm3Regs.TZCLR.bit.INT = 1U;
-    EPWM3_TripZoneFaulted = 0U;
-    gSysFault.tzFault = 0U;
-
-    // Restore dead-band before releasing AQ so complementary switching always
-    // resumes through the configured 1 us non-overlap interval.
-    EPwm3Regs.DBCTL.bit.OUT_MODE = DB_FULL_ENABLE;
+    EPwm4Regs.TZCLR.bit.OST = 1U;
+    EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
+    EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+    EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
+    EPwm2Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
     EPwm3Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
     EPwm3Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
-
+    EPwm4Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
+    EPwm4Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+    EPWM_TripZoneFaulted = 0U;
+    gSysFault.tzFault = 0U;
     EDIS;
 }
 
 void EPWM_TripZoneForce(void)
 {
     EALLOW;
-
-    // Software test path: latch the same one-shot trip as an external TZ1 event.
+    EPwm1Regs.TZFRC.bit.OST = 1U;
+    EPwm2Regs.TZFRC.bit.OST = 1U;
     EPwm3Regs.TZFRC.bit.OST = 1U;
-
+    EPwm4Regs.TZFRC.bit.OST = 1U;
     EDIS;
 }
 
 void EPWM_TripZoneClear(void)
 {
-    EALLOW;
+    EPWM_Enable();
+}
 
-    // Clear the one-shot latch; outputs remain under normal AQ/dead-band control.
-    EPwm3Regs.TZCLR.bit.OST = 1U;
-    EPwm3Regs.TZOSTCLR.bit.OST1 = 1U;
-    EPwm3Regs.TZOSTCLR.bit.OST2 = 1U;
-    EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;
-    EPwm3Regs.TZCLR.bit.INT = 1U;
-    EPWM3_TripZoneFaulted = 0U;
-    gSysFault.tzFault = 0U;
+static void EPWM_RecordTrip(volatile struct EPWM_REGS *pwm)
+{
+    EPWM_TripZoneFaulted = 1U;
+    gSysFault.tzFault = 1U;
+    pwm->TZCLR.bit.INT = 1U;
+}
 
-    EDIS;
+__interrupt void EPWM1_TZ_BSP_ISR(void)
+{
+    EPWM_RecordTrip(&EPwm1Regs);
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP2;
 }
 
 __interrupt void EPWM3_TZ_BSP_ISR(void)
 {
-    // Record the fault and clear only the interrupt request. Keep OST latched
-    // so the PWM outputs remain forced low until software explicitly clears it.
-    EPWM3_TripZoneFaulted = 1U;
-    gSysFault.tzFault = 1U;
-    EPwm3Regs.TZCLR.bit.INT = 1U;
+    EPWM_RecordTrip(&EPwm3Regs);
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP2;
+}
+
+__interrupt void EPWM4_TZ_BSP_ISR(void)
+{
+    EPWM_RecordTrip(&EPwm4Regs);
+    /* EPWM4 is the old EPWM6-style TZ2 monitor. Its ISR must disable the
+     * real Boost outputs on EPWM3 because EPWM4 itself has no power PWM. */
+    EPWM_Disable();
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP2;
 }
 
 void EPWM_SetDuty(float duty)
 {
-    // Preserve a minimum on/off interval for dead-band and future gate drivers.
+    Uint16 compareValue;
+
     if(duty < 0.02f)
     {
         duty = 0.02f;
@@ -174,5 +301,37 @@ void EPWM_SetDuty(float duty)
         duty = 0.98f;
     }
 
-    EPwm3Regs.CMPA.bit.CMPA = (Uint16)(duty * (float)EPWM3_PERIOD_TICKS);
+    compareValue = (Uint16)(duty * (float)EPWM_PERIOD_TICKS);
+    EPwm1Regs.CMPA.bit.CMPA = compareValue;
+    EPwm2Regs.CMPA.bit.CMPA = compareValue;
+}
+
+void EPWM_SetBoostDuty(float boost1Duty, float boost2Duty)
+{
+    Uint16 boost1Compare;
+    Uint16 boost2Compare;
+
+    if(boost1Duty < 0.0f)
+    {
+        boost1Duty = 0.0f;
+    }
+    else if(boost1Duty > 0.98f)
+    {
+        boost1Duty = 0.98f;
+    }
+
+    if(boost2Duty < 0.0f)
+    {
+        boost2Duty = 0.0f;
+    }
+    else if(boost2Duty > 0.98f)
+    {
+        boost2Duty = 0.98f;
+    }
+
+    /* Match the old EPWM4 formulas for its two independent Boost outputs. */
+    boost1Compare = (Uint16)((1.0f - boost1Duty) * (float)EPWM_PERIOD_TICKS);
+    boost2Compare = (Uint16)(boost2Duty * (float)EPWM_PERIOD_TICKS);
+    EPwm3Regs.CMPA.bit.CMPA = boost1Compare;
+    EPwm3Regs.CMPB.bit.CMPB = boost2Compare;
 }
