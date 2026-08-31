@@ -1,48 +1,47 @@
 #include "F28x_Project.h"
 
 #include "scheduler.h"
+#include "bsp.h"
 
-// Timer0 runs from the 200 MHz system clock. 200000 counts produces a 1 ms tick.
-#define SCHEDULER_TICK_COUNTS  200000UL
-
-volatile Uint16 Scheduler_Flags = 0;
+static volatile Uint16 Scheduler_Flags = 0U;
 
 void Scheduler_Config(void)
 {
-    EALLOW;
-
-    CpuTimer0Regs.PRD.all = SCHEDULER_TICK_COUNTS - 1UL;
-    CpuTimer0Regs.TPR.all = 0;
-    CpuTimer0Regs.TPRH.all = 0;
-    PieVectTable.TIMER0_INT = &Scheduler_ISR;
-
-    EDIS;
-
-    // CPU Timer0 is PIE group 1, channel 7.
-    PieCtrlRegs.PIEIER1.bit.INTx7 = 1;
-    IER |= M_INT1;
-
-    CpuTimer0Regs.TCR.bit.TIF = 1;
-    CpuTimer0Regs.TCR.bit.TRB = 1;
-    CpuTimer0Regs.TCR.bit.TIE = 1;
-    CpuTimer0Regs.TCR.bit.TSS = 0;
+    Scheduler_Flags = 0U;
+    SchedulerTimer_Config();
 }
 
-Uint16 Scheduler_GetFlags(void)
+Uint16 Scheduler_TakeFlags(void)
 {
-    return Scheduler_Flags;
+    Uint16 flags;
+
+    /* Claim every pending event as one snapshot. An ISR that runs after EINT
+     * posts into a fresh flag word for the next main-loop pass. */
+    DINT;
+    flags = Scheduler_Flags;
+    Scheduler_Flags = 0U;
+    EINT;
+
+    return flags;
 }
 
-void Scheduler_ClearFlags(Uint16 flags)
+void Scheduler_NotifyGridZeroCross(void)
 {
-    Scheduler_Flags &= ~flags;
+    /* Grid calculations are phase-aligned; measurement also gets an immediate
+     * opportunity to consume the DMA block closed at this boundary. */
+    Scheduler_Flags |= (TASK_GRID_FLAG | TASK_MEASURE_FLAG);
 }
 
-__interrupt void Scheduler_ISR(void)
+void Scheduler_NotifyGridPeak(void)
+{
+    /* The positive and negative peaks produce two DC-control events per cycle. */
+    Scheduler_Flags |= TASK_DC_CTRL_FLAG;
+}
+
+void Scheduler_Tick1ms(void)
 {
     static Uint16 cntMeasure = 0U;
     static Uint16 cntState = 0U;
-    static Uint16 cntGrid = 0U;
     static Uint16 cntPower = 0U;
     static Uint16 cntMppt = 0U;
     static Uint16 cntUi = 0U;
@@ -60,12 +59,6 @@ __interrupt void Scheduler_ISR(void)
     {
         cntState = 0U;
         Scheduler_Flags |= TASK_STATE_FLAG;
-    }
-
-    if(++cntGrid >= TASK_GRID_PERIOD_MS)
-    {
-        cntGrid = 0U;
-        Scheduler_Flags |= TASK_GRID_FLAG;
     }
 
     if(++cntPower >= TASK_POWER_PERIOD_MS)
@@ -98,6 +91,4 @@ __interrupt void Scheduler_ISR(void)
         Scheduler_Flags |= TASK_EEPROM_FLAG;
     }
 
-    CpuTimer0Regs.TCR.bit.TIF = 1;
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
 }

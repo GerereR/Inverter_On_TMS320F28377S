@@ -1,9 +1,12 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
+#include "scheduler.h"
 
 // ECAP计数器直接使用200 MHz系统时钟。
 #define ECAP_CLOCK_HZ  200000000.0f
+#define ECAP_CYCLE_FREQ_MIN_HZ  45.0f
+#define ECAP_CYCLE_FREQ_MAX_HZ  70.0f
 
 static volatile Uint32 ECAP_PeriodTicks = 0;
 static volatile float ECAP_FreqHz = 0.0f;
@@ -49,6 +52,8 @@ __interrupt void ECAP1_BSP_ISR(void)
     if(ECAP_CapturePrimed == 0U)
     {
         ECAP_CapturePrimed = 1U;
+        /* The first edge discards startup data and starts an aligned block. */
+        DMA_GridCycleBoundary();
     }
     else
     {
@@ -57,18 +62,17 @@ __interrupt void ECAP1_BSP_ISR(void)
         if(periodTicks != 0UL)
         {
             ECAP_FreqHz = ECAP_CLOCK_HZ / (float)periodTicks;
-            //限幅
-            if(ECAP_FreqHz <= 0.0f)
+            /* Ignore noise edges that cannot represent a valid grid cycle. */
+            if((ECAP_FreqHz >= ECAP_CYCLE_FREQ_MIN_HZ) &&
+               (ECAP_FreqHz <= ECAP_CYCLE_FREQ_MAX_HZ))
             {
-                gMachineData.ecapFreqCent = 0U;
-            }
-            else if(ECAP_FreqHz >= 655.35f)
-            {
-                gMachineData.ecapFreqCent = 65535U;
+                gMachineData.ecapFreqCent = (Uint16)(ECAP_FreqHz * 100.0f);
+                DMA_GridCycleBoundary();
+                Scheduler_NotifyGridZeroCross();
             }
             else
             {
-                gMachineData.ecapFreqCent = (Uint16)(ECAP_FreqHz * 100.0f);
+                gMachineData.ecapFreqCent = 0U;
             }
         }
     }

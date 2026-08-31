@@ -7,7 +7,6 @@
     py -m pip install pyserial
     py pc_tools/inverter_serial.py list-ports
     py pc_tools/inverter_serial.py --port COM3
-    py pc_tools/inverter_serial.py --port COM3 measurements
     py pc_tools/inverter_serial.py --port COM3 real
     py pc_tools/inverter_serial.py --port COM3 rms
     py pc_tools/inverter_serial.py --port COM3 set-current 0.5
@@ -27,7 +26,6 @@ SCI_FRAME_SOF = b"\xAA\x55"
 SCI_FRAME_MAX_PAYLOAD = 64
 SCI_DEFAULT_TIMEOUT_SECONDS = 2.0
 
-SCI_CMD_READ_MEASUREMENTS = 0x01
 SCI_CMD_READ_REAL_MEASUREMENTS = 0x02
 SCI_CMD_READ_PLL_STATUS = 0x03
 SCI_CMD_READ_FAULT_STATUS = 0x04
@@ -211,47 +209,6 @@ class InverterSerialClient:
             status_text = STATUS_TEXT.get(status, "未知状态")
             raise ProtocolError(f"MCU返回错误：{status_text}（0x{status:02X}）")
 
-    def read_measurements(self) -> dict[str, int | float | bool]:
-        payload = self.request(SCI_CMD_READ_MEASUREMENTS)
-        if len(payload) != 32:
-            raise ProtocolError(f"测量响应长度应为32字节，实际为{len(payload)}字节")
-
-        (
-            grid_voltage,
-            inductor_current,
-            gfci_current,
-            dc_bus_voltage,
-            inverter_dc_current,
-            inverter_voltage,
-            pv1_current,
-            pv2_current,
-            pv1_voltage,
-            pv2_voltage,
-            pv1_isolation,
-            pv2_isolation,
-            inverter_temperature,
-            boost_temperature,
-            ecap_freq_cent,
-        ) = struct.unpack_from("<15H", payload, 1)
-        return {
-            "grid_voltage_raw": grid_voltage,
-            "inductor_current_raw": inductor_current,
-            "gfci_current_raw": gfci_current,
-            "dc_bus_voltage_raw": dc_bus_voltage,
-            "inverter_dc_current_raw": inverter_dc_current,
-            "inverter_voltage_raw": inverter_voltage,
-            "pv1_current_raw": pv1_current,
-            "pv2_current_raw": pv2_current,
-            "pv1_voltage_raw": pv1_voltage,
-            "pv2_voltage_raw": pv2_voltage,
-            "pv1_isolation_raw": pv1_isolation,
-            "pv2_isolation_raw": pv2_isolation,
-            "inverter_temperature_raw": inverter_temperature,
-            "boost_temperature_raw": boost_temperature,
-            "ecap_frequency_hz": ecap_freq_cent / 100.0,
-            "trip_zone_faulted": bool(payload[31]),
-        }
-
     def read_real_measurements(self) -> dict[str, float | int]:
         payload = self.request(SCI_CMD_READ_REAL_MEASUREMENTS)
         if len(payload) != 63:
@@ -347,25 +304,6 @@ class InverterSerialClient:
         return payload[1], payload[2]
 
 
-def print_measurements(measurements: dict[str, int | float | bool]) -> None:
-    print(f"电网电压ADC原始值：{measurements['grid_voltage_raw']}")
-    print(f"电感电流ADC原始值：{measurements['inductor_current_raw']}")
-    print(f"GFCI电流ADC原始值：{measurements['gfci_current_raw']}")
-    print(f"母线电压ADC原始值：{measurements['dc_bus_voltage_raw']}")
-    print(f"逆变桥直流电流ADC原始值：{measurements['inverter_dc_current_raw']}")
-    print(f"逆变器侧电压ADC原始值：{measurements['inverter_voltage_raw']}")
-    print(f"PV1电流ADC原始值：{measurements['pv1_current_raw']}")
-    print(f"PV2电流ADC原始值：{measurements['pv2_current_raw']}")
-    print(f"PV1电压ADC原始值：{measurements['pv1_voltage_raw']}")
-    print(f"PV2电压ADC原始值：{measurements['pv2_voltage_raw']}")
-    print(f"PV1绝缘检测ADC原始值：{measurements['pv1_isolation_raw']}")
-    print(f"PV2绝缘检测ADC原始值：{measurements['pv2_isolation_raw']}")
-    print(f"逆变器温度ADC原始值：{measurements['inverter_temperature_raw']}")
-    print(f"Boost温度ADC原始值：{measurements['boost_temperature_raw']}")
-    print(f"ECAP频率：{measurements['ecap_frequency_hz']:.2f} Hz")
-    print(f"Trip-Zone故障：{'是' if measurements['trip_zone_faulted'] else '否'}")
-
-
 def print_real_measurements(measurements: dict[str, float | int]) -> None:
     for name, value in measurements.items():
         if name.endswith("frequency_hz"):
@@ -390,14 +328,13 @@ def print_pll_status(pll_status: dict[str, int | float | bool]) -> None:
 def run_interactive(client: InverterSerialClient) -> None:
     """提供无需额外串口助手的简单交互菜单。"""
     menu = (
-        "\n1 读取测量数据\n"
-        "2 读取PLL状态\n"
-        "3 读取故障状态\n"
-        "4 设置电感电流幅值\n"
-        "5 清除Trip-Zone故障\n"
-        "6 读取协议版本\n"
-        "7 读取实际平均值\n"
-        "8 读取RMS值\n"
+        "\n1 读取实际平均值\n"
+        "2 读取RMS值\n"
+        "3 读取PLL状态\n"
+        "4 读取故障状态\n"
+        "5 设置电感电流幅值\n"
+        "6 清除Trip-Zone故障\n"
+        "7 读取协议版本\n"
         "q 退出\n"
     )
 
@@ -406,25 +343,23 @@ def run_interactive(client: InverterSerialClient) -> None:
         selection = input("请选择：").strip().lower()
         try:
             if selection == "1":
-                print_measurements(client.read_measurements())
+                print_real_measurements(client.read_real_measurements())
             elif selection == "2":
-                print_pll_status(client.read_pll_status())
+                print_rms_measurements(client.read_rms_measurements())
             elif selection == "3":
-                print(f"Trip-Zone故障：{'是' if client.read_fault_status() else '否'}")
+                print_pll_status(client.read_pll_status())
             elif selection == "4":
+                print(f"Trip-Zone故障：{'是' if client.read_fault_status() else '否'}")
+            elif selection == "5":
                 amplitude = float(input("输入0.0～1.0的归一化幅值："))
                 accepted = client.set_inductor_current_amplitude(amplitude)
                 print(f"MCU已接受幅值：{accepted:.4f}")
-            elif selection == "5":
+            elif selection == "6":
                 client.clear_fault()
                 print("清除故障命令已执行")
-            elif selection == "6":
+            elif selection == "7":
                 major, minor = client.read_version()
                 print(f"协议版本：{major}.{minor}")
-            elif selection == "7":
-                print_real_measurements(client.read_real_measurements())
-            elif selection == "8":
-                print_rms_measurements(client.read_rms_measurements())
             elif selection in {"q", "quit", "exit"}:
                 return
             else:
@@ -471,7 +406,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="operation")
     subparsers.add_parser("interactive", help="进入交互菜单（默认）")
     subparsers.add_parser("list-ports", help="列出电脑上的串口")
-    subparsers.add_parser("measurements", help="读取测量数据")
     subparsers.add_parser("real", help="读取校准后的实际平均值")
     subparsers.add_parser("pll", help="读取PLL状态")
     subparsers.add_parser("fault", help="读取Trip-Zone故障状态")
@@ -502,8 +436,6 @@ def main() -> int:
         with InverterSerialClient(arguments.port, arguments.timeout) as client:
             if operation == "interactive":
                 run_interactive(client)
-            elif operation == "measurements":
-                print_measurements(client.read_measurements())
             elif operation == "real":
                 print_real_measurements(client.read_real_measurements())
             elif operation == "pll":

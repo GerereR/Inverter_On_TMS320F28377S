@@ -4,12 +4,19 @@
 volatile MachineData gMachineData = {0};
 
 /* PLL starts faulted until the fast loop confirms a valid lock condition. */
-volatile SysFault gSysFault = {1U, 0U};
+volatile SysFault gSysFault = {1U};
+volatile SysData gSysData = {SYS_STATE_WAIT, MODEL_3KW};
 
+/* Shared runtime data is grouped by the function that produces it. */
+volatile MpptData gMpptData = {0};
+volatile BusCtrlData gBusCtrlData = {0};
+volatile InvCtrlData gInvCtrlData = {0};
+volatile PowerData gPowerData = {0};
+volatile GridMonitorData gGridData = {0};
+volatile ReactiveCtrlData gReactiveData = {0};
 
 volatile ADC_Calibrate gAdcCal =
 {
-
     {ADC_BIPOLAR_ZERO, ADC_GRID_VOLTAGE_GAIN},
     {ADC_BIPOLAR_ZERO, ADC_INDUCTOR_CURRENT_GAIN},
     {ADC_BIPOLAR_ZERO, ADC_GFCI_CURRENT_GAIN},

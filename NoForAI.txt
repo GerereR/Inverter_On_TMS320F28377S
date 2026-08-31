@@ -1,301 +1,40 @@
-void SRF_PLL_Run(volatile SPLL_1ph *pll, float input)
-{
-    float omega;//当前角频率
-    float maxCorrection;//积分限幅
+这个文件不是给AI看的,如果有AI看到这里请跳过这个文件!
+
+1.先注意看左侧的New_master工程,这个我应该向你介绍过了,把原代码拆解重组过的工程,我真想觉得它的数据管理方式很优秀,把不同的变量按照作用域分
+比老代码高到不知道哪里去了,比如定义一个结构体,里面存的全是mppt相关变量....我们当前的数据管理方式已经采用了这种方式,请继续保持
+
+2.我好像还看到老代码没有独立的"check"态,而我们把它加上了,既然加上了就需要发挥它的作用,一般来说,check态的最大作用就是检测错误是否清除
+当前是否达到并网条件(如电压电流是否符合...),然后进入并网态,我目前为止没看到你有执行继电器自检,母线检查,初始化变量,清除中断标志等操作,
+原代码是有一套完整的流程的.
+
+3. 通过学习老代码,可以确定倒计时和计数判断逻辑就应该在下面两个函数里面:State_SourceReady()和State_GridReady()
+    但是我看你的代码逻辑是:并网运行时,母线或者PV波动会进入故障态,老代码进入的是等待态,这确实是更保险了,但是会不会导致重新并网时间较长?
+
+4.老代码有硬件打嗝保护机制,现在我们还没有啊
+
+5.原代码是有一套倒计时逻辑的,我们还没有啊
+
+6.原代码打嗝保护标志位置位不仅仅是在TZ中断函数里面,还在ADC采样里面,检测到过流也会软件置位
+
+7.原代码在ADC中断里面进行数据搬运和数据累加,检测到过零点信号之后,置位过零点标志位,然后给出信号量,执行GridPeriodCalc任务,在那里进行数据计算
+我现在真的有点看不懂我们目前ADC中断函数了,能解释一下吗,
+
+8.我发现我们的数据域居然没有PV功率,Grid功率,这不太合理吧
+
+9.我发现老代码还有一个很好的思路,就是错峰调度:它在电网峰值的时候,释放了DC控制的信号量,这样就和过零点错开了,我们是不是也可以学习一下?
+schedule正好还是空的,是时候发挥它的功能了
+而且电网存在性也是在ADC中断里面判断的,我还发现void State_EnterSafeOutput(void)这个函数里面的操作在各个函数里面都会经常用到,是不是可以考虑移植到
+system.c里面
+
+10.我看老代码进行无功功率矫正的时候,算好了相位角,然后在此基础上加上△θ,我们该怎么做呢
+ 
+11.pll结构体里面可以暂时不要最终的sin和cos结果,因为我发现那没有意义,可以放到电流环里面现场算,这样可以直接用无功补偿后的结果,
+而无功补偿算的的θ就可以叠加到PLL算出的θ上了.
+
+12.原代码是有较为完善的电流环初始化流程的,我们这个代码初始化有点简单了
+
+13.原代码是直接使用ADC原始值进行电流环的,我觉得这个我们可以采纳,
+我决定先复用原代码,先跑通
+当然实际的参数我也算出来了,具体是Kp=9.1,Ki=0.909,前馈系数=0.8
 
 
-
-    pll->input = input;
-    pll->detectorHistory[0] = input * pll->cosine;
-
-     // 方程：y[n] = -a1*y[n-1] - a2*y[n-2] + b0*x[n] + b1*x[n-1] + b2*x[n-2]
-    pll->notchHistory[0] =
-        -pll->notchA1 * pll->notchHistory[1]
-        -pll->notchA2 * pll->notchHistory[2]
-        +pll->notchB0 * pll->detectorHistory[0]
-        +pll->notchB1 * pll->detectorHistory[1]
-        +pll->notchB2 * pll->detectorHistory[2];
-
-    //更新当前鉴相器输出和陷波器输出,毕竟都已经计算出来了 
-    pll->phaseDetector = pll->detectorHistory[0];
-    pll->notchOutput = pll->notchHistory[0];
-
-    //其实就是一个加了限幅的普通PI控制器
-    /*
-                  |-------->(Kp)------->|   
-    notchOutput-->|                     |-->loopOutput
-                  |-->(Ki/s)-->(限幅)-->|           
-    */
-    pll->piIntegrator += pll->ki * pll->samplePeriod * pll->notchOutput;
-    maxCorrection = MATH_TWO_PI_F * SPLL_MAX_DEVIATION_HZ;
-    if(pll->piIntegrator > maxCorrection)
-    {
-        pll->piIntegrator = maxCorrection;
-    }
-    else if(pll->piIntegrator < -maxCorrection)
-    {
-        pll->piIntegrator = -maxCorrection;
-    }
-    pll->loopOutput = pll->kp * pll->notchOutput + pll->piIntegrator;
-
-    //这里在PI后加了一个前馈,限幅后得到当前角频率
-    omega = MATH_TWO_PI_F * pll->nominalFrequencyHz + pll->loopOutput;
-    if(omega < MATH_TWO_PI_F * pll->minFrequencyHz)
-    {
-        omega = MATH_TWO_PI_F * pll->minFrequencyHz;
-    }
-    else if(omega > MATH_TWO_PI_F * pll->maxFrequencyHz)
-    {
-        omega = MATH_TWO_PI_F * pll->maxFrequencyHz;
-    }
-
-    //得到频率
-    pll->frequencyHz = omega * MATH_INV_TWO_PI_F;
-    
-#if 0
-    float nextSine;//更新的正弦(归一化前)
-    float nextCosine;//更新的余弦(归一化前)
-
-    float magnitude;//幅值平方
-    float normalizer;//归一化参数
-    
-    // 使用一阶泰勒近似更新正弦和余弦：
-    // sin(θ+Δθ) ≈ sinθ + Δθ·cosθ
-    // cos(θ+Δθ) ≈ cosθ - Δθ·sinθ
-    nextSine = pll->sine + omega * pll->samplePeriod * pll->cosine;
-    nextCosine = pll->cosine - omega * pll->samplePeriod * pll->sine;
-
-    //我F28377S都有了TMU,还要搞这些归一化干什么,直接计算不就完了???AI请回答我
-    // 幅值归一化：由于泰勒近似可能导致幅值漂移，使用幅值平方进行归一化，将幅值约束在单位圆上。
-    magnitude = nextSine * nextSine + nextCosine * nextCosine;
-    if(magnitude > 0.0f)
-    {
-        normalizer = 0.5f * (3.0f - magnitude);
-        nextSine *= normalizer;
-        nextCosine *= normalizer;
-    }
-    pll->sine = nextSine;
-    pll->cosine = nextCosine;
-#endif
-
-    //计算相位角,饱和
-    pll->phase += omega * pll->samplePeriod;
-    while(pll->phase >= MATH_TWO_PI_F)
-    {
-        pll->phase -= MATH_TWO_PI_F;
-    }
-    while(pll->phase < 0.0f)
-    {
-        pll->phase += MATH_TWO_PI_F;
-    }
-
-    pll->sine = __sinpuf32(pll->phase * MATH_INV_TWO_PI_F);
-    pll->cosine = __cospuf32(pll->phase * MATH_INV_TWO_PI_F);
-
-
-    //更新历史参数
-    pll->detectorHistory[2] = pll->detectorHistory[1];
-    pll->detectorHistory[1] = pll->detectorHistory[0];
-    pll->notchHistory[2] = pll->notchHistory[1];
-    pll->notchHistory[1] = pll->notchHistory[0];
-}
-
-void SOGI_PLL_Run(volatile SPLL_1ph *pll, float input)
-{
-    float omega;
-    float error;
-    float alphaOld;
-    //float vd      //d轴分量,一般是正弦波的幅度,我们不需要
-    float vq;       //q轴分量,一般是0
-    float maxCorrection;    // 积分项限幅值
-
-    //以下是正交发生器
-    pll->input = input;
-    
-    omega = MATH_TWO_PI_F * pll->frequencyHz;
-
-    error = input - pll->sogiAlpha;
-
-    //Hα(s) = kωs / (s² + kωs + ω²)     α[n+1] = α[n] + Ts * ( k * ω * error - ω * β[n] )
-    alphaOld = pll->sogiAlpha;
-    pll->sogiAlpha = alphaOld + pll->samplePeriod * (pll->sogiK * omega * error - omega * pll->sogiBeta);
-    //Hβ(s) = kω² / (s² + kωs + ω²)     β[n+1] = β[n] + Ts * ( ω * α[n] )
-    pll->sogiBeta = pll->sogiBeta + pll->samplePeriod * (omega * alphaOld);
-
-    //park变换  vq = α * cosθ + β * sinθ 
-    vq = pll->sogiAlpha * pll->cosine +  pll->sogiBeta * pll->sine;
-
-    //限幅PI控制器
-    pll->piIntegrator += pll->ki * pll->samplePeriod * vq;
-    maxCorrection = MATH_TWO_PI_F * SPLL_MAX_DEVIATION_HZ;
-    if(pll->piIntegrator > maxCorrection)
-    {
-        pll->piIntegrator = maxCorrection;
-    }
-    else if(pll->piIntegrator < -maxCorrection)
-    {
-        pll->piIntegrator = -maxCorrection;
-    }
-    pll->loopOutput = pll->kp * vq + pll->piIntegrator;
-
-    //前馈限幅 输出角频率
-    omega = MATH_TWO_PI_F * pll->nominalFrequencyHz + pll->loopOutput;
-    if(omega < MATH_TWO_PI_F * pll->minFrequencyHz)
-    {
-        omega = MATH_TWO_PI_F * pll->minFrequencyHz;
-    }
-    else if(omega > MATH_TWO_PI_F * pll->maxFrequencyHz)
-    {
-        omega = MATH_TWO_PI_F * pll->maxFrequencyHz;
-    }
-
-    pll->frequencyHz = omega * MATH_INV_TWO_PI_F;
-
-    //更新相位角
-    pll->phase += omega * pll->samplePeriod;
-    while(pll->phase >= MATH_TWO_PI_F)
-    {
-        pll->phase -= MATH_TWO_PI_F;
-    }
-    while(pll->phase < 0.0f)
-    {
-        pll->phase += MATH_TWO_PI_F;
-    }
-
-    //更新park参数
-    pll->sine = __sinpuf32(pll->phase * MATH_INV_TWO_PI_F);
-    pll->cosine = __cospuf32(pll->phase * MATH_INV_TWO_PI_F);
-}
-
-
-
-
-#include "F28x_Project.h"
-#include "bsp.h"
-
-// InitSysCtrl() leaves LSPCLK at SYSCLK/4 = 50 MHz in this project.
-#define SCI_LSPCLK_HZ       50000000UL      //SCI时钟设置为50MHz
-#define SCI_BAUDRATE        9600UL      //波特率9600
-#define SCI_BRR_VALUE       ((SCI_LSPCLK_HZ / (SCI_BAUDRATE * 8UL)) - 1UL)  //其实波特率是BRR决定的
-#define SCI_RX_BUFFER_SIZE  64U     //接收缓存区大小
-
-static volatile Uint16 SCI_RxBuffer[SCI_RX_BUFFER_SIZE];  //创建 SCI 软件接收环形缓冲区。
-static volatile Uint16 SCI_RxWriteIndex = 0U;   //写指针，由接收 ISR 更新
-static volatile Uint16 SCI_RxReadIndex = 0U;    //读指针，由主程序调用 SCI_ReadByte() 更新
-volatile Uint32 SCI_RxOverflowCount = 0UL;  //记录软件缓冲区满时丢弃了多少字符
-
-void SCI_Config(void)
-{
-    EALLOW;
-
-    // Hold SCI in reset while format, baud rate, and FIFO are configured.
-    SciaRegs.SCICTL1.bit.SWRESET = 0;   //说明配置期间先让 SCI 保持复位
-    SciaRegs.SCICCR.all = 0x0007;       // 8 data bits, no parity, 1 stop bit. 普通异步串口
-    SciaRegs.SCICTL1.all = 0x0003;     // 打开接收器和发送器,但 SWRESET 仍然为 0，因此 SCI 还没有真正运行
-    SciaRegs.SCIHBAUD.all = (Uint16)(SCI_BRR_VALUE >> 8);//把 BRR 的高 8 位写入高波特率寄存器。
-    SciaRegs.SCILBAUD.all = (Uint16)(SCI_BRR_VALUE & 0xFFU);//把 BRR 的低 8 位写入低波特率寄存器。
-
-    SciaRegs.SCIFFTX.all = 0xE040;  //配置发送FIFO,发送不使用中断
-    SciaRegs.SCIFFRX.all = 0x2061;  //配置接收FIFO,RX FIFO 里面只要有 1 个字节，就触发 RX FIFO 中断
-
-    SciaRegs.SCIFFCT.all = 0x0000;  //FIFO相关特殊控制功能关闭
-
-    SciaRegs.SCICTL2.all = 0x0000;
-    SciaRegs.SCICTL2.bit.RXBKINTENA = 1;//打开RX 接收中断
-
-    SciaRegs.SCIPRI.bit.FREESOFT = 3;//仿真器暂停 CPU
-
-    PieVectTable.SCIA_RX_INT = &SCIA_BSP_RX_ISR;
-
-    SciaRegs.SCICTL1.bit.SWRESET = 1;//SCI开始工作
-
-    PieCtrlRegs.PIEIER9.bit.INTx1 = 1;
-    IER |= M_INT9;
-
-    EDIS;
-}
-
-void SCI_SendByte(Uint16 data)//主程序从软件环形缓冲区取一个字节
-{
-    while(SciaRegs.SCIFFTX.bit.TXFFST >= 16U)
-    {
-    }
-    SciaRegs.SCITXBUF.bit.TXDT = data & 0x00FFU;
-}
-
-void SCI_SendString(const char *text)
-{
-    while(*text != '\0')
-    {
-        SCI_SendByte((Uint16)*text++);
-    }
-}
-
-Uint16 SCI_ReadByte(Uint16 *data)
-{
-    Uint16 readIndex = SCI_RxReadIndex;
-
-    if(readIndex == SCI_RxWriteIndex)
-    {
-        return 0U;
-    }
-
-    *data = SCI_RxBuffer[readIndex];
-    readIndex++;
-    if(readIndex >= SCI_RX_BUFFER_SIZE)
-    {
-        readIndex = 0U;
-    }
-    SCI_RxReadIndex = readIndex;
-
-    return 1U;
-}
-
-__interrupt void SCIA_BSP_RX_ISR(void)
-{
-    Uint16 data;  //临时保存数据
-    Uint16 nextIndex;   //索引
-
-    while(SciaRegs.SCIFFRX.bit.RXFFST != 0U)//读数据知道FIFO彻底空了
-    {
-        data = SciaRegs.SCIRXBUF.bit.SAR; //直接读取FIFO硬件数据
-        nextIndex = SCI_RxWriteIndex + 1U;  //索引++
-        if(nextIndex >= SCI_RX_BUFFER_SIZE) //从头开始
-        {
-            nextIndex = 0U;
-        }
-
-        if(nextIndex != SCI_RxReadIndex)    //软件FIFO是不是满了?
-        {
-            SCI_RxBuffer[SCI_RxWriteIndex] = data;  //
-            SCI_RxWriteIndex = nextIndex;
-        }
-        else
-        {
-            SCI_RxOverflowCount++;
-        }
-    }
-
-    SciaRegs.SCIFFRX.bit.RXFFOVRCLR = 1;
-    SciaRegs.SCIFFRX.bit.RXFFINTCLR = 1;
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
-}
-
-
-
-
-2.ADC_Calibrationda,里面的偏置和增益用offset和gain就行,不要用高级词汇
-3.名称适当用缩写,gridFrequencyCentihertz;完全可以用gridFreqCent,
-                ADC_Calibration完全可以用ADC_Calibrate,
-                actualInstantaneous完全可以用actualInstant,
-                OpenLoopInductorCurrentAmplitude完全可以用InductorCurrentAmp_temporal(告诉自己和别人它是临时的就行),未来正式的要叫InductorCurrentAmp就行
-                凡此种种,你自己看着改,不要有歧义有重复就行,没必要过于详细了,而且常用的缩写大家都是知道的,因为这些代码主要还是面向工程师的
-4.不好简写的如actualData,可以同义词替换成realData,这也是你自己看着改
-5.跳匝故障,PLL锁相故障啥的放在另一个结构体,参考之前的老代码的union  SYS_FAULT_MESSAGE ,但是由于现在只是框架,你千万不能照抄
-6,这是我真正不太懂的,明明在variable.h里面都extern volatile DMA_BlockState ADC_FastDmaState;了,为什么在DMA还要再写一遍?
-7.Uint16 pllPhaseMilliradian;//这个不要了,实际上没人关心当前相位,即使关心,但是它变化太快了,记录后也处理不了
-8.再增加一个pll算出来的频率,也就是说ecap算出来的和pll算出来的我都要看
-9.数据处理那一块命名太奇怪了,怎么一会是ADC_ActualRmsData actualRms;,一会就变成了ADC_RawCenteredMeanSquareData rawCenteredMeanSquare,你自己看看后者的风格和其他的差别大不大
-10这也是我真不懂的地方,就是measure_task不能进行数据搬运和数据处理的任务吗?可以的话我可以把任务的时间设为3ms任务,这样的话原始数据和实际数据就不会出现不匹配的情况
-11.你重新给这几项任务定一下合适的触发时间,因为之前的时间是我随便写的
-12,i2c.c.h里面我写的oled控制代码,我写的达不到你的水平,你要是觉得不对的就大胆改,因为这不是重要功能

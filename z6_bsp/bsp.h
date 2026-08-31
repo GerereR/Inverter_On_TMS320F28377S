@@ -12,7 +12,7 @@
 //但是再怎么说逆变器还是需要告诉别人当前电压电流大小的,所以就以非常慢的速度更新了,
 //而PV电压电流等数据是需要参与到未来的控制的,所以才160个大小,快环反而400个大小
 #define ADC_ACQUISITION_WINDOW     14U
-#define ADC_FAST_BLOCK_BURSTS     400U
+#define ADC_FAST_BLOCK_MAX_BURSTS 450U
 #define ADC_PV_BLOCK_BURSTS       160U
 #define ADC_SLOW_BLOCK_BURSTS      16U
 
@@ -28,6 +28,7 @@
 #define ADC_SLOW_TRIGGER_COUNTS  2000000UL
 
 void GPIO_Config(void);
+void SchedulerTimer_Config(void);
 
 /* Board digital inputs. These macros expose logical states, not GPIO numbers. */
 #define POWER_SW1()        ((GpioDataRegs.GPCDAT.bit.GPIO82 == 0U) ? 1U : 0U)
@@ -85,24 +86,26 @@ Uint16 GPIO_GetKeyEvents(void);
 #define DSP_STATE_HIGH()   (GpioDataRegs.GPASET.bit.GPIO21 = 1U)
 
 /* Passive buzzer on GPIO8/EPWM5A. The tone frequency is configurable. */
-void BEEP_SetFrequency(Uint16 frequencyHz);
+void BEEP_SetFreq(Uint16 freqHz);
 #define BEEP_ON()  (EPwm5Regs.AQCSFRC.bit.CSFA = 0U)
 #define BEEP_OFF() (EPwm5Regs.AQCSFRC.bit.CSFA = 1U)
 
 void EPWM_Config(void);
 void EPWM_Start(void);
-void EPWM_Enable(void);
+Uint16 EPWM_Enable(void);
 void EPWM_TripZoneForce(void);
-void EPWM_TripZoneClear(void);
+Uint16 EPWM_TripZoneClear(void);
 void EPWM_Disable(void);
 void EPWM_SetDuty(float duty);
 void EPWM_SetBoostDuty(float boost1Duty, float boost2Duty);
 
 void ADC_Config(void);
 void DMA_Config(void);
-Uint16 DMA_ProcessCompletedBlocks(ADC_RawData *rawInstant,
+void DMA_NotifyFastFrameEoc(void);
+void DMA_GridCycleBoundary(void);
+Uint16 DMA_ProcessBlocks(ADC_RawData *rawInstant,
                                   ADC_RawData *rawAvg,
-                                  ADC_RawMeanSqData *rawMeanSq,
+                                  ADC_RawMeanSq *rawMeanSq,
                                   const ADC_Calibrate *cal);
 void ECAP_Config(void);
 void SCI_Config(void);
@@ -123,10 +126,9 @@ void I2C_Config(void);
 #define I2C_STATUS_NACK            4U
 #define I2C_STATUS_ARBITRATION_LOST 5U
 
-/* I2C 轮询式主机发送:向 7 位地址从机写 length 字节,阻塞至完成/超时/出错。
- * timeoutUs=0 表示用默认超时(2ms)。返回上面的 I2C_STATUS_xxx。      */
+
 Uint16 I2C_MasterWrite(Uint16 slaveAddr7, const unsigned char *data, Uint16 length, Uint16 timeoutUs);
-Uint16 I2C_MasterRead(Uint16 slaveAddr7, unsigned char *data, Uint16 length, Uint16 timeoutUs);
+Uint16 I2C_MasterRead( Uint16 slaveAddr7, unsigned char *data,       Uint16 length, Uint16 timeoutUs);
 Uint16 I2C_MasterProbe(Uint16 slaveAddr7, Uint16 timeoutUs);
 Uint16 I2C_MasterWriteRead
 (
@@ -138,11 +140,11 @@ Uint16 I2C_MasterWriteRead
     Uint16 timeoutUs
 );
 
+
 void SCI_SendByte(Uint16 data);
 void SCI_SendString(const char *text);
 Uint16 SCI_ReadByte(Uint16 *data);
 
-extern volatile float InductorCurrentAmp_temporal;
 extern volatile Uint16 SCI_RxDataPending;
 
 __interrupt void ECAP1_BSP_ISR(void);

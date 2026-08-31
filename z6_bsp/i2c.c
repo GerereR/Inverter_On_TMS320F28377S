@@ -111,7 +111,7 @@ void I2C_Config(void)
  *   1. 等待总线空闲并配置一次完整事务；
  *   2. START前预装最多16字节；
  *   3. FIFO降至半满时按空余槽位批量补充；
- *   4. 等待FIFO、移位器和总线全部空闲后返回。                   */
+ *   4. 等待FIFO、移位器和总线全部空闲后返回。*/
 Uint16 I2C_MasterWrite
 (
     Uint16 slaveAddr7,
@@ -272,9 +272,9 @@ Uint16 I2C_MasterProbe(Uint16 slaveAddr7, Uint16 timeoutUs)
 /* Receive a fixed number of bytes from a slave after a START condition. */
 Uint16 I2C_MasterRead
 (
-    Uint16 slaveAddr7,
-    unsigned char *data,
-    Uint16 length,
+    Uint16 slaveAddr7,  
+    unsigned char *data,    //待填数据块
+    Uint16 length,          //长度
     Uint16 timeoutUs
 )
 {

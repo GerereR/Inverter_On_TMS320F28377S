@@ -8,6 +8,8 @@
 #include "scheduler.h"
 #include "task.h"
 #include "bsp.h"
+#include "z8_control/control.h"
+#include "z8_control/pll.h"
 
 int main(void)
 {
@@ -16,15 +18,17 @@ int main(void)
     // Peripheral interrupts are configured first and enabled together here.
     //SRF_PLL_Init(&GridSPLL, 50.0f, 20000.0f);//PLL state is consumed by ADCA1 ISR
     SOGI_PLL_Init(&GridSPLL, 50.0f, 20000.0f);//PLL state is consumed by ADCA1 ISR
+    Ctrl_Init();
 
     System_Init();
 
     /* Load persistent calibration before the runtime tasks start. */
     Task_Eeprom_Init();
     Task_Comm_Init();
+    Task_State_Init();
     Task_UI_Init();// Polled OLED bring-up runs before the power stage starts; failure must not block startup.
-    // Start PWM only after the CPU ADC interrupt path is configured.
-
+    /* Start the ePWM time bases for ADC triggering. Power outputs remain
+     * software-clamped until the state machine completes CHECK. */
     EPWM_Start();
 
     Scheduler_Config();
@@ -36,52 +40,49 @@ int main(void)
     // set scheduler flags so time-critical interrupt latency stays bounded.
     while(1)
     {
-        schedulerFlags = Scheduler_GetFlags();
+        schedulerFlags = Scheduler_TakeFlags();
 
         if(schedulerFlags & TASK_MEASURE_FLAG)     // 3 ms
         {
-            Scheduler_ClearFlags(TASK_MEASURE_FLAG);
             Task_Measure();
         }
 
         if(schedulerFlags & TASK_STATE_FLAG)       // 5 ms
         {
-            Scheduler_ClearFlags(TASK_STATE_FLAG);
             Task_State();
         }
 
-        if(schedulerFlags & TASK_GRID_FLAG)        // 20 ms
+        if(schedulerFlags & TASK_GRID_FLAG)        // valid eCAP grid boundary
         {
-            Scheduler_ClearFlags(TASK_GRID_FLAG);
             Task_Grid();
+        }
+
+        if(schedulerFlags & TASK_DC_CTRL_FLAG)     // positive/negative grid peak
+        {
+            Task_DcCtrl();
         }
 
         if(schedulerFlags & TASK_POWER_FLAG)       // 50 ms
         {
-            Scheduler_ClearFlags(TASK_POWER_FLAG);
             Task_Power();
         }
 
         if(schedulerFlags & TASK_MPPT_FLAG)        // 100 ms
         {
-            Scheduler_ClearFlags(TASK_MPPT_FLAG);
             Task_MPPT();
         }
 
         if(schedulerFlags & TASK_COMM_FLAG)        // 500 ms
         {
-            Scheduler_ClearFlags(TASK_COMM_FLAG);
             Task_Comm();
         }
         if(schedulerFlags & TASK_EEPROM_FLAG)      // 1 s check; writes are request-driven
         {
-            Scheduler_ClearFlags(TASK_EEPROM_FLAG);
             Task_Eeprom();
         }
         
         if(schedulerFlags & TASK_UI_FLAG)          // 1.5 s, refresh one complete screen
         {
-            Scheduler_ClearFlags(TASK_UI_FLAG);
             Task_UI();
         }
     }

@@ -166,20 +166,20 @@ void EPWM_Config(void)
     EDIS;
 }
 
-void BEEP_SetFrequency(Uint16 frequencyHz)
+void BEEP_SetFreq(Uint16 freqHz)
 {
     Uint32 periodTicks;
 
-    if(frequencyHz < BEEP_MIN_FREQUENCY_HZ)
+    if(freqHz < BEEP_MIN_FREQUENCY_HZ)
     {
-        frequencyHz = BEEP_MIN_FREQUENCY_HZ;
+        freqHz = BEEP_MIN_FREQUENCY_HZ;
     }
-    else if(frequencyHz > BEEP_MAX_FREQUENCY_HZ)
+    else if(freqHz > BEEP_MAX_FREQUENCY_HZ)
     {
-        frequencyHz = BEEP_MAX_FREQUENCY_HZ;
+        freqHz = BEEP_MAX_FREQUENCY_HZ;
     }
 
-    periodTicks = BEEP_PWM_CLOCK_HZ / (Uint32)frequencyHz;
+    periodTicks = BEEP_PWM_CLOCK_HZ / (Uint32)freqHz;
     if(periodTicks > 0UL)
     {
         periodTicks--;
@@ -199,15 +199,8 @@ void EPWM_Start(void)
 {
     EALLOW;
     CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1U;
-    /* main() starts the time base through this API; release the startup clamp. */
-    EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
-    EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
-    EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
-    EPwm2Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
-    EPwm3Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
-    EPwm3Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
-    EPwm4Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
-    EPwm4Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+    /* Keep the power outputs clamped. The running time base still supplies
+     * EPWM1 SOCA to the ADC while the state machine performs CHECK. */
     EDIS;
 }
 
@@ -225,13 +218,16 @@ void EPWM_Disable(void)
     EDIS;
 }
 
-void EPWM_Enable(void)
+Uint16 EPWM_Enable(void)
 {
+    /* A low TZ input is an active hardware trip. Never release the software
+     * clamps until all three physical protection inputs are inactive. */
+    if(EPWM_TripZoneClear() == 0U)
+    {
+        return 0U;
+    }
+
     EALLOW;
-    EPwm1Regs.TZCLR.bit.OST = 1U;
-    EPwm2Regs.TZCLR.bit.OST = 1U;
-    EPwm3Regs.TZCLR.bit.OST = 1U;
-    EPwm4Regs.TZCLR.bit.OST = 1U;
     EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
     EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
     EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
@@ -240,9 +236,8 @@ void EPWM_Enable(void)
     EPwm3Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
     EPwm4Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
     EPwm4Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
-    EPWM_TripZoneFaulted = 0U;
-    gSysFault.tzFault = 0U;
     EDIS;
+    return 1U;
 }
 
 void EPWM_TripZoneForce(void)
@@ -255,15 +250,51 @@ void EPWM_TripZoneForce(void)
     EDIS;
 }
 
-void EPWM_TripZoneClear(void)
+Uint16 EPWM_TripZoneClear(void)
 {
-    EPWM_Enable();
+    /* GPIO62/63/64 are the active-low TZ1/TZ2/TZ3 inputs. Clearing a
+     * one-shot latch while any input is low would only hide an active fault. */
+    if((GpioDataRegs.GPBDAT.bit.GPIO62 == 0U) ||
+       (GpioDataRegs.GPBDAT.bit.GPIO63 == 0U) ||
+       (GpioDataRegs.GPCDAT.bit.GPIO64 == 0U))
+    {
+        EPWM_TripZoneFaulted = 1U;
+        gSysFault.bit.tzFault = 1U;
+        return 0U;
+    }
+
+    EALLOW;
+    EPwm1Regs.TZCLR.bit.OST = 1U;
+    EPwm1Regs.TZOSTCLR.bit.OST1 = 1U;
+    EPwm1Regs.TZOSTCLR.bit.OST2 = 1U;
+    EPwm1Regs.TZOSTCLR.bit.OST3 = 1U;
+    EPwm1Regs.TZCLR.bit.INT = 1U;
+    EPwm2Regs.TZCLR.bit.OST = 1U;
+    EPwm2Regs.TZOSTCLR.bit.OST1 = 1U;
+    EPwm2Regs.TZOSTCLR.bit.OST2 = 1U;
+    EPwm2Regs.TZOSTCLR.bit.OST3 = 1U;
+    EPwm2Regs.TZCLR.bit.INT = 1U;
+    EPwm3Regs.TZCLR.bit.OST = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST1 = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST2 = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;
+    EPwm3Regs.TZCLR.bit.INT = 1U;
+    EPwm4Regs.TZCLR.bit.OST = 1U;
+    EPwm4Regs.TZOSTCLR.bit.OST1 = 1U;
+    EPwm4Regs.TZOSTCLR.bit.OST2 = 1U;
+    EPwm4Regs.TZOSTCLR.bit.OST3 = 1U;
+    EPwm4Regs.TZCLR.bit.INT = 1U;
+    EDIS;
+
+    EPWM_TripZoneFaulted = 0U;
+    gSysFault.bit.tzFault = 0U;
+    return 1U;
 }
 
 static void EPWM_RecordTrip(volatile struct EPWM_REGS *pwm)
 {
     EPWM_TripZoneFaulted = 1U;
-    gSysFault.tzFault = 1U;
+    gSysFault.bit.tzFault = 1U;
     pwm->TZCLR.bit.INT = 1U;
 }
 

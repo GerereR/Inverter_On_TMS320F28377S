@@ -5,19 +5,21 @@
 #include "bsp.h"
 #include "variable.h"
 
-#define EEPROM_I2C_ADDR_7BIT       0x50U /* A2:A0 select 0x50..0x57. */
-#define EEPROM_CAPACITY_BYTES      8192UL
-#define EEPROM_PAGE_SIZE           32U
-#define EEPROM_WRITE_TIMEOUT_US    3000U
-#define EEPROM_READ_TIMEOUT_US     5000U
-#define EEPROM_ACK_TIMEOUT_US      10000U
-#define EEPROM_ACK_POLL_STEP_US    200U
+#define EEPROM_I2C_ADDR_7BIT       0x50U    //芯片规格书定义的
+#define EEPROM_CAPACITY_BYTES      8192UL   //0x2000 
+#define EEPROM_PAGE_SIZE           32U      //0x20  共0x100页
+#define EEPROM_WRITE_TIMEOUT_US    3000U    //3ms
+#define EEPROM_READ_TIMEOUT_US     5000U    //5ms
+#define EEPROM_ACK_TIMEOUT_US      10000U   //10ms
+#define EEPROM_ACK_POLL_STEP_US    200U     //0.2ms
+
+//其实从上到下就是数据的存储格式
+#define EEPROM_CONFIG_ADDRESS      0U
 
 #define EEPROM_CONFIG_MAGIC        0x4D243634UL /* "M$64" marker. */
 #define EEPROM_CONFIG_VERSION      1U
-#define EEPROM_CONFIG_ADDRESS      0U
-#define EEPROM_CONFIG_FLOAT_COUNT  24U
-#define EEPROM_CONFIG_DATA_OFFSET  8U
+#define EEPROM_CONFIG_FLOAT_COUNT  24U  //float数量
+#define EEPROM_CONFIG_DATA_OFFSET  8U   //校准浮点数据的起始偏移地址：
 #define EEPROM_CONFIG_CRC_OFFSET   (EEPROM_CONFIG_DATA_OFFSET + EEPROM_CONFIG_FLOAT_COUNT * 4U)
 #define EEPROM_CONFIG_BYTES        (EEPROM_CONFIG_CRC_OFFSET + 2U)
 

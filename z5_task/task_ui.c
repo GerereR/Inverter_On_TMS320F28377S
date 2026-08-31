@@ -4,6 +4,7 @@
 #include "bsp.h"
 #include "variable.h"
 #include "constant.h"
+#include "../z8_control/control.h"
 #include <string.h>
 
 /* SSD1306配置和帧缓冲只属于UI任务，不暴露给其他任务。 */
@@ -142,9 +143,9 @@ void Task_UI(void)
     pv1Current = gMachineData.realAvg.pv1Current;
     ecapFreq = (float)gMachineData.ecapFreqCent * 0.01f;
     pllFreq = (float)gMachineData.pllFreqCent * 0.01f;
-    inductorCurrentAmp = InductorCurrentAmp_temporal;
-    pllLocked = (gSysFault.pllFault == 0U) ? 1U : 0U;
-    tzFault = gSysFault.tzFault;
+    inductorCurrentAmp = Ctrl_GetInductorCurrentAmp();
+    pllLocked = (gSysFault.bit.pllFault == 0U) ? 1U : 0U;
+    tzFault = gSysFault.bit.tzFault;
 
     /* 两组页面轮换显示, 每组都覆盖相同的页面, 不会残留上一组内容。 */
     if(UI_DisplayScreen == 0U)

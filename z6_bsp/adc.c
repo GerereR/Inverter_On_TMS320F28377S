@@ -1,92 +1,52 @@
 #include "F28x_Project.h"
 #include "bsp.h"
-#include "system.h"
 #include "variable.h"
+#include "scheduler.h"
+#include "../z8_control/control.h"
 
-volatile float InductorCurrentAmp_temporal = 0.8f;
-static volatile float InductorCurrentRef_temporal = 0.0f;
-
-/* PLL锁定门限均基于归一化输入,后续应结合实机波形和SCI记录继续整定。 */
-#define PLL_INPUT_ABS_FILTER_COEFF       0.001f
-#define PLL_LOCK_INPUT_ABS_MIN           0.10f
-#define PLL_UNLOCK_INPUT_ABS_MIN         0.05f
-#define PLL_LOCK_PHASE_ERROR_MAX         0.05f
-#define PLL_UNLOCK_PHASE_ERROR_MAX       0.10f
-#define PLL_LOCK_FREQ_MARGIN_HZ          0.25f
-#define PLL_UNLOCK_FREQ_MARGIN_HZ        0.05f
-#define PLL_LOCK_CONFIRM_SAMPLES         2000U  /* 20kHz下连续100ms合格后判定锁定 */
-#define PLL_UNLOCK_CONFIRM_SAMPLES       200U   /* 20kHz下连续10ms异常后判定失锁 */
-
-static void ADC_UpdateGridPllLock(float pllInput)
+static void ADC_UpdateGridPresence(Uint16 gridVoltRaw)
 {
-    static float inputAbsFiltered = 0.0f;
-    static Uint16 lockCounter = 0U;
-    static Uint16 unlockCounter = 0U;
-    float inputAbs;
-    float phaseErrorAbs;
-    Uint16 lockCondition;
-    Uint16 unlockCondition;
+    static Uint16 windowSamples = 0U;
+    static float windowPeakVolt = 0.0f;
+    float gridVolt;
 
-    inputAbs = (pllInput >= 0.0f) ? pllInput : -pllInput;
-    phaseErrorAbs = (GridSPLL.notchOutput >= 0.0f) ?
-                    GridSPLL.notchOutput : -GridSPLL.notchOutput;
-    inputAbsFiltered += PLL_INPUT_ABS_FILTER_COEFF *
-                        (inputAbs - inputAbsFiltered);
-
-    lockCondition =
-        (inputAbsFiltered >= PLL_LOCK_INPUT_ABS_MIN) &&
-        (phaseErrorAbs <= PLL_LOCK_PHASE_ERROR_MAX) &&
-        (GridSPLL.frequencyHz > (GridSPLL.minFrequencyHz + PLL_LOCK_FREQ_MARGIN_HZ)) &&
-        (GridSPLL.frequencyHz < (GridSPLL.maxFrequencyHz - PLL_LOCK_FREQ_MARGIN_HZ));
-
-    unlockCondition =
-        (inputAbsFiltered < PLL_UNLOCK_INPUT_ABS_MIN) ||
-        (phaseErrorAbs > PLL_UNLOCK_PHASE_ERROR_MAX) ||
-        (GridSPLL.frequencyHz <= (GridSPLL.minFrequencyHz + PLL_UNLOCK_FREQ_MARGIN_HZ)) ||
-        (GridSPLL.frequencyHz >= (GridSPLL.maxFrequencyHz - PLL_UNLOCK_FREQ_MARGIN_HZ));
-
-    if(gSysFault.pllFault != 0U)
+    /* This is only a fast loss-of-grid indication. RMS qualification and
+     * reconnect timing remain in Task_State(). */
+    gridVolt = ((float)gridVoltRaw - gAdcCal.gridVoltage.offset) *
+               gAdcCal.gridVoltage.gain;
+    if(gridVolt < 0.0f)
     {
-        unlockCounter = 0U;
-        if(lockCondition != 0U)
-        {
-            if(lockCounter < PLL_LOCK_CONFIRM_SAMPLES)
-            {
-                lockCounter++;
-            }
-            if(lockCounter >= PLL_LOCK_CONFIRM_SAMPLES)
-            {
-                gSysFault.pllFault = 0U;
-                lockCounter = 0U;
-            }
-        }
-        else
-        {
-            lockCounter = 0U;
-        }
+        gridVolt = -gridVolt;
     }
-    else
+    if(gridVolt > windowPeakVolt)
     {
-        lockCounter = 0U;
-        if(unlockCondition != 0U)
+        windowPeakVolt = gridVolt;
+    }
+
+    windowSamples++;
+    if(windowSamples >= GRID_FAST_WINDOW_SAMPLES)
+    {
+        gGridData.fastPeakVolt = windowPeakVolt;
+        if(windowPeakVolt >= GRID_FAST_PRESENT_PEAK_V)
         {
-            if(unlockCounter < PLL_UNLOCK_CONFIRM_SAMPLES)
-            {
-                unlockCounter++;
-            }
-            if(unlockCounter >= PLL_UNLOCK_CONFIRM_SAMPLES)
-            {
-                gSysFault.pllFault = 1U;
-                unlockCounter = 0U;
-            }
+            gGridData.fastPresent = 1U;
+            gGridData.noGridCount = 0UL;
         }
         else
         {
-            unlockCounter = 0U;
+            gGridData.fastPresent = 0U;
+            if(gGridData.noGridCount < 0xFFFFFFFFUL)
+            {
+                gGridData.noGridCount++;
+            }
         }
+
+        windowSamples = 0U;
+        windowPeakVolt = 0.0f;
     }
 }
 
+/* The fast ISR normalizes grid voltage before handing it to the control layer. */
 void ADC_Config(void)
 {
     EALLOW;
@@ -231,24 +191,28 @@ void ADC_Config(void)
 
 __interrupt void ADCA1_CPU_ISR(void)
 {
-    Uint16 gridVoltageRawSample;
-    float gridVoltagePllInput;
+    Uint16 gridVoltRaw;
+    Uint16 ctrlEvents;
+    float gridVoltPllIn;
 
     /* The control loop consumes the current ADC frame directly. */
-    gridVoltageRawSample = AdcaResultRegs.ADCRESULT1;
+    gridVoltRaw = AdcaResultRegs.ADCRESULT1;
+
+    /* ADCINT2 triggers DMA from the same EOC5 event. Count this ADC frame so
+     * eCAP can close the active DMA block at the next grid-cycle boundary. */
+    DMA_NotifyFastFrameEoc();
 
     /* Convert the grid-voltage sample to the normalized PLL input. */
-    gridVoltagePllInput = ((float)gridVoltageRawSample - gAdcCal.gridVoltage.offset) / ADC_BIPOLAR_ZERO;
-    //SRF_PLL_Run(&GridSPLL, gridVoltagePllInput);
-    SOGI_PLL_Run(&GridSPLL, gridVoltagePllInput);
-    gMachineData.pllFreqCent = (Uint16)(GridSPLL.frequencyHz * 100.0f);
-    ADC_UpdateGridPllLock(gridVoltagePllInput);
+    gridVoltPllIn = ((float)gridVoltRaw - gAdcCal.gridVoltage.offset) / ADC_BIPOLAR_ZERO;
+    ADC_UpdateGridPresence(gridVoltRaw);
+    ctrlEvents = Ctrl_FastRun(gridVoltPllIn);
+    if((ctrlEvents & CTRL_EVENT_GRID_PEAK) != 0U)
+    {
+        Scheduler_NotifyGridPeak();
+    }
 
-    /* Open-loop placeholder until calibrated current feedback is implemented. */
-    InductorCurrentRef_temporal = InductorCurrentAmp_temporal * GridSPLL.sine;
-    EPWM_SetDuty(0.5f * (1.0f + InductorCurrentRef_temporal));
-
-    /* Clear the fast-loop request after all six results have been consumed. */
+    /* The CPU consumed grid voltage; DMA handles the six-result data frame.
+     * Clear only the CPU fast-loop interrupt request here. */
     if(AdcaRegs.ADCINTOVF.bit.ADCINT1 != 0U)
     {
         AdcaRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;

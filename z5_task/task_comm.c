@@ -3,6 +3,7 @@
 #include "task.h"
 #include "bsp.h"
 #include "variable.h"
+#include "../z8_control/control.h"
 
 /*
  * SCI communication uses a compact binary frame so that the protocol is
@@ -21,12 +22,11 @@
 
 /* Commands sent by the host computer. */
 //命令宏
-#define SCI_CMD_READ_MEASUREMENTS       0x01U
-#define SCI_CMD_READ_REAL_MEASUREMENTS  0x02U
+#define SCI_CMD_READ_REAL          0x02U
 #define SCI_CMD_READ_PLL_STATUS    0x03U
 #define SCI_CMD_READ_FAULT_STATUS  0x04U
-#define SCI_CMD_READ_RMS_MEASUREMENTS   0x05U
-#define SCI_CMD_SET_INDUCTOR_CURRENT_AMP    0x10U
+#define SCI_CMD_READ_RMS                0x05U
+#define SCI_CMD_SET_INDUCTOR_CUR_AMP       0x10U
 #define SCI_CMD_CLEAR_FAULT        0x20U
 #define SCI_CMD_READ_VERSION       0x30U
 
@@ -60,9 +60,10 @@ static Uint16 SCI_ReceivedPayloadIndex = 0U;
 static Uint16 SCI_ReceivedCrc = 0U;
 static Uint16 SCI_CalculatedCrc = 0xFFFFU;
 
-volatile Uint32 SCI_ProtocolCrcErrorCount = 0UL;
-volatile Uint32 SCI_ProtocolFormatErrorCount = 0UL;
-volatile Uint32 SCI_ProtocolFrameCount = 0UL;
+/* Protocol diagnostics are owned by this task and remain visible to CCS. */
+static volatile Uint32 SCI_ProtocolCrcErrorCount = 0UL;
+static volatile Uint32 SCI_ProtocolFormatErrorCount = 0UL;
+static volatile Uint32 SCI_ProtocolFrameCount = 0UL;
 
 /* Forward declarations keep the public task entry points near the top. */
 static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data);//使用一个新字节更新 CRC16 校验值。
@@ -209,32 +210,7 @@ static void SCI_HandleCommand(void)
 
     switch(SCI_ReceivedCommand)
     {
-        case SCI_CMD_READ_MEASUREMENTS:
-            /* All measurements are returned as raw ADC codes for now. */
-            responseIndex = 1U;
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.gridVoltage);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.inductorCurrent);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.gfciCurrent);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.dcBusVoltage);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.gridDcCurrent);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.inverterVoltage);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv1Current);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv2Current);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv1Voltage);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv2Voltage);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv1Isolation);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.pv2Isolation);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.inverterTemperature);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.rawAvg.boostTemperature);
-            SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
-            responsePayload[responseIndex] = gSysFault.tzFault;
-            responseIndex++;
-            responseLength = responseIndex;//记录回复信息的长度
-            //上面的操作都只是为了把数据放到数组里面
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);//这一步才是正式应答
-            break;
-
-        case SCI_CMD_READ_REAL_MEASUREMENTS:
+        case SCI_CMD_READ_REAL:
             /* Return calibrated average values, frequencies and reference. */
             responseIndex = 1U;
             SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.gridVoltage);
@@ -254,13 +230,13 @@ static void SCI_HandleCommand(void)
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pllFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex,
-                          (Uint16)(InductorCurrentAmp_temporal * 4096.0f));
+                          (Uint16)(Ctrl_GetInductorCurrentAmp() * 4096.0f));
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
                              responsePayload, responseLength);
             break;
 
-        case SCI_CMD_READ_RMS_MEASUREMENTS:
+        case SCI_CMD_READ_RMS:
             /* Return calibrated RMS values for all linear ADC channels. */
             responseIndex = 1U;
             SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.gridVoltage);
@@ -285,7 +261,7 @@ static void SCI_HandleCommand(void)
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pllFreqCent);
             responsePayload[responseIndex] =
-                (gSysFault.pllFault == 0U) ? 1U : 0U;
+                (gSysFault.bit.pllFault == 0U) ? 1U : 0U;
             responseIndex++;
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
@@ -293,11 +269,11 @@ static void SCI_HandleCommand(void)
 
         case SCI_CMD_READ_FAULT_STATUS:
             responseLength = 2U;
-            responsePayload[1] = gSysFault.tzFault;
+            responsePayload[1] = gSysFault.bit.tzFault;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
             break;
 
-        case SCI_CMD_SET_INDUCTOR_CURRENT_AMP:
+        case SCI_CMD_SET_INDUCTOR_CUR_AMP:
             if(SCI_ReceivedLength != 2U)
             {
                 responsePayload[0] = SCI_STATUS_BAD_LENGTH;
@@ -313,7 +289,7 @@ static void SCI_HandleCommand(void)
                 else
                 {
                     /* Q12: 4096 represents a normalized amplitude of 1.0. */
-                    InductorCurrentAmp_temporal = (float)requestedAmp / 4096.0f;
+                    Ctrl_SetInductorCurrentAmp((float)requestedAmp / 4096.0f);
                     responsePayload[1] = requestedAmp & 0x00FFU;
                     responsePayload[2] = (requestedAmp >> 8U) & 0x00FFU;
                     responseLength = 3U;
@@ -338,8 +314,8 @@ static void SCI_HandleCommand(void)
 
         case SCI_CMD_READ_VERSION:
             responseLength = 3U;
-            responsePayload[1] = 1U; /* Protocol major version. */
-            responsePayload[2] = 1U; /* Protocol minor version. */
+            responsePayload[1] = 2U; /* Protocol major version. */
+            responsePayload[2] = 0U; /* Protocol minor version. */
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
                              responsePayload, responseLength);
             break;

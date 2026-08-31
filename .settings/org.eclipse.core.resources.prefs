@@ -18,4 +18,6 @@ encoding//Debug/z6_bsp/subdir_rules.mk=UTF-8
 encoding//Debug/z6_bsp/subdir_vars.mk=UTF-8
 encoding//Debug/z7_data/subdir_rules.mk=UTF-8
 encoding//Debug/z7_data/subdir_vars.mk=UTF-8
+encoding//Debug/z8_control/subdir_rules.mk=UTF-8
+encoding//Debug/z8_control/subdir_vars.mk=UTF-8
 encoding/<project>=UTF-8
