@@ -96,7 +96,7 @@ Uint16 EPWM_Enable(void);
 void EPWM_TripZoneForce(void);
 Uint16 EPWM_TripZoneClear(void);
 void EPWM_Disable(void);
-void EPWM_SetDuty(float duty);
+void EPWM_SetInverterMode(float modulation);
 void EPWM_SetBoostDuty(float boost1Duty, float boost2Duty);
 
 void ADC_Config(void);

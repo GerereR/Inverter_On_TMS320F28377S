@@ -12,8 +12,7 @@ static void ADC_UpdateGridPresence(Uint16 gridVoltRaw)
 
     /* This is only a fast loss-of-grid indication. RMS qualification and
      * reconnect timing remain in Task_State(). */
-    gridVolt = ((float)gridVoltRaw - gAdcCal.gridVoltage.offset) *
-               gAdcCal.gridVoltage.gain;
+    gridVolt = ((float)gridVoltRaw - gAdcCal.gridVoltage.offset) * gAdcCal.gridVoltage.gain;
     if(gridVolt < 0.0f)
     {
         gridVolt = -gridVolt;
@@ -192,20 +191,24 @@ void ADC_Config(void)
 __interrupt void ADCA1_CPU_ISR(void)
 {
     Uint16 gridVoltRaw;
+    float inductorCurrentHalfRaw;
+    float gridVoltHalfRaw;
+    float dcBusVoltHalfRaw;
     Uint16 ctrlEvents;
-    float gridVoltPllIn;
 
     /* The control loop consumes the current ADC frame directly. */
     gridVoltRaw = AdcaResultRegs.ADCRESULT1;
+    inductorCurrentHalfRaw = (float)AdcaResultRegs.ADCRESULT0 - gAdcCal.inductorCurrent.offset;
+    gridVoltHalfRaw = (float)gridVoltRaw - gAdcCal.gridVoltage.offset;
+    dcBusVoltHalfRaw = (float)AdcaResultRegs.ADCRESULT3 - gAdcCal.dcBusVoltage.offset;//其实是否用BUS瞬时值,有待商榷,因为这样的话BUS瞬变会导致电流环不稳定
 
     /* ADCINT2 triggers DMA from the same EOC5 event. Count this ADC frame so
      * eCAP can close the active DMA block at the next grid-cycle boundary. */
     DMA_NotifyFastFrameEoc();
 
-    /* Convert the grid-voltage sample to the normalized PLL input. */
-    gridVoltPllIn = ((float)gridVoltRaw - gAdcCal.gridVoltage.offset) / ADC_BIPOLAR_ZERO;
     ADC_UpdateGridPresence(gridVoltRaw);
-    ctrlEvents = Ctrl_FastRun(gridVoltPllIn);
+
+    ctrlEvents = Ctrl_FastRun(gridVoltHalfRaw, inductorCurrentHalfRaw, dcBusVoltHalfRaw);
     if((ctrlEvents & CTRL_EVENT_GRID_PEAK) != 0U)
     {
         Scheduler_NotifyGridPeak();

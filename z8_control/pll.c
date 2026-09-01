@@ -174,7 +174,6 @@ void SOGI_PLL_Run(volatile SPLL_1ph *pll, float input)
 
     vq = pll->sogiAlpha * phaseCos + pll->sogiBeta * phaseSin;
     pll->phaseDet = vq;
-    pll->notchOut = vq;
 
     pll->piInt += pll->ki * pll->sampleTs * vq;
     maxCorrection = MATH_TWO_PI_F *

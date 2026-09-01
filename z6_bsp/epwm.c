@@ -319,22 +319,48 @@ __interrupt void EPWM4_TZ_BSP_ISR(void)
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP2;
 }
 
-void EPWM_SetDuty(float duty)
+void EPWM_SetInverterMode(float modulation)
 {
     Uint16 compareValue;
 
-    if(duty < 0.02f)
+    if(modulation > 1.0f)
     {
-        duty = 0.02f;
+        modulation = 1.0f;
     }
-    else if(duty > 0.98f)
+    else if(modulation < -1.0f)
     {
-        duty = 0.98f;
+        modulation = -1.0f;
     }
 
-    compareValue = (Uint16)(duty * (float)EPWM_PERIOD_TICKS);
+    compareValue = (Uint16)(((modulation >= 0.0f) ? modulation : -modulation) * (float)EPWM_PERIOD_TICKS);
     EPwm1Regs.CMPA.bit.CMPA = compareValue;
     EPwm2Regs.CMPA.bit.CMPA = compareValue;
+
+    /* Match the legacy unipolar full-bridge strategy. The inactive leg is
+     * fixed high while the other leg is modulated with its complementary
+     * dead-band output. Both legs use the same fixed state at zero, producing
+     * zero differential bridge voltage. */
+    if(modulation > 0.0f)
+    {
+        EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_HIGH;
+        EPwm2Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+        EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
+        EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+    }
+    else if(modulation < 0.0f)
+    {
+        EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_HIGH;
+        EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+        EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
+        EPwm2Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+    }
+    else
+    {
+        EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_HIGH;
+        EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+        EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_HIGH;
+        EPwm2Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
+    }
 }
 
 void EPWM_SetBoostDuty(float boost1Duty, float boost2Duty)

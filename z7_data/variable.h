@@ -282,7 +282,11 @@ typedef struct
     Uint32 softStartTimerMs;
 } BusCtrlData;
 
-/* Inverter current-loop command, feedback and diagnostic state. */
+/* Inverter current-loop command, feedback and diagnostic state.
+ * currentAmpCmd/currentAmpApplied are normalized peak commands (0..1).
+ * currentRef/currentFeedback/currentErr and the compensation/limit fields
+ * use centered ADC-code units. PI, feed-forward and modulation are normalized
+ * bridge commands (-1..1). */
 typedef struct
 {
     float currentAmpCmd;
@@ -294,7 +298,7 @@ typedef struct
     float piIntegral;
     float piOut;
     float gridVoltFeedForward;
-    float duty;
+    float modulation;
     float dcCurrentComp;
     float currentLimit;
     Uint16 enabled;

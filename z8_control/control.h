@@ -7,7 +7,9 @@
 #define CTRL_EVENT_GRID_PEAK     0x0001U
 
 void Ctrl_Init(void);
-Uint16 Ctrl_FastRun(float gridVoltPllIn);
+Uint16 Ctrl_FastRun(float gridVoltAdc,
+                    float inductorCurrentAdc,
+                    float dcBusVoltAdc);
 void Ctrl_Enable(void);
 void Ctrl_Disable(void);
 void Ctrl_SetInductorCurrentAmp(float amp);
