@@ -7,7 +7,7 @@
 static float ADC_ToReal(Uint16 raw, const ADC_CalParam *cal);
 static float ADC_MeanSqToRms(float meanSq, const ADC_CalParam *cal);
 static float ADC_ConvertTemp(Uint16 raw);
-static void ADC_RawToReal(const ADC_RawData *rawData, const ADC_Calibrate *cal, ADC_Real *realData);
+static void ADC_RawToReal(const ADC_UintData *rawData, const ADC_Calibrate *cal, ADC_FloatData *realData);
 
 static float ADC_ToReal(Uint16 raw, const ADC_CalParam *cal)
 {
@@ -70,7 +70,7 @@ static float ADC_ConvertTemp(Uint16 raw)
     return tempDeciC * ADC_DECI_C_TO_C;
 }
 
-static void ADC_RawToReal(const ADC_RawData *rawData, const ADC_Calibrate *cal, ADC_Real *realData)
+static void ADC_RawToReal(const ADC_UintData *rawData, const ADC_Calibrate *cal, ADC_FloatData *realData)
 {
     realData->gridVoltage =         ADC_ToReal(rawData->gridVoltage, &cal->gridVoltage);
     realData->inductorCurrent =     ADC_ToReal(rawData->inductorCurrent, &cal->inductorCurrent);
@@ -82,24 +82,24 @@ static void ADC_RawToReal(const ADC_RawData *rawData, const ADC_Calibrate *cal, 
     realData->pv2Current =          ADC_ToReal(rawData->pv2Current, &cal->pv2Current);
     realData->pv1Voltage =          ADC_ToReal(rawData->pv1Voltage, &cal->pv1Voltage);
     realData->pv2Voltage =          ADC_ToReal(rawData->pv2Voltage, &cal->pv2Voltage);
-    realData->pv1IsolationVoltage = ADC_ToReal(rawData->pv1Isolation, &cal->pv1Isolation);
-    realData->pv2IsolationVoltage = ADC_ToReal(rawData->pv2Isolation, &cal->pv2Isolation);
-    realData->inverterTemp =        ADC_ConvertTemp(rawData->inverterTemperature);
-    realData->boostTemp =           ADC_ConvertTemp(rawData->boostTemperature);
+    realData->pv1Isolation =        ADC_ToReal(rawData->pv1Isolation, &cal->pv1Isolation);
+    realData->pv2Isolation =        ADC_ToReal(rawData->pv2Isolation, &cal->pv2Isolation);
+    realData->inverterTemperature = ADC_ConvertTemp(rawData->inverterTemperature);
+    realData->boostTemperature =    ADC_ConvertTemp(rawData->boostTemperature);
 }
 
 void Task_Measure(void)
 {
-    static ADC_RawData rawInstant = {0};
-    static ADC_RawData rawAvg = {0};
-    static ADC_RawMeanSq rawMeanSq = {0};
+    static ADC_UintData rawInstant = {0};
+    static ADC_UintData rawAvg = {0};
+    static ADC_FloatData rawMeanSq = {0};
     static Uint16 validMask = 0U;
 
     Uint16 updatedMask;
     ADC_Calibrate cal;
-    ADC_Real realInstant;
-    ADC_Real realAvg;
-    ADC_RealRms realRms;
+    ADC_FloatData realInstant;
+    ADC_FloatData realAvg;
+    ADC_FloatData realRms = {0};
 
     /* Use one calibration snapshot for DMA statistics and real conversion. */
     DINT;
@@ -133,8 +133,8 @@ void Task_Measure(void)
     realRms.pv2Current = ADC_MeanSqToRms(rawMeanSq.pv2Current, &cal.pv2Current);
     realRms.pv1Voltage = ADC_MeanSqToRms(rawMeanSq.pv1Voltage, &cal.pv1Voltage);
     realRms.pv2Voltage = ADC_MeanSqToRms(rawMeanSq.pv2Voltage, &cal.pv2Voltage);
-    realRms.pv1IsolationVoltage = ADC_MeanSqToRms(rawMeanSq.pv1Isolation, &cal.pv1Isolation);
-    realRms.pv2IsolationVoltage = ADC_MeanSqToRms(rawMeanSq.pv2Isolation, &cal.pv2Isolation);
+    realRms.pv1Isolation = ADC_MeanSqToRms(rawMeanSq.pv1Isolation, &cal.pv1Isolation);
+    realRms.pv2Isolation = ADC_MeanSqToRms(rawMeanSq.pv2Isolation, &cal.pv2Isolation);
 
     /* Publish only the raw instantaneous value and calibrated results. */
     gMachineData.realInstant = realInstant;

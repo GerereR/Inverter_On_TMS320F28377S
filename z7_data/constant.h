@@ -34,6 +34,16 @@
 #define PV_OV_TRIP_V                  550.0f
 #define PV_OV_RECOVER_V               545.0f
 #define MPPT_VOLT_STEP_V                1.0f
+#define MPPT_VOLT_FINE_STEP_V           0.25f
+#define MPPT_FAST_POWER_DELTA_W         19.0f
+#define MPPT_CURRENT_LIMIT_MARGIN_A      0.05f
+
+/* PV input modes retained for the future topology detector. The current
+ * hardware uses two independent MPPT channels. */
+#define MPPT_INPUT_NONE                 0U
+#define MPPT_INPUT_PV1_ONLY             1U
+#define MPPT_INPUT_PV2_ONLY             2U
+#define MPPT_INPUT_DUAL                 3U
 #define DC_BUS_MIN_V                  370.0f
 #define DC_BUS_MAX_V                  430.0f
 #define DC_BUS_OV_TRIP_V              580.0f
@@ -44,6 +54,23 @@
 #define DC_VOLT_MARGIN_20_V            20.0f
 #define DC_VOLT_MARGIN_25_V            25.0f
 #define DC_VOLT_MARGIN_50_V            50.0f
+
+/* Initial DC-bus outer-loop settings. The gains are bring-up values and
+ * should be retuned after the power stage and bus capacitance are verified. */
+#define BUS_CTRL_PERIOD_S                0.01f
+#define BUS_VOLT_REF_V                 400.0f
+#define BUS_PI_KP                        0.002f
+#define BUS_PI_KI                        0.02f
+#define BUS_CURRENT_AMP_MIN_NORM         0.0f
+#define BUS_CURRENT_AMP_MAX_NORM         1.0f
+
+/* Initial PV-voltage Boost-loop settings. The loop runs at the grid-peak
+ * control event rate (approximately 100 Hz for a 50 Hz grid). */
+#define BOOST_CTRL_PERIOD_S              0.01f
+#define BOOST_PI_KP                      0.0005f
+#define BOOST_PI_KI                      0.01f
+#define BOOST_DUTY_MIN                   0.0f
+#define BOOST_DUTY_MAX                   0.98f
 
 /* 3 kW model limits.  The PV power limit applies to each input path. */
 #define MODEL_3KW_RATED_POWER_W      3000.0f

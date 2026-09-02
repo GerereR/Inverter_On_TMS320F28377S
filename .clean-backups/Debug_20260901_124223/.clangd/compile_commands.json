@@ -1,0 +1,202 @@
+[
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/main.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_Adc.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_CodeStartBranch.asm"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_CpuTimers.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_DBGIER.asm"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_DefaultISR.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_ECap.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_EPwm.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_GlobalVariableDefs.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_Gpio.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_I2C.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_PieCtrl.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_PieVect.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_Sci.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_SysCtrl.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_sci_io.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_struct.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_usDelay.asm"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler/scheduler.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z5_task/task_comm.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z5_task/task_grid.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z5_task/task_measure.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z5_task/task_mppt.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z5_task/task_power.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z5_task/task_state.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp/epwm.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp/gpio.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp/adc.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp/ecap.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp/sci.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp/i2c.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z7_data/variable.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp/dma.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z2_driver/F2837xS_Dma.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z5_task/task_ui.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z5_task/task_e2prom.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z8_control/control.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z8_control/pll.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z3_system/system.c"
+   },
+   {
+      "directory" : "C:/Users/a/workspace_ccstheia/InverterBase/Debug",
+      "command"   : "clang++ -I\"D:/CCS_V21/ccs/tools/compiler/ti-cgt-c2000_25.11.1.LTS/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z7_data\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z8_control\" -I\"C:/Users/a/workspace_ccstheia/InverterBase\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/common/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/f2837xs/headers/include\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z3_system\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z4_scheduler\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z5_task\" -I\"C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp\" -I\"D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include\" -DCPU1 -D_FLASH -xc",
+      "file"      : "C:/Users/a/workspace_ccstheia/InverterBase/z6_bsp/timer.c"
+   }
+]

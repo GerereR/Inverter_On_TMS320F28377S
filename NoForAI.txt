@@ -40,3 +40,75 @@ system.c里面
 
 
 
+
+
+我现在对当前的数据管理其实有点不太满意了
+其实还是命名的问题
+我有个改进建议,是什么呢:
+
+typedef struct
+{
+    Uint16 gridVoltage;
+    Uint16 inductorCurrent;
+    Uint16 gfciCurrent;
+    Uint16 dcBusVoltage;
+    Uint16 gridDcCurrent;
+    Uint16 inverterVoltage;
+    Uint16 pv1Current;
+    Uint16 pv2Current;
+    Uint16 pv1Voltage;
+    Uint16 pv2Voltage;
+    Uint16 pv1Isolation;
+    Uint16 pv2Isolation;
+    Uint16 inverterTemperature;
+    Uint16 boostTemperature;
+} ADC_UintData;
+
+typedef struct
+{
+    Float gridVoltage;
+    Float inductorCurrent;
+    Float gfciCurrent;
+    Float dcBusVoltage;
+    Float gridDcCurrent;
+    Float inverterVoltage;
+    Float pv1Current;
+    Float pv2Current;
+    Float pv1Voltage;
+    Float pv2Voltage;
+    Float pv1Isolation;
+    Float pv2Isolation;
+    Float inverterTemperature;
+    Float boostTemperature;
+} ADC_FloatData;
+
+typedef struct
+{
+
+    ADC_UintData    rawInstant;
+    ADC_FloatData   realInstant
+    ADC_FloatData   realAvg;
+    ADC_FloatData   realRms;
+
+    PowerData       powerData;
+
+    Uint32 measureSeq;
+    Uint16 ecapFreqCent;
+    Uint16 pllFreqCent;
+    ...
+    ...
+} MachineData;
+
+你看,ADC采集到的值只有两类:
+未经处理的:ADC_UintData;
+经过处理的:ADC_FloatData;
+你可能会想:    
+inverterTemperature和boostTemperature这两个数据根本没必要去记录原始值,瞬时真实值...
+而ADC_UintData和ADC_FloatData里面却有它们,没意义啊
+确实是这样的,但是我们虽然初始化了它,却没必要赋值他,也没必要读取它,不是吗?
+
+
+那这样说的话,类似于ADC_FastRawFrame这样的结构体岂不是没意义了?
+
+
+

@@ -42,7 +42,6 @@ void Scheduler_Tick1ms(void)
 {
     static Uint16 cntMeasure = 0U;
     static Uint16 cntState = 0U;
-    static Uint16 cntPower = 0U;
     static Uint16 cntMppt = 0U;
     static Uint16 cntUi = 0U;
     static Uint16 cntComm = 0U;
@@ -59,12 +58,6 @@ void Scheduler_Tick1ms(void)
     {
         cntState = 0U;
         Scheduler_Flags |= TASK_STATE_FLAG;
-    }
-
-    if(++cntPower >= TASK_POWER_PERIOD_MS)
-    {
-        cntPower = 0U;
-        Scheduler_Flags |= TASK_POWER_FLAG;
     }
 
     if(++cntMppt >= TASK_MPPT_PERIOD_MS)

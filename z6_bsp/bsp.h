@@ -103,9 +103,9 @@ void ADC_Config(void);
 void DMA_Config(void);
 void DMA_NotifyFastFrameEoc(void);
 void DMA_GridCycleBoundary(void);
-Uint16 DMA_ProcessBlocks(ADC_RawData *rawInstant,
-                                  ADC_RawData *rawAvg,
-                                  ADC_RawMeanSq *rawMeanSq,
+Uint16 DMA_ProcessBlocks(ADC_UintData *rawInstant,
+                                  ADC_UintData *rawAvg,
+                                  ADC_FloatData *rawMeanSq,
                                   const ADC_Calibrate *cal);
 void ECAP_Config(void);
 void SCI_Config(void);

@@ -4,6 +4,19 @@
 #include "bsp.h"
 #include "../z8_control/control.h"
 
+float System_Clamp(float value, float minimum, float maximum)
+{
+    if(value > maximum)
+    {
+        return maximum;
+    }
+    if(value < minimum)
+    {
+        return minimum;
+    }
+    return value;
+}
+
 void System_Init(void)
 {
     /* Establish clocks and a known interrupt state before configuring BSPs. */

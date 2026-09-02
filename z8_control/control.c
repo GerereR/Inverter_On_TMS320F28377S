@@ -4,6 +4,7 @@
 #include "pll.h"
 #include "bsp.h"
 #include "variable.h"
+#include "system.h"
 
 /* Temporary PLL lock thresholds for the current bring-up stage. */
 #define PLL_INPUT_ABS_FILTER_COEFF       0.001f
@@ -27,19 +28,6 @@
 /* With centered raw ADC values, 1.203 is the raw-domain equivalent of the
  * legacy physical feed-forward coefficient 0.8 after the voltage gain ratio. */
 #define INV_GRID_FEED_FORWARD             1.203f
-
-static float Ctrl_ClampUnit(float value, float maxValue)
-{
-    if(value > maxValue)
-    {
-        return maxValue;
-    }
-    if(value < -maxValue)
-    {
-        return -maxValue;
-    }
-    return value;
-}
 
 static float Ctrl_WrapPhase(float phase)
 {
@@ -183,6 +171,9 @@ void Ctrl_Init(void)
     /* Startup does not invent a nonzero current command. */
     gInvCtrlData.currentAmpCmd = 0.0f;
     gInvCtrlData.enabled = 0U;
+    /* Until the future power-limit manager is active, allow the full
+     * normalized current range. A later zero limit must remain effective. */
+    gPowerLimitData.currentAmpLimit = BUS_CURRENT_AMP_MAX_NORM;
     Ctrl_ResetCurrentLoop();
 }
 
@@ -228,9 +219,7 @@ float Ctrl_GetInductorCurrentAmp(void)
 }
 
 /* All three arguments are centered ADC values after total offset removal. */
-Uint16 Ctrl_FastRun(float gridVoltAdc,
-                    float inductorCurrentAdc,
-                    float dcBusVoltAdc)
+Uint16 Ctrl_FastRun(float gridVoltAdc, float inductorCurrentAdc, float dcBusVoltAdc)
 {
     Uint16 events;
     float gridVoltUnif;
@@ -251,21 +240,16 @@ Uint16 Ctrl_FastRun(float gridVoltAdc,
 
     if(gInvCtrlData.enabled != 0U)
     {
-        currentPhase = Ctrl_WrapPhase(GridSPLL.phase +
-                                       gReactiveData.phaseShiftRad +
-                                       gReactiveData.capCompRad);
+        currentPhase = Ctrl_WrapPhase(GridSPLL.phase + gReactiveData.phaseShiftRad + gReactiveData.capCompRad);
         currentRefSine = __sinpuf32(currentPhase * MATH_INV_TWO_PI_F);
-        gInvCtrlData.currentRef =
-            gInvCtrlData.currentAmpApplied * ADC_BIPOLAR_ZERO *
-            currentRefSine;
+        gInvCtrlData.currentRef = gInvCtrlData.currentAmpApplied * ADC_BIPOLAR_ZERO *  currentRefSine;
 
         /* This guard is only for a valid division denominator. Bus operating
          * range qualification belongs to the state machine. */
         if(dcBusVoltAdc > 0.0f)
         {
             gInvCtrlData.currentErrPrev = gInvCtrlData.currentErr;
-            gInvCtrlData.currentErr = gInvCtrlData.currentRef -
-                                      gInvCtrlData.currentFeedback;
+            gInvCtrlData.currentErr = gInvCtrlData.currentRef - gInvCtrlData.currentFeedback;
 
             /* Incremental PI: scale the new increment before accumulating it. */
             piIncrement =
@@ -276,15 +260,15 @@ Uint16 Ctrl_FastRun(float gridVoltAdc,
                 (dcBusVoltAdc * INV_PI_BUS_SCALE *
                  INV_LEGACY_PWM_PERIOD);
             gInvCtrlData.piOut =
-                Ctrl_ClampUnit(gInvCtrlData.piOut + piIncrement, 1.0f);
+                System_Clamp(gInvCtrlData.piOut + piIncrement, -1.0f, 1.0f);
 
             /* This ratio uses centered raw ADC values; 1.203 is the raw-domain
              * form of the legacy 0.8 physical feed-forward coefficient. */
-            gInvCtrlData.gridVoltFeedForward =
-                INV_GRID_FEED_FORWARD * gridVoltAdc / dcBusVoltAdc;
-            gInvCtrlData.modulation =
-                Ctrl_ClampUnit(gInvCtrlData.piOut +
-                               gInvCtrlData.gridVoltFeedForward, 1.0f);
+            gInvCtrlData.gridVoltFeedForward = INV_GRID_FEED_FORWARD * gridVoltAdc / dcBusVoltAdc;
+            gInvCtrlData.modulation = System_Clamp(
+                gInvCtrlData.piOut + gInvCtrlData.gridVoltFeedForward,
+                -1.0f,
+                1.0f);
         }
         else
         {

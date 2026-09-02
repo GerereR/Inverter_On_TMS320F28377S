@@ -13,7 +13,6 @@ void Task_Grid(void);
 
 void Task_MPPT(void);
 
-void Task_Power(void);
 void Task_DcCtrl(void);
 
 void Task_Comm_Init(void);

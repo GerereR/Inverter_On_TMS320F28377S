@@ -11,7 +11,7 @@ volatile SysData gSysData = {SYS_STATE_WAIT, MODEL_3KW};
 volatile MpptData gMpptData = {0};
 volatile BusCtrlData gBusCtrlData = {0};
 volatile InvCtrlData gInvCtrlData = {0};
-volatile PowerData gPowerData = {0};
+volatile PowerLimitData gPowerLimitData = {0};
 volatile GridMonitorData gGridData = {0};
 volatile ReactiveCtrlData gReactiveData = {0};
 

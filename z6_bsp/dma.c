@@ -430,10 +430,13 @@ static Uint16 DMA_ClaimBuffer(volatile DMA_BlockState *state,
     return blockReady;//这里显式告诉你是否准备好,隐式告诉你一个用哪个buffer
 }
 
-Uint16 DMA_ProcessBlocks(ADC_RawData *rawInstant,
-                                 ADC_RawData *rawAvg,
-                                 ADC_RawMeanSq *rawMeanSq,
-                                  const ADC_Calibrate *cal)
+Uint16 DMA_ProcessBlocks
+(
+    ADC_UintData *rawInstant,
+    ADC_UintData *rawAvg,
+                                 ADC_FloatData *rawMeanSq,
+    const ADC_Calibrate *cal
+)
 {
     Uint16 bufferIndex;
     Uint16 fastBlockBursts;

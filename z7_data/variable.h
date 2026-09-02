@@ -23,13 +23,9 @@ typedef struct
     Uint16 pv2Isolation;
     Uint16 inverterTemperature;
     Uint16 boostTemperature;
-} ADC_RawData;
+} ADC_UintData;
 
-/*
- * Mean-square values remain in ADC-count-squared units. The configured
- * channel offset is removed before squaring, so RMS conversion needs only
- * a square root and the channel gain.
- */
+/* Converted values use volts, amperes and degrees Celsius. */
 typedef struct
 {
     float gridVoltage;
@@ -44,43 +40,9 @@ typedef struct
     float pv2Voltage;
     float pv1Isolation;
     float pv2Isolation;
-} ADC_RawMeanSq;
-
-/* Real values use volts, amperes and degrees Celsius. */
-typedef struct
-{
-    float gridVoltage;
-    float inductorCurrent;
-    float gfciCurrent;
-    float dcBusVoltage;
-    float gridDcCurrent;
-    float inverterVoltage;
-    float pv1Current;
-    float pv2Current;
-    float pv1Voltage;
-    float pv2Voltage;
-    float pv1IsolationVoltage;
-    float pv2IsolationVoltage;
-    float inverterTemp;
-    float boostTemp;
-} ADC_Real;
-
-/* RMS is defined only for the linear electrical measurement channels. */
-typedef struct
-{
-    float gridVoltage;
-    float inductorCurrent;
-    float gfciCurrent;
-    float dcBusVoltage;
-    float gridDcCurrent;
-    float inverterVoltage;
-    float pv1Current;
-    float pv2Current;
-    float pv1Voltage;
-    float pv2Voltage;
-    float pv1IsolationVoltage;
-    float pv2IsolationVoltage;
-} ADC_RealRms;
+    float inverterTemperature;
+    float boostTemperature;
+} ADC_FloatData;
 
 /* Each linear channel owns an independently adjustable zero and gain. */
 typedef struct
@@ -88,8 +50,6 @@ typedef struct
     float offset;
     float gain;
 } ADC_CalParam;
-
-
 
 typedef struct
 {
@@ -200,21 +160,6 @@ typedef union
     } bit;
 } SysFault;
 
-/*
- * Runtime machine data shared by acquisition, control and communication.
- * ECAP and PLL frequencies are stored in 0.01 Hz units.
- */
-typedef struct
-{
-    ADC_RawData rawInstant;
-    ADC_Real realInstant;
-    ADC_Real realAvg;
-    ADC_RealRms realRms;
-    Uint32 measureSeq;
-    Uint16 ecapFreqCent;
-    Uint16 pllFreqCent;
-} MachineData;
-
 /* State-machine data shared by startup, protection and supervisory tasks. */
 typedef struct
 {
@@ -273,7 +218,13 @@ typedef struct
     float piIntegral;
     float piOut;
     float piOutPrev;
+    /* Normalized inverter-current amplitude command, range 0.0 to 1.0. */
     float currentAmpRef;
+    /* Independent PV-voltage PI states for the two Boost channels. */
+    float boost1VoltErr;
+    float boost2VoltErr;
+    float boost1PiIntegral;
+    float boost2PiIntegral;
     float boost1Duty;
     float boost2Duty;
     Uint16 initialized;
@@ -305,26 +256,57 @@ typedef struct
     Uint16 zeroCrossUpdatePending;
 } InvCtrlData;
 
-/* Calculated power, energy and supervisory derating limits. */
+/* Calculated grid/PV power and accumulated output energy. */
 typedef struct
 {
     float gridActivePower;
     float gridReactivePower;
     float gridApparentPower;
     float powerFactor;
+
     float pv1Power;
     float pv2Power;
     float totalPvPower;
-    float energyWh;
+
+    float totalEnergyWh;
+    float dailyEnergyWh;
+    float monthlyEnergyWh;
+} PowerData;
+
+/* Output command and the limits currently constraining delivered power. */
+typedef struct
+{
     float outputPowerCmd;
     float outputPowerLimit;
     float currentAmpLimit;
     float thermalPowerLimit;
     float pvPowerLimit;
     float freqPowerLimit;
-    Uint32 calcCount;
     Uint32 overloadTimerMs;
-} PowerData;
+} PowerLimitData;
+
+/*
+ * Runtime machine data shared by acquisition, control and communication.
+ * ADC data has two forms only: raw unsigned counts and converted
+ * floating-point values. DMA mean-square intermediates use the same float
+ * type and remain in centered ADC-count-squared units until RMS conversion.
+ * Fields that are not meaningful for a given statistic remain zero.
+ * ECAP and PLL frequencies are stored in 0.01 Hz units.
+ */
+typedef struct
+{
+    Uint32 measureSeq;
+
+    ADC_UintData  rawInstant;
+    ADC_FloatData realInstant;
+    ADC_FloatData realAvg;
+    ADC_FloatData realRms;
+
+    PowerData powerData;
+
+    Uint16 ecapFreqCent;
+    Uint16 pllFreqCent;
+} MachineData;
 
 /* Grid qualification and long-window monitoring state. */
 typedef struct
@@ -367,7 +349,7 @@ extern volatile ADC_Calibrate gAdcCal;
 extern volatile MpptData gMpptData;
 extern volatile BusCtrlData gBusCtrlData;
 extern volatile InvCtrlData gInvCtrlData;
-extern volatile PowerData gPowerData;
+extern volatile PowerLimitData gPowerLimitData;
 extern volatile GridMonitorData gGridData;
 extern volatile ReactiveCtrlData gReactiveData;
 

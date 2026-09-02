@@ -62,12 +62,7 @@ int main(void)
             Task_DcCtrl();
         }
 
-        if(schedulerFlags & TASK_POWER_FLAG)       // 50 ms
-        {
-            Task_Power();
-        }
-
-        if(schedulerFlags & TASK_MPPT_FLAG)        // 100 ms
+        if(schedulerFlags & TASK_MPPT_FLAG)        // 500 ms
         {
             Task_MPPT();
         }

@@ -4,14 +4,17 @@
 #include "bsp.h"
 #include "system.h"
 #include "variable.h"
-#include "../z8_control/control.h"
+#include "control.h"
 
-static Uint16 State_SourcePresent(void);
-static Uint16 State_SourceReady(void);
-static Uint16 State_BusReady(void);
-static Uint16 State_GridPresent(void);
-static Uint16 State_GridReady(void);
-static Uint16 State_HasRecoverableFault(void);
+static Uint16 State_IsPresent_DC(void);
+static Uint16 State_IsReady_DC(void);
+
+static Uint16 State_IsReady_BUS(void);
+
+static Uint16 State_IsPresent_AC(void);
+static Uint16 State_IsReady_AC(void);
+
+static Uint16 State_HasRecoverFault(void);
 static Uint16 State_HasPermanentFault(void);
 
 static void State_UpdateGridFaults(void);
@@ -63,16 +66,19 @@ void Task_State(void)
 
 /* A source is present at the lower run/hold threshold. This check is used
  * after startup and intentionally has hysteresis relative to PV_START_V. */
-static Uint16 State_SourcePresent(void)
+static Uint16 State_IsPresent_DC(void)
 {
-    return ((gMachineData.realAvg.pv1Voltage >= PV_PRESENT_MIN_V) ||
+    return 
+        (
+            (gMachineData.realAvg.pv1Voltage >= PV_PRESENT_MIN_V) ||
             (gMachineData.realAvg.pv2Voltage >= PV_PRESENT_MIN_V) ||
-            (gMachineData.realAvg.dcBusVoltage >= DC_BUS_MIN_V)) ? 1U : 0U;
+            (gMachineData.realAvg.dcBusVoltage >= DC_BUS_MIN_V)
+        ) ? 1U : 0U;
 }
 
 /* Require the source-start condition to remain valid continuously. A single
  * invalid state-task sample restarts the qualification interval. */
-static Uint16 State_SourceReady(void)
+static Uint16 State_IsReady_DC(void)
 {
     Uint16 valid;
 
@@ -104,7 +110,7 @@ static Uint16 State_SourceReady(void)
 
 /* The current framework does not start Boost. Therefore CHECK only accepts
  * a bus that is already inside the normal operating window. */
-static Uint16 State_BusReady(void)
+static Uint16 State_IsReady_BUS(void)
 {
     float busVoltage;
 
@@ -115,7 +121,7 @@ static Uint16 State_BusReady(void)
 }
 
 /* Update instantaneous grid diagnostics without applying reconnect timing. */
-static Uint16 State_GridPresent(void)
+static Uint16 State_IsPresent_AC(void)
 {
     float gridFreqHz;
     float gridVoltageRms;
@@ -139,9 +145,9 @@ static Uint16 State_GridPresent(void)
 
 /* Reconnect timing belongs to CHECK only. The timer is reset whenever either
  * voltage or frequency leaves the permitted window. */
-static Uint16 State_GridReady(void)
+static Uint16 State_IsReady_AC(void)
 {
-    if(State_GridPresent() != 0U)
+    if(State_IsPresent_AC() != 0U)
     {
         if(gSysData.gridStableMs < GRID_RECONN_DELAY_MS)
         {
@@ -162,7 +168,7 @@ static Uint16 State_GridReady(void)
     return gSysData.gridReady;
 }
 
-static Uint16 State_HasRecoverableFault(void)
+static Uint16 State_HasRecoverFault(void)
 {
     return (gSysFault.word.recoverable != 0U) ? 1U : 0U;
 }
@@ -182,17 +188,11 @@ static void State_UpdateGridFaults(void)
     gridFreqHz = (float)gMachineData.ecapFreqCent * 0.01f;
     gridVoltageRms = gMachineData.realRms.gridVoltage;
 
-    gSysFault.bit.gridOverVolt =
-        (gridVoltageRms > GRID_OV_TRIP_RMS_V) ? 1U : 0U;
-    gSysFault.bit.gridUnderVolt =
-        ((gridVoltageRms < GRID_UV_TRIP_RMS_V) ||
-         (gGridData.fastPresent == 0U)) ? 1U : 0U;
-    gSysFault.bit.gridOverFreq =
-        (gridFreqHz > GRID_OF_TRIP_HZ) ? 1U : 0U;
-    gSysFault.bit.gridUnderFreq =
-        (gridFreqHz < GRID_UF_TRIP_HZ) ? 1U : 0U;
-
-    (void)State_GridPresent();
+    gSysFault.bit.gridOverVolt = (gridVoltageRms > GRID_OV_TRIP_RMS_V) ? 1U : 0U;
+    gSysFault.bit.gridUnderVolt = ((gridVoltageRms < GRID_UV_TRIP_RMS_V) || (gGridData.fastPresent == 0U)) ? 1U : 0U;
+    gSysFault.bit.gridOverFreq = (gridFreqHz > GRID_OF_TRIP_HZ) ? 1U : 0U;
+    gSysFault.bit.gridUnderFreq = (gridFreqHz < GRID_UF_TRIP_HZ) ? 1U : 0U;
+    (void)State_IsPresent_AC();
 }
 
 /* Reset only startup/control runtime values. Measurement history and active
@@ -204,13 +204,9 @@ static void State_ResetStartupData(void)
     gSysData.inverterReady = 0U;
     gSysData.relayReady = 0U;
 
-    gBusCtrlData.piIntegral = 0.0f;
-    gBusCtrlData.piOut = 0.0f;
-    gBusCtrlData.piOutPrev = 0.0f;
-    gBusCtrlData.currentAmpRef = 0.0f;
-    gBusCtrlData.boost1Duty = 0.0f;
-    gBusCtrlData.boost2Duty = 0.0f;
-    gBusCtrlData.initialized = 0U;
+    /* Controller internals are owned by z8_control. */
+    Ctrl_BusReset();
+    Ctrl_BoostReset();
     gBusCtrlData.softStartActive = 0U;
     gBusCtrlData.softStartStage = 0U;
     gBusCtrlData.softStartTimerMs = 0UL;
@@ -260,7 +256,7 @@ static void State_RunWait(void)
     {
         State_Enter(SYS_STATE_PERMANENT);
     }
-    else if(State_HasRecoverableFault() != 0U)
+    else if(State_HasRecoverFault() != 0U)
     {
         gSysData.sourceStableMs = 0UL;
         gSysData.sourceReady = 0U;
@@ -270,7 +266,7 @@ static void State_RunWait(void)
         gSysData.sourceStableMs = 0UL;
         gSysData.sourceReady = 0U;
     }
-    else if(State_SourceReady() != 0U)
+    else if(State_IsReady_DC() != 0U)
     {
         State_Enter(SYS_STATE_CHECK);
     }
@@ -285,7 +281,7 @@ static void State_RunCheck(void)
         State_Enter(SYS_STATE_PERMANENT);
         return;
     }
-    if(State_HasRecoverableFault() != 0U)
+    if(State_HasRecoverFault() != 0U)
     {
         State_Enter(SYS_STATE_FAULT);
         return;
@@ -304,33 +300,33 @@ static void State_RunCheck(void)
             break;
 
         case SYS_CHECK_SOURCE:
-            if(State_SourceReady() != 0U)
+            if(State_IsReady_DC() != 0U)
             {
                 gSysData.checkStage = SYS_CHECK_GRID;
             }
-            else if(State_SourcePresent() == 0U)
+            else if(State_IsPresent_DC() == 0U)
             {
                 State_Enter(SYS_STATE_WAIT);
             }
             break;
 
         case SYS_CHECK_GRID:
-            if(State_SourcePresent() == 0U)
+            if(State_IsPresent_DC() == 0U)
             {
                 State_Enter(SYS_STATE_WAIT);
             }
-            else if(State_GridReady() != 0U)
+            else if(State_IsReady_AC() != 0U)
             {
                 gSysData.checkStage = SYS_CHECK_BUS;
             }
             break;
 
         case SYS_CHECK_BUS:
-            if(State_SourcePresent() == 0U)
+            if(State_IsPresent_DC() == 0U)
             {
                 State_Enter(SYS_STATE_WAIT);
             }
-            else if(State_BusReady() != 0U)
+            else if(State_IsReady_BUS() != 0U)
             {
                 gSysData.checkStage = SYS_CHECK_RELAY;
             }
@@ -344,9 +340,9 @@ static void State_RunCheck(void)
             break;
 
         case SYS_CHECK_PREPARE:
-            if((State_SourcePresent() == 0U) ||
-               (State_BusReady() == 0U) ||
-               (State_GridPresent() == 0U))
+            if((State_IsPresent_DC() == 0U) ||
+               (State_IsReady_BUS() == 0U) ||
+               (State_IsPresent_AC() == 0U))
             {
                 gSysData.checkStage = SYS_CHECK_SOURCE;
                 gSysData.sourceStableMs = 0UL;
@@ -381,13 +377,13 @@ static void State_RunNormal(void)
     {
         State_Enter(SYS_STATE_PERMANENT);
     }
-    else if(State_HasRecoverableFault() != 0U)
+    else if(State_HasRecoverFault() != 0U)
     {
         State_Enter(SYS_STATE_FAULT);
     }
     else if((gSysData.startRequest == 0U) ||
-            (State_SourcePresent() == 0U) ||
-            (State_BusReady() == 0U))
+            (State_IsPresent_DC() == 0U) ||
+            (State_IsReady_BUS() == 0U))
     {
         /* Normal PV depletion or loss of the DC source is not latched as a
          * protection failure. Stop safely and qualify again from WAIT. */
@@ -404,7 +400,7 @@ static void State_RunFault(void)
     {
         State_Enter(SYS_STATE_PERMANENT);
     }
-    else if(State_HasRecoverableFault() == 0U)
+    else if(State_HasRecoverFault() == 0U)
     {
         gSysData.restartCount++;
         State_Enter(SYS_STATE_WAIT);

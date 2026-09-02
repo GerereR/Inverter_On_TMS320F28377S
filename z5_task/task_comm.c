@@ -223,10 +223,10 @@ static void SCI_HandleCommand(void)
             SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv2Current);
             SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv1Voltage);
             SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv2Voltage);
-            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv1IsolationVoltage);
-            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv2IsolationVoltage);
-            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.inverterTemp);
-            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.boostTemp);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv1Isolation);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.pv2Isolation);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.inverterTemperature);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realAvg.boostTemperature);
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pllFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex,
@@ -249,8 +249,8 @@ static void SCI_HandleCommand(void)
             SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv2Current);
             SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv1Voltage);
             SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv2Voltage);
-            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv1IsolationVoltage);
-            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv2IsolationVoltage);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv1Isolation);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gMachineData.realRms.pv2Isolation);
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
                              responsePayload, responseLength);
