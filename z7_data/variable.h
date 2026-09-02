@@ -195,11 +195,22 @@ typedef struct
     Uint16 fastSearch;
 } MpptChannelData;
 
+/* Runtime MPPT limits selected once from the installed inverter model. */
+typedef struct
+{
+    float currentLimit;
+    float minVoltage;
+    float smallPowerDelta;
+    float largePowerDelta;
+} MpptChannelConfig;
+
 /* Shared state for dual-input topology management and both MPPT trackers. */
 typedef struct
 {
     MpptChannelData pv1;
     MpptChannelData pv2;
+    MpptChannelConfig pv1Config;
+    MpptChannelConfig pv2Config;
     Uint16 inputMode;
     Uint16 masterChannel;
     Uint16 topologyStage;

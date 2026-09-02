@@ -22,11 +22,8 @@ int main(void)
 
     System_Init();
 
-    /* Load persistent calibration before the runtime tasks start. */
-    Task_Eeprom_Init();
-    Task_Comm_Init();
-    Task_State_Init();
-    Task_UI_Init();// Polled OLED bring-up runs before the power stage starts; failure must not block startup.
+    /* Initialize all task-owned state after the peripherals are ready. */
+    Task_Init();
     /* Start the ePWM time bases for ADC triggering. Power outputs remain
      * software-clamped until the state machine completes CHECK. */
     EPWM_Start();

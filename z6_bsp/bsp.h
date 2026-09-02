@@ -12,6 +12,7 @@
 //但是再怎么说逆变器还是需要告诉别人当前电压电流大小的,所以就以非常慢的速度更新了,
 //而PV电压电流等数据是需要参与到未来的控制的,所以才160个大小,快环反而400个大小
 #define ADC_ACQUISITION_WINDOW     14U
+#define ADC_FAST_SAMPLE_FREQ_HZ    20000.0f
 #define ADC_FAST_BLOCK_MAX_BURSTS 450U
 #define ADC_PV_BLOCK_BURSTS       160U
 #define ADC_SLOW_BLOCK_BURSTS      16U
@@ -23,6 +24,7 @@
 #define DMA_UPDATE_ISOLATION     0x0008U
 #define DMA_UPDATE_TEMP          0x0010U
 #define DMA_UPDATE_ALL           0x001FU
+#define DMA_UPDATE_PV_ALL        (DMA_UPDATE_PV_CURRENT | DMA_UPDATE_PV_VOLTAGE)
 
 /* CPU Timer1 supplies the independent 100 Hz slow ADC hardware trigger. */
 #define ADC_SLOW_TRIGGER_COUNTS  2000000UL
@@ -106,6 +108,8 @@ void DMA_GridCycleBoundary(void);
 Uint16 DMA_ProcessBlocks(ADC_UintData *rawInstant,
                                   ADC_UintData *rawAvg,
                                   ADC_FloatData *rawMeanSq,
+                                  float *gridVoltCurrentMeanRaw,
+                                  float *fastWindowSec,
                                   const ADC_Calibrate *cal);
 void ECAP_Config(void);
 void SCI_Config(void);

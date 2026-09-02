@@ -26,6 +26,7 @@
 #define SCI_CMD_READ_PLL_STATUS    0x03U
 #define SCI_CMD_READ_FAULT_STATUS  0x04U
 #define SCI_CMD_READ_RMS                0x05U
+#define SCI_CMD_READ_CONTROL_STATUS     0x06U
 #define SCI_CMD_SET_INDUCTOR_CUR_AMP       0x10U
 #define SCI_CMD_CLEAR_FAULT        0x20U
 #define SCI_CMD_READ_VERSION       0x30U
@@ -73,6 +74,7 @@ static void SCI_PutFloatLE(Uint16 *payload, Uint16 *index, float value);
 
 //组装并发送完整协议响应帧，包括：
 static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payload, Uint16 payloadLength);
+static void SCI_PutDwordLE(Uint16 *payload, Uint16 *index, Uint32 value);
 
 static void SCI_HandleCommand(void);//处理一帧已经完成 CRC 校验的命令，根据命令号执行相应操作并发送响应。
 static void SCI_ResetParser(void);//复位协议解析器
@@ -166,6 +168,18 @@ static void SCI_PutFloatLE(Uint16 *payload, Uint16 *index, float value)
 }
 
 //把执行结果重新组装成带帧头、命令、序号、长度和 CRC16 的响应帧发送给上位机
+static void SCI_PutDwordLE(Uint16 *payload, Uint16 *index, Uint32 value)
+{
+    payload[*index] = (Uint16)(value & 0x000000FFUL);
+    (*index)++;
+    payload[*index] = (Uint16)((value >> 8U) & 0x000000FFUL);
+    (*index)++;
+    payload[*index] = (Uint16)((value >> 16U) & 0x000000FFUL);
+    (*index)++;
+    payload[*index] = (Uint16)((value >> 24U) & 0x000000FFUL);
+    (*index)++;
+}
+
 static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payload, Uint16 payloadLength)
 {
     Uint16 index;
@@ -265,6 +279,28 @@ static void SCI_HandleCommand(void)
             responseIndex++;
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
+            break;
+
+        case SCI_CMD_READ_CONTROL_STATUS:
+            /* One snapshot for control commands, loop diagnostics and state. */
+            responseIndex = 1U;
+            SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.stableVoltRef);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.currentAmpRef);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.boost1Duty);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.boost2Duty);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.voltErr);
+            SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.piOut);
+            SCI_PutWordLE(responsePayload, &responseIndex, (Uint16)gSysData.state);
+            SCI_PutWordLE(responsePayload, &responseIndex, gMpptData.inputMode);
+            SCI_PutWordLE(responsePayload, &responseIndex,
+                          (gSysFault.bit.pllFault == 0U) ? 1U : 0U);
+            SCI_PutWordLE(responsePayload, &responseIndex, gSysFault.bit.tzFault);
+            SCI_PutWordLE(responsePayload, &responseIndex, gSysFault.word.recoverable);
+            SCI_PutWordLE(responsePayload, &responseIndex, gSysFault.word.permanent);
+            SCI_PutDwordLE(responsePayload, &responseIndex, gMachineData.measureSeq);
+            responseLength = responseIndex;
+            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
+                             responsePayload, responseLength);
             break;
 
         case SCI_CMD_READ_FAULT_STATUS:

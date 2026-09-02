@@ -3,11 +3,21 @@
 #include "task.h"
 #include "bsp.h"
 #include "variable.h"
+#include "system.h"
 
 static float ADC_ToReal(Uint16 raw, const ADC_CalParam *cal);
 static float ADC_MeanSqToRms(float meanSq, const ADC_CalParam *cal);
 static float ADC_ConvertTemp(Uint16 raw);
 static void ADC_RawToReal(const ADC_UintData *rawData, const ADC_Calibrate *cal, ADC_FloatData *realData);
+static float Measure_Abs(float value);
+static void Measure_UpdatePower(PowerData *powerData,
+                                const ADC_FloatData *realAvg,
+                                const ADC_FloatData *realRms,
+                                float gridVoltCurrentMeanRaw,
+                                float fastWindowSec,
+                                const ADC_Calibrate *cal,
+                                Uint16 fastUpdated,
+                                Uint16 pvUpdated);
 
 static float ADC_ToReal(Uint16 raw, const ADC_CalParam *cal)
 {
@@ -88,18 +98,107 @@ static void ADC_RawToReal(const ADC_UintData *rawData, const ADC_Calibrate *cal,
     realData->boostTemperature =    ADC_ConvertTemp(rawData->boostTemperature);
 }
 
+static float Measure_Abs(float value)
+{
+    return (value >= 0.0f) ? value : -value;
+}
+
+static void Measure_UpdatePower(PowerData *powerData,
+                                const ADC_FloatData *realAvg,
+                                const ADC_FloatData *realRms,
+                                float gridVoltCurrentMeanRaw,
+                                float fastWindowSec,
+                                const ADC_Calibrate *cal,
+                                Uint16 fastUpdated,
+                                Uint16 pvUpdated)
+{
+    float apparentPower;
+    float reactivePowerSquared;
+    float reactivePowerMagnitude;
+    float gridActivePower;
+
+    /* PV is DC, so the block-average voltage and current form its power.
+     * Recalculate only after both PV DMA blocks have arrived. */
+    if(pvUpdated != 0U)
+    {
+        powerData->pv1Power = realAvg->pv1Voltage * realAvg->pv1Current;
+        powerData->pv2Power = realAvg->pv2Voltage * realAvg->pv2Current;
+        powerData->totalPvPower = powerData->pv1Power + powerData->pv2Power;
+    }
+
+    if(fastUpdated != 0U)
+    {
+        /* DMA accumulated centered ADC-code products. Convert both axes to
+         * engineering units only once after the block has been consumed. */
+        gridActivePower = gridVoltCurrentMeanRaw *
+                          cal->gridVoltage.gain *
+                          cal->inductorCurrent.gain;
+        powerData->gridActivePower = gridActivePower;
+
+        /* A complete block contains a stable RMS estimate for both axes. */
+        apparentPower = Measure_Abs(realRms->gridVoltage) *
+                        Measure_Abs(realRms->inductorCurrent);
+        powerData->gridApparentPower = apparentPower;
+
+        if(apparentPower > 0.001f)
+        {
+            powerData->powerFactor = gridActivePower / apparentPower;
+            powerData->powerFactor = System_Clamp(powerData->powerFactor,
+                                                  -1.0f,
+                                                  1.0f);
+        }
+        else
+        {
+            powerData->powerFactor = 0.0f;
+        }
+
+        /* Without a quadrature-current accumulator, Q can only be estimated
+         * from S^2-P^2. The reactive command supplies its intended sign. */
+        reactivePowerSquared = apparentPower * apparentPower -
+                               gridActivePower * gridActivePower;
+        if(reactivePowerSquared < 0.0f)
+        {
+            reactivePowerSquared = 0.0f;
+        }
+        reactivePowerMagnitude = sqrtf(reactivePowerSquared);
+        if(gReactiveData.phaseShiftRad < 0.0f)
+        {
+            powerData->gridReactivePower = -reactivePowerMagnitude;
+        }
+        else if(gReactiveData.phaseShiftRad > 0.0f)
+        {
+            powerData->gridReactivePower = reactivePowerMagnitude;
+        }
+        else
+        {
+            powerData->gridReactivePower = 0.0f;
+        }
+
+        /* Integrate only newly completed fast blocks. Wh = W * seconds / 3600. */
+        if((gridActivePower > 0.0f) && (fastWindowSec > 0.0f))
+        {
+            powerData->totalEnergyWh += gridActivePower * fastWindowSec / 3600.0f;
+        }
+    }
+}
+
 void Task_Measure(void)
 {
     static ADC_UintData rawInstant = {0};
     static ADC_UintData rawAvg = {0};
     static ADC_FloatData rawMeanSq = {0};
+    static float gridVoltCurrentMeanRaw = 0.0f;
+    static float fastWindowSec = 0.0f;
     static Uint16 validMask = 0U;
+    static Uint16 pvUpdateMask = 0U;
 
     Uint16 updatedMask;
     ADC_Calibrate cal;
     ADC_FloatData realInstant;
     ADC_FloatData realAvg;
     ADC_FloatData realRms = {0};
+    PowerData powerData;
+    Uint16 pvUpdated;
 
     /* Use one calibration snapshot for DMA statistics and real conversion. */
     DINT;
@@ -107,7 +206,12 @@ void Task_Measure(void)
     EINT;
 
     /* DMA has already moved ADC results; this step consumes completed blocks. */
-    updatedMask = DMA_ProcessBlocks(&rawInstant, &rawAvg, &rawMeanSq, &cal);
+    updatedMask = DMA_ProcessBlocks(&rawInstant,
+                                    &rawAvg,
+                                    &rawMeanSq,
+                                    &gridVoltCurrentMeanRaw,
+                                    &fastWindowSec,
+                                    &cal);
     if(updatedMask == 0U)
     {
         return;
@@ -118,6 +222,15 @@ void Task_Measure(void)
     if(validMask != DMA_UPDATE_ALL)
     {
         return;
+    }
+
+    /* The two PV DMA channels may complete in different scheduler ticks.
+     * Accumulate their notifications until a matched pair is available. */
+    pvUpdateMask |= (updatedMask & DMA_UPDATE_PV_ALL);
+    pvUpdated = ((pvUpdateMask & DMA_UPDATE_PV_ALL) == DMA_UPDATE_PV_ALL) ? 1U : 0U;
+    if(pvUpdated != 0U)
+    {
+        pvUpdateMask &= (Uint16)(~DMA_UPDATE_PV_ALL);
     }
 
     ADC_RawToReal(&rawInstant, &cal, &realInstant);
@@ -141,5 +254,15 @@ void Task_Measure(void)
     gMachineData.realAvg = realAvg;
     gMachineData.realRms = realRms;
     gMachineData.rawInstant = rawInstant;
+    powerData = gMachineData.powerData;
+    Measure_UpdatePower(&powerData,
+                        &realAvg,
+                        &realRms,
+                        gridVoltCurrentMeanRaw,
+                        fastWindowSec,
+                        &cal,
+                        (updatedMask & DMA_UPDATE_FAST),
+                        pvUpdated);
+    gMachineData.powerData = powerData;
     gMachineData.measureSeq++;
 }

@@ -11,6 +11,7 @@ void Task_Measure(void);
 
 void Task_Grid(void);
 
+void Task_MPPT_Init(void);
 void Task_MPPT(void);
 
 void Task_DcCtrl(void);

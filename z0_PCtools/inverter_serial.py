@@ -30,6 +30,7 @@ SCI_CMD_READ_REAL_MEASUREMENTS = 0x02
 SCI_CMD_READ_PLL_STATUS = 0x03
 SCI_CMD_READ_FAULT_STATUS = 0x04
 SCI_CMD_READ_RMS_MEASUREMENTS = 0x05
+SCI_CMD_READ_CONTROL_STATUS = 0x06
 SCI_CMD_SET_INDUCTOR_CURRENT_AMP = 0x10
 SCI_CMD_CLEAR_FAULT = 0x20
 SCI_CMD_READ_VERSION = 0x30
@@ -271,6 +272,31 @@ class InverterSerialClient:
             "pll_locked": bool(payload[5]),
         }
 
+    def read_control_status(self) -> dict[str, float | int | bool]:
+        payload = self.request(SCI_CMD_READ_CONTROL_STATUS)
+        expected_length = 41
+        if len(payload) != expected_length:
+            raise ProtocolError(
+                f"control状态响应长度应为{expected_length}字节，实际为{len(payload)}字节"
+            )
+
+        values = struct.unpack_from("<6f6HHI", payload, 1)
+        return {
+            "bus_voltage_ref": values[0],
+            "inductor_current_amp_ref": values[1],
+            "boost1_duty": values[2],
+            "boost2_duty": values[3],
+            "bus_voltage_error": values[4],
+            "bus_pi_output": values[5],
+            "system_state": values[6],
+            "mppt_input_mode": values[7],
+            "pll_locked": bool(values[8]),
+            "tz_fault": bool(values[9]),
+            "recoverable_faults": values[10],
+            "permanent_faults": values[11],
+            "measure_sequence": values[12],
+        }
+
     def read_fault_status(self) -> bool:
         payload = self.request(SCI_CMD_READ_FAULT_STATUS)
         if len(payload) != 2:
@@ -325,9 +351,26 @@ def print_pll_status(pll_status: dict[str, int | float | bool]) -> None:
     print(f"PLL锁定：{'是' if pll_status['pll_locked'] else '否'}")
 
 
+def print_control_status(status: dict[str, float | int | bool]) -> None:
+    print(f"系统状态：{status['system_state']}")
+    print(f"母线参考：{status['bus_voltage_ref']:.2f} V")
+    print(f"电流参考：{status['inductor_current_amp_ref']:.4f} PU")
+    print(f"Boost1占空比：{status['boost1_duty']:.4f}")
+    print(f"Boost2占空比：{status['boost2_duty']:.4f}")
+    print(f"母线误差：{status['bus_voltage_error']:.2f} V")
+    print(f"母线PI输出：{status['bus_pi_output']:.4f}")
+    print(f"MPPT输入模式：{status['mppt_input_mode']}")
+    print(f"PLL锁定：{'是' if status['pll_locked'] else '否'}")
+    print(f"TZ故障：{'是' if status['tz_fault'] else '否'}")
+    print(f"可恢复故障字：0x{status['recoverable_faults']:04X}")
+    print(f"永久故障字：0x{status['permanent_faults']:04X}")
+    print(f"测量序号：{status['measure_sequence']}")
+
+
 def run_interactive(client: InverterSerialClient) -> None:
     """提供无需额外串口助手的简单交互菜单。"""
     menu = (
+        "8 CONTROL STATUS\n"
         "\n1 读取实际平均值\n"
         "2 读取RMS值\n"
         "3 读取PLL状态\n"
@@ -342,7 +385,9 @@ def run_interactive(client: InverterSerialClient) -> None:
         print(menu)
         selection = input("请选择：").strip().lower()
         try:
-            if selection == "1":
+            if selection == "8":
+                print_control_status(client.read_control_status())
+            elif selection == "1":
                 print_real_measurements(client.read_real_measurements())
             elif selection == "2":
                 print_rms_measurements(client.read_rms_measurements())
@@ -415,6 +460,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("clear-fault", help="清除Trip-Zone故障")
     subparsers.add_parser("version", help="读取协议版本")
     subparsers.add_parser("self-test", help="不连接MCU，检查CRC和帧格式")
+    subparsers.add_parser("control", help="read controller and fault state")
     return parser
 
 
@@ -440,6 +486,8 @@ def main() -> int:
                 print_real_measurements(client.read_real_measurements())
             elif operation == "pll":
                 print_pll_status(client.read_pll_status())
+            elif operation == "control":
+                print_control_status(client.read_control_status())
             elif operation == "fault":
                 print(f"Trip-Zone故障：{'是' if client.read_fault_status() else '否'}")
             elif operation == "rms":

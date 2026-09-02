@@ -56,6 +56,7 @@ static Uint16 UI_DisplayScreen = 0U;
  * x = 锁相环锁定状态,y = 跳变区故障状态(0/1)。
  * 手工拼接而不重复调用 OLED_WriteChar,是为了省掉每次字符函数调用的
  * 开销(慢任务里无所谓,但保持与 OLED 层风格一致的轻量实现)。        */
+#if 0
 static void UI_WriteStatusLine(Uint16 page, Uint16 pllLocked, Uint16 tzFault)
 {
     char text[OLED_LINE_CHARS + 1U];
@@ -90,6 +91,34 @@ static void UI_WriteStatusLine(Uint16 page, Uint16 pllLocked, Uint16 tzFault)
     OLED_WriteLine(page, text);
 }
 
+/* Legacy status layout retained only as a reference. */
+#endif
+
+/* Show the supervisory state and the two protection indicators together. */
+static void UI_WriteControlStatusLine(Uint16 page,
+                                      Uint16 systemState,
+                                      Uint16 pllLocked,
+                                      Uint16 tzFault)
+{
+    char text[OLED_LINE_CHARS + 1U];
+    Uint16 position = 0U;
+    Uint16 index;
+
+    text[0] = '\0';
+    OLED_AppendString(text, &position, "STATE ");
+    OLED_AppendChar(text, &position, (char)('0' + (systemState % 10U)));
+    OLED_AppendString(text, &position, " PLL ");
+    OLED_AppendChar(text, &position, (char)('0' + (pllLocked != 0U)));
+    OLED_AppendString(text, &position, " TZ ");
+    OLED_AppendChar(text, &position, (char)('0' + (tzFault != 0U)));
+    for(index = position; index < OLED_LINE_CHARS; index++)
+    {
+        text[index] = ' ';
+    }
+    text[OLED_LINE_CHARS] = '\0';
+    OLED_WriteLine(page, text);
+}
+
 /* UI 任务初始化(启动时由 main 调用一次,之后也可能被 Task_UI 重试调用):
  * 尝试初始化 OLED;成功则点亮自检画面并进入就绪态,失败则保持未就绪,
  * 由 Task_UI 的慢速重试机制兜底——OLED 不在线/接触不良不会卡死启动。 */
@@ -115,9 +144,13 @@ void Task_UI(void)
     float inductorCurrentRms;
     float pv1Voltage;
     float pv1Current;
+    float pv2Voltage;
+    float pv2Current;
     float ecapFreq;
     float pllFreq;
     float inductorCurrentAmp;
+    float boost1Duty;
+    float boost2Duty;
     Uint16 pllLocked;
     Uint16 tzFault;
 
@@ -141,9 +174,13 @@ void Task_UI(void)
     inductorCurrentRms = gMachineData.realRms.inductorCurrent;
     pv1Voltage = gMachineData.realAvg.pv1Voltage;
     pv1Current = gMachineData.realAvg.pv1Current;
+    pv2Voltage = gMachineData.realAvg.pv2Voltage;
+    pv2Current = gMachineData.realAvg.pv2Current;
     ecapFreq = (float)gMachineData.ecapFreqCent * 0.01f;
     pllFreq = (float)gMachineData.pllFreqCent * 0.01f;
     inductorCurrentAmp = Ctrl_GetInductorCurrentAmp();
+    boost1Duty = gBusCtrlData.boost1Duty;
+    boost2Duty = gBusCtrlData.boost2Duty;
     pllLocked = (gSysFault.bit.pllFault == 0U) ? 1U : 0U;
     tzFault = gSysFault.bit.tzFault;
 
@@ -155,20 +192,20 @@ void Task_UI(void)
         OLED_WriteFloat1Line(2U, "IND RMS", inductorCurrentRms, "A");
         OLED_WriteFloat1Line(3U, "PV1 VOLT", pv1Voltage, "V");
         OLED_WriteFloat1Line(4U, "PV1 CURR", pv1Current, "A");
-        OLED_WriteFloat1Line(5U, "DC BUS", gMachineData.realAvg.dcBusVoltage, "V");
-        OLED_WriteFloat1Line(6U, "INV VOLT", gMachineData.realAvg.inverterVoltage, "V");
-        OLED_WriteFloat1Line(7U, "IREF AMP", inductorCurrentAmp, "PU");
+        OLED_WriteFloat1Line(5U, "PV2 VOLT", pv2Voltage, "V");
+        OLED_WriteFloat1Line(6U, "PV2 CURR", pv2Current, "A");
+        OLED_WriteFloat1Line(7U, "DC BUS", gMachineData.realAvg.dcBusVoltage, "V");
     }
     else
     {
-        OLED_WriteLine(0U, "FREQUENCIES");
-        OLED_WriteFloat1Line(1U, "ECAP FREQ", ecapFreq, "HZ");
-        OLED_WriteFloat1Line(2U, "PLL FREQ", pllFreq, "HZ");
-        OLED_WriteLine(3U, "");
-        OLED_WriteLine(4U, "");
-        OLED_WriteLine(5U, "");
-        OLED_WriteLine(6U, "");
-        UI_WriteStatusLine(7U, pllLocked, tzFault);
+        OLED_WriteLine(0U, "CONTROL STATUS");
+        OLED_WriteFloat1Line(1U, "INV VOLT", gMachineData.realAvg.inverterVoltage, "V");
+        OLED_WriteFloat1Line(2U, "ECAP FREQ", ecapFreq, "HZ");
+        OLED_WriteFloat1Line(3U, "PLL FREQ", pllFreq, "HZ");
+        OLED_WriteFloat1Line(4U, "IREF AMP", inductorCurrentAmp, "PU");
+        OLED_WriteFloat1Line(5U, "BOOST1 DUTY", boost1Duty, "PU");
+        OLED_WriteFloat1Line(6U, "BOOST2 DUTY", boost2Duty, "PU");
+        UI_WriteControlStatusLine(7U, (Uint16)gSysData.state, pllLocked, tzFault);
     }
 
     /* UI任务每200ms运行一次, 每5次切换一组显示页面。 */

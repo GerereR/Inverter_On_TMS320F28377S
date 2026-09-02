@@ -434,7 +434,9 @@ Uint16 DMA_ProcessBlocks
 (
     ADC_UintData *rawInstant,
     ADC_UintData *rawAvg,
-                                 ADC_FloatData *rawMeanSq,
+    ADC_FloatData *rawMeanSq,
+    float *gridVoltCurrentMeanRaw,
+    float *fastWindowSec,
     const ADC_Calibrate *cal
 )
 {
@@ -458,6 +460,9 @@ Uint16 DMA_ProcessBlocks
     float squareSum5;
 
     float centeredSample;
+    float centeredGridVoltage;
+    float centeredInductorCurrent;
+    float gridVoltCurrentSum;
 
     //以下就是轮询5个DMA通道的状态,看是否有数据更新
 
@@ -480,6 +485,7 @@ Uint16 DMA_ProcessBlocks
         squareSum3 = 0.0f;
         squareSum4 = 0.0f;
         squareSum5 = 0.0f;
+        gridVoltCurrentSum = 0.0f;
         for(sampleIndex = 0U; sampleIndex < fastBlockBursts; sampleIndex++)
         {
             //注意,buffer里可全是原始数据
@@ -503,6 +509,14 @@ Uint16 DMA_ProcessBlocks
             squareSum4 += centeredSample * centeredSample;
             centeredSample = (float)buffer[sampleIndex].inverterVoltage - cal->inverterVoltage.offset;
             squareSum5 += centeredSample * centeredSample;
+
+            /* Keep the voltage/current samples paired so active power is
+             * calculated from average(v*i), rather than Vavg*Iavg. */
+            centeredGridVoltage = (float)buffer[sampleIndex].gridVoltage -
+                                  cal->gridVoltage.offset;
+            centeredInductorCurrent = (float)buffer[sampleIndex].inductorCurrent -
+                                      cal->inductorCurrent.offset;
+            gridVoltCurrentSum += centeredGridVoltage * centeredInductorCurrent;
         }
 
         //保存本数据块最后一次采样和直流分量(avg)
@@ -526,6 +540,8 @@ Uint16 DMA_ProcessBlocks
         rawMeanSq->dcBusVoltage = squareSum3 / (float)fastBlockBursts;
         rawMeanSq->gridDcCurrent = squareSum4 / (float)fastBlockBursts;
         rawMeanSq->inverterVoltage = squareSum5 / (float)fastBlockBursts;
+        *gridVoltCurrentMeanRaw = gridVoltCurrentSum / (float)fastBlockBursts;
+        *fastWindowSec = (float)fastBlockBursts / ADC_FAST_SAMPLE_FREQ_HZ;
         updated |= DMA_UPDATE_FAST;
     }
 
