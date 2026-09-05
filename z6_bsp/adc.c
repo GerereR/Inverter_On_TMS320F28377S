@@ -1,8 +1,8 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
-#include "scheduler.h"
-#include "../z8_control/control.h"
+#include "system.h"
+#include "../z5_task/task.h"
 
 static void ADC_UpdateGridPresence(Uint16 gridVoltRaw)
 {
@@ -208,8 +208,8 @@ __interrupt void ADCA1_CPU_ISR(void)
 
     ADC_UpdateGridPresence(gridVoltRaw);
 
-    ctrlEvents = Ctrl_FastRun(gridVoltHalfRaw, inductorCurrentHalfRaw, dcBusVoltHalfRaw);
-    if((ctrlEvents & CTRL_EVENT_GRID_PEAK) != 0U)
+    ctrlEvents = Fast_Run(gridVoltHalfRaw, inductorCurrentHalfRaw, dcBusVoltHalfRaw);
+    if((ctrlEvents & FAST_EVENT_GRID_PEAK) != 0U)
     {
         Scheduler_NotifyGridPeak();
     }

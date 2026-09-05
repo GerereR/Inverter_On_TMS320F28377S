@@ -4,7 +4,7 @@
 #include "bsp.h"
 #include "variable.h"
 #include "constant.h"
-#include "../z8_control/control.h"
+#include "task.h"
 #include <string.h>
 
 /* SSD1306配置和帧缓冲只属于UI任务，不暴露给其他任务。 */
@@ -178,7 +178,7 @@ void Task_UI(void)
     pv2Current = gMachineData.realAvg.pv2Current;
     ecapFreq = (float)gMachineData.ecapFreqCent * 0.01f;
     pllFreq = (float)gMachineData.pllFreqCent * 0.01f;
-    inductorCurrentAmp = Ctrl_GetInductorCurrentAmp();
+    inductorCurrentAmp = Fast_GetCurrentAmp();
     boost1Duty = gBusCtrlData.boost1Duty;
     boost2Duty = gBusCtrlData.boost2Duty;
     pllLocked = (gSysFault.bit.pllFault == 0U) ? 1U : 0U;

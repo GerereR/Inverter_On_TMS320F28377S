@@ -1,7 +1,7 @@
 #include "F28x_Project.h"
 
 #include "bsp.h"
-#include "scheduler.h"
+#include "system.h"
 
 /* Timer0 runs from the 200 MHz system clock. */
 #define SCHEDULER_TICK_COUNTS  200000UL

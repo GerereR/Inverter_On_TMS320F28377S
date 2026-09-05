@@ -3,7 +3,7 @@
 #include "task.h"
 #include "bsp.h"
 #include "variable.h"
-#include "../z8_control/control.h"
+#include "task.h"
 
 /*
  * SCI communication uses a compact binary frame so that the protocol is
@@ -244,7 +244,7 @@ static void SCI_HandleCommand(void)
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pllFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex,
-                          (Uint16)(Ctrl_GetInductorCurrentAmp() * 4096.0f));
+                          (Uint16)(Fast_GetCurrentAmp() * 4096.0f));
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
                              responsePayload, responseLength);
@@ -325,7 +325,7 @@ static void SCI_HandleCommand(void)
                 else
                 {
                     /* Q12: 4096 represents a normalized amplitude of 1.0. */
-                    Ctrl_SetInductorCurrentAmp((float)requestedAmp / 4096.0f);
+                    Fast_SetCurrentAmp((float)requestedAmp / 4096.0f);
                     responsePayload[1] = requestedAmp & 0x00FFU;
                     responsePayload[2] = (requestedAmp >> 8U) & 0x00FFU;
                     responseLength = 3U;

@@ -1,26 +1,38 @@
 #ifndef TASK_H
 #define TASK_H
 
-void Task_Init(void);
-
 // Cooperative task periods are assigned by scheduler.c.
 void Task_State_Init(void);
 void Task_State(void);
 
+/* Reset the DC-side loops (bus + boost). Owned by task_dc_ctrl.c. */
+void DcCtrl_Reset(void);
+
+/* 电流环假任务（由 ADC ISR 直接调用，非调度器触发）。 */
+#define FAST_EVENT_NONE          0x0000U
+#define FAST_EVENT_GRID_PEAK     0x0001U
+
+void Fast_Init(void);
+Uint16 Fast_Run(float gridVoltAdc, float inductorCurrentAdc, float dcBusVoltAdc);
+void Fast_Enable(void);
+void Fast_Disable(void);
+void Fast_SetCurrentAmp(float amp);
+float Fast_GetCurrentAmp(void);
+
 void Task_Measure(void);
 
-void Task_Grid(void);
+void Task_AcMonitor(void);
 
 void Task_MPPT_Init(void);
 void Task_MPPT(void);
 
 void Task_DcCtrl(void);
 
-void Task_ReactiveCtrl_Init(void);
-void Task_ReactiveCtrl(void);
+void Task_Reactive_Init(void);
+void Task_Reactive(void);
 
-void Task_PowerLimit_Init(void);
-void Task_PowerLimit(void);
+void Task_Power_Init(void);
+void Task_Power(void);
 
 void Task_Comm_Init(void);
 void Task_Comm(void);

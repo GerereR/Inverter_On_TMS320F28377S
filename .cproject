@@ -42,13 +42,11 @@
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_25.11.compilerID.FP_REASSOC.1277551625" superClass="com.ti.ccstudio.buildDefinitions.C2000_25.11.compilerID.FP_REASSOC" value="com.ti.ccstudio.buildDefinitions.C2000_25.11.compilerID.FP_REASSOC.on" valueType="enumerated"/>
                                 <option id="com.ti.ccstudio.buildDefinitions.C2000_25.11.compilerID.INCLUDE_PATH.588273294" superClass="com.ti.ccstudio.buildDefinitions.C2000_25.11.compilerID.INCLUDE_PATH" valueType="includePath">
                                     <listOptionValue value="${CG_TOOL_ROOT}/include"/>
-                                    <listOptionValue value="${PROJECT_ROOT}/z7_data"/>
-                                    <listOptionValue value="${PROJECT_ROOT}/z8_control"/>
+                                    <listOptionValue value="${PROJECT_ROOT}/z3_data"/>
                                     <listOptionValue value="${PROJECT_ROOT}"/>
                                     <listOptionValue value="${PROJECT_ROOT}/f2837xs/common/include"/>
                                     <listOptionValue value="${PROJECT_ROOT}/f2837xs/headers/include"/>
-                                    <listOptionValue value="${PROJECT_ROOT}/z3_system"/>
-                                    <listOptionValue value="${PROJECT_ROOT}/z4_scheduler"/>
+                                    <listOptionValue value="${PROJECT_ROOT}/z4_system"/>
                                     <listOptionValue value="${PROJECT_ROOT}/z5_task"/>
                                     <listOptionValue value="${PROJECT_ROOT}/z6_bsp"/>
                                     <listOptionValue value="D:/CCSV12/C2000Ware_26_01_00_00/libraries/math/CLAmath/c28/include"/>

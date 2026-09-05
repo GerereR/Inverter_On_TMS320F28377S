@@ -1,7 +1,7 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
-#include "scheduler.h"
+#include "system.h"
 
 // ECAP计数器直接使用200 MHz系统时钟。
 #define ECAP_CLOCK_HZ  200000000.0f

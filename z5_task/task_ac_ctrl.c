@@ -1,10 +1,224 @@
 #include "F28x_Project.h"
 
-#include "control.h"
-#include "pll.h"
+#include "task.h"
+#include "constant.h"
 #include "bsp.h"
 #include "variable.h"
 #include "system.h"
+
+/*============================================================================
+ * task_fast.c —— 电流环假任务（非调度器触发，由 ADC ISR 直接调用）
+ *
+ * 合并原 z8_control/pll.c + current_ctrl.c：
+ *   - PLL：SRF/SOGI 单相锁相环
+ *   - 电流环：50us 快速闭环（PLL + 电流环 PI + PWM 更新 + 峰值检测）
+ *==========================================================================*/
+
+/* --- PLL（原 pll.c） --- */
+#define SPLL_MAX_DEVIATION_HZ       5.0f
+
+#define SRF_PLL_DEFAULT_KP          60.0f
+#define SRF_PLL_DEFAULT_KI          2000.0f
+
+#define SOGI_PLL_DEFAULT_KP         90.0f
+#define SOGI_PLL_DEFAULT_KI         4000.0f
+
+#define SRF_PLL_DEFAULT_NOTCH_B0    1.3853181f
+#define SRF_PLL_DEFAULT_NOTCH_B1   -2.7692690f
+#define SRF_PLL_DEFAULT_NOTCH_B2    1.3853181f
+#define SRF_PLL_DEFAULT_NOTCH_A1   -1.9590329f
+#define SRF_PLL_DEFAULT_NOTCH_A2    0.9604000f
+
+static void SRF_PLL_Init(volatile SPLL_1ph *pll,
+                  float nomFreqHz,
+                  float sampleFreqHz)
+{
+    Uint16 index;
+
+    pll->input = 0.0f;
+    pll->phase = 0.0f;
+    pll->freqHz = nomFreqHz;
+    pll->nomFreqHz = nomFreqHz;
+    pll->phaseDet = 0.0f;
+    pll->notchOut = 0.0f;
+    pll->piInt = 0.0f;
+    pll->loopOut = 0.0f;
+    pll->sampleTs = 1.0f / sampleFreqHz;
+    pll->kp = SRF_PLL_DEFAULT_KP;
+    pll->ki = SRF_PLL_DEFAULT_KI;
+    pll->minFreqHz = nomFreqHz - SPLL_MAX_DEVIATION_HZ;
+    pll->maxFreqHz = nomFreqHz + SPLL_MAX_DEVIATION_HZ;
+
+    pll->notchB0 = SRF_PLL_DEFAULT_NOTCH_B0;
+    pll->notchB1 = SRF_PLL_DEFAULT_NOTCH_B1;
+    pll->notchB2 = SRF_PLL_DEFAULT_NOTCH_B2;
+    pll->notchA1 = SRF_PLL_DEFAULT_NOTCH_A1;
+    pll->notchA2 = SRF_PLL_DEFAULT_NOTCH_A2;
+    pll->sogiAlpha = 0.0f;
+    pll->sogiBeta = 0.0f;
+    pll->sogiK = 1.41421356f;
+
+    for(index = 0U; index < 3U; index++)
+    {
+        pll->detHist[index] = 0.0f;
+        pll->notchHist[index] = 0.0f;
+    }
+}
+
+static void SOGI_PLL_Init(volatile SPLL_1ph *pll,
+                   float nomFreqHz,
+                   float sampleFreqHz)
+{
+    Uint16 index;
+
+    pll->input = 0.0f;
+    pll->phase = 0.0f;
+    pll->freqHz = nomFreqHz;
+    pll->nomFreqHz = nomFreqHz;
+    pll->phaseDet = 0.0f;
+    pll->notchOut = 0.0f;
+    pll->piInt = 0.0f;
+    pll->loopOut = 0.0f;
+    pll->sampleTs = 1.0f / sampleFreqHz;
+    pll->kp = SOGI_PLL_DEFAULT_KP;
+    pll->ki = SOGI_PLL_DEFAULT_KI;
+    pll->minFreqHz = nomFreqHz - SPLL_MAX_DEVIATION_HZ;
+    pll->maxFreqHz = nomFreqHz + SPLL_MAX_DEVIATION_HZ;
+
+    for(index = 0U; index < 3U; index++)
+    {
+        pll->detHist[index] = 0.0f;
+        pll->notchHist[index] = 0.0f;
+    }
+
+    pll->sogiAlpha = 0.0f;
+    pll->sogiBeta = 0.0f;
+    pll->sogiK = 1.41421356f;
+}
+
+static void SRF_PLL_Run(volatile SPLL_1ph *pll, float input)
+{
+    float omega;
+    float maxCorrection;
+    float phasePu;
+    float phaseCos;
+
+    pll->input = input;
+    phasePu = pll->phase * MATH_INV_TWO_PI_F;
+    phaseCos = __cospuf32(phasePu);
+    pll->detHist[0] = input * phaseCos;
+
+    pll->notchHist[0] =
+        -pll->notchA1 * pll->notchHist[1]
+        -pll->notchA2 * pll->notchHist[2]
+        +pll->notchB0 * pll->detHist[0]
+        +pll->notchB1 * pll->detHist[1]
+        +pll->notchB2 * pll->detHist[2];
+
+    pll->phaseDet = pll->detHist[0];
+    pll->notchOut = pll->notchHist[0];
+
+    pll->piInt += pll->ki * pll->sampleTs * pll->notchOut;
+    maxCorrection = MATH_TWO_PI_F * (pll->maxFreqHz - pll->nomFreqHz);
+    if(pll->piInt > maxCorrection)
+    {
+        pll->piInt = maxCorrection;
+    }
+    else if(pll->piInt < -maxCorrection)
+    {
+        pll->piInt = -maxCorrection;
+    }
+    pll->loopOut = pll->kp * pll->notchOut + pll->piInt;
+
+    omega = MATH_TWO_PI_F * pll->nomFreqHz + pll->loopOut;
+    if(omega < MATH_TWO_PI_F * pll->minFreqHz)
+    {
+        omega = MATH_TWO_PI_F * pll->minFreqHz;
+    }
+    else if(omega > MATH_TWO_PI_F * pll->maxFreqHz)
+    {
+        omega = MATH_TWO_PI_F * pll->maxFreqHz;
+    }
+    pll->freqHz = omega * MATH_INV_TWO_PI_F;
+
+    pll->phase += omega * pll->sampleTs;
+    while(pll->phase >= MATH_TWO_PI_F)
+    {
+        pll->phase -= MATH_TWO_PI_F;
+    }
+    while(pll->phase < 0.0f)
+    {
+        pll->phase += MATH_TWO_PI_F;
+    }
+
+    pll->detHist[2] = pll->detHist[1];
+    pll->detHist[1] = pll->detHist[0];
+    pll->notchHist[2] = pll->notchHist[1];
+    pll->notchHist[1] = pll->notchHist[0];
+}
+
+static void SOGI_PLL_Run(volatile SPLL_1ph *pll, float input)
+{
+    float omega;
+    float error;
+    float alphaOld;
+    float vq;
+    float maxCorrection;
+    float phasePu;
+    float phaseSin;
+    float phaseCos;
+
+    pll->input = input;
+    omega = MATH_TWO_PI_F * pll->freqHz;
+    phasePu = pll->phase * MATH_INV_TWO_PI_F;
+    phaseSin = __sinpuf32(phasePu);
+    phaseCos = __cospuf32(phasePu);
+
+    error = input - pll->sogiAlpha;
+    alphaOld = pll->sogiAlpha;
+    pll->sogiAlpha = alphaOld +
+                     pll->sampleTs *
+                     (pll->sogiK * omega * error - omega * pll->sogiBeta);
+    pll->sogiBeta += pll->sampleTs * (omega * alphaOld);
+
+    vq = pll->sogiAlpha * phaseCos + pll->sogiBeta * phaseSin;
+    pll->phaseDet = vq;
+
+    pll->piInt += pll->ki * pll->sampleTs * vq;
+    maxCorrection = MATH_TWO_PI_F * (pll->maxFreqHz - pll->nomFreqHz);
+    if(pll->piInt > maxCorrection)
+    {
+        pll->piInt = maxCorrection;
+    }
+    else if(pll->piInt < -maxCorrection)
+    {
+        pll->piInt = -maxCorrection;
+    }
+    pll->loopOut = pll->kp * vq + pll->piInt;
+
+    omega = MATH_TWO_PI_F * pll->nomFreqHz + pll->loopOut;
+    if(omega < MATH_TWO_PI_F * pll->minFreqHz)
+    {
+        omega = MATH_TWO_PI_F * pll->minFreqHz;
+    }
+    else if(omega > MATH_TWO_PI_F * pll->maxFreqHz)
+    {
+        omega = MATH_TWO_PI_F * pll->maxFreqHz;
+    }
+    pll->freqHz = omega * MATH_INV_TWO_PI_F;
+
+    pll->phase += omega * pll->sampleTs;
+    while(pll->phase >= MATH_TWO_PI_F)
+    {
+        pll->phase -= MATH_TWO_PI_F;
+    }
+    while(pll->phase < 0.0f)
+    {
+        pll->phase += MATH_TWO_PI_F;
+    }
+}
+
+/* --- 电流环（原 current_ctrl.c，接口改名 Fast_*） --- */
 
 /* Temporary PLL lock thresholds for the current bring-up stage. */
 #define PLL_INPUT_ABS_FILTER_COEFF       0.001f
@@ -29,7 +243,7 @@
  * legacy physical feed-forward coefficient 0.8 after the voltage gain ratio. */
 #define INV_GRID_FEED_FORWARD             1.203f
 
-static float Ctrl_WrapPhase(float phase)
+static float Fast_WrapPhase(float phase)
 {
     while(phase >= MATH_TWO_PI_F)
     {
@@ -42,7 +256,7 @@ static float Ctrl_WrapPhase(float phase)
     return phase;
 }
 
-static void Ctrl_ResetCurrentLoop(void)
+static void Fast_ResetCurrentLoop(void)
 {
     gInvCtrlData.currentAmpApplied = 0.0f;
     gInvCtrlData.currentRef = 0.0f;
@@ -55,7 +269,7 @@ static void Ctrl_ResetCurrentLoop(void)
     gInvCtrlData.modulation = 0.0f;
 }
 
-static Uint16 Ctrl_DetectGridPeak(void)
+static Uint16 Fast_DetectGridPeak(void)
 {
     static Uint16 phasePrimed = 0U;
     static float phasePrev = 0.0f;
@@ -67,7 +281,7 @@ static Uint16 Ctrl_DetectGridPeak(void)
        (gSysFault.bit.pllFault != 0U))
     {
         phasePrimed = 0U;
-        return CTRL_EVENT_NONE;
+        return FAST_EVENT_NONE;
     }
 
     phase = GridSPLL.phase;
@@ -75,7 +289,7 @@ static Uint16 Ctrl_DetectGridPeak(void)
     {
         phasePrev = phase;
         phasePrimed = 1U;
-        return CTRL_EVENT_NONE;
+        return FAST_EVENT_NONE;
     }
 
     /* Crossing pi/2 or 3*pi/2 identifies each voltage peak once. */
@@ -91,10 +305,10 @@ static Uint16 Ctrl_DetectGridPeak(void)
     }
     phasePrev = phase;
 
-    return (peakCrossed != 0U) ? CTRL_EVENT_GRID_PEAK : CTRL_EVENT_NONE;
+    return (peakCrossed != 0U) ? FAST_EVENT_GRID_PEAK : FAST_EVENT_NONE;
 }
 
-static void Ctrl_UpdatePllLock(float pllInput)
+static void Fast_UpdatePllLock(float pllInput)
 {
     float inputAbs;
     float phaseErrorAbs;
@@ -166,35 +380,38 @@ static void Ctrl_UpdatePllLock(float pllInput)
     }
 }
 
-void Ctrl_Init(void)
+void Fast_Init(void)
 {
+    /* PLL 初始化收进电流环假任务，main 不再直接接触 PLL。 */
+    SOGI_PLL_Init(&GridSPLL, 50.0f, 20000.0f);
+
     /* Startup does not invent a nonzero current command. */
     gInvCtrlData.currentAmpCmd = 0.0f;
     gInvCtrlData.enabled = 0U;
-    /* Until the future power-limit manager is active, allow the full
-     * normalized current range. A later zero limit must remain effective. */
+    /* Until the power-limit manager is active, allow the full normalized
+     * current range. A later zero limit must remain effective. */
     gPowerLimitData.currentAmpLimit = BUS_CURRENT_AMP_MAX_NORM;
-    Ctrl_ResetCurrentLoop();
+    Fast_ResetCurrentLoop();
 }
 
-void Ctrl_Enable(void)
+void Fast_Enable(void)
 {
     /* Establish a clean controller state before the fast ISR can use it. */
     gInvCtrlData.enabled = 0U;
-    Ctrl_ResetCurrentLoop();
+    Fast_ResetCurrentLoop();
     gInvCtrlData.currentAmpApplied = gInvCtrlData.currentAmpCmd;
     EPWM_SetInverterMode(0.0f);
     gInvCtrlData.enabled = 1U;
 }
 
-void Ctrl_Disable(void)
+void Fast_Disable(void)
 {
     /* Preserve the CPU command, but reset all applied loop state. */
     gInvCtrlData.enabled = 0U;
-    Ctrl_ResetCurrentLoop();
+    Fast_ResetCurrentLoop();
 }
 
-void Ctrl_SetInductorCurrentAmp(float amp)
+void Fast_SetCurrentAmp(float amp)
 {
     /* The external command is a normalized peak-current request. */
     if(amp < 0.0f)
@@ -213,13 +430,13 @@ void Ctrl_SetInductorCurrentAmp(float amp)
     }
 }
 
-float Ctrl_GetInductorCurrentAmp(void)
+float Fast_GetCurrentAmp(void)
 {
     return gInvCtrlData.currentAmpCmd;
 }
 
 /* All three arguments are centered ADC values after total offset removal. */
-Uint16 Ctrl_FastRun(float gridVoltAdc, float inductorCurrentAdc, float dcBusVoltAdc)
+Uint16 Fast_Run(float gridVoltAdc, float inductorCurrentAdc, float dcBusVoltAdc)
 {
     Uint16 events;
     float gridVoltUnif;
@@ -231,18 +448,18 @@ Uint16 Ctrl_FastRun(float gridVoltAdc, float inductorCurrentAdc, float dcBusVolt
     gridVoltUnif = gridVoltAdc / ADC_BIPOLAR_ZERO;
 
     SOGI_PLL_Run(&GridSPLL, gridVoltUnif);
-    Ctrl_UpdatePllLock(gridVoltUnif);
+    Fast_UpdatePllLock(gridVoltUnif);
     gMachineData.pllFreqCent = (Uint16)(GridSPLL.freqHz * 100.0f);
-    events = Ctrl_DetectGridPeak();
+    events = Fast_DetectGridPeak();
 
     /* Feedback remains in centered ADC-code units to match the legacy loop. */
     gInvCtrlData.currentFeedback = inductorCurrentAdc;
 
     if(gInvCtrlData.enabled != 0U)
     {
-        currentPhase = Ctrl_WrapPhase(GridSPLL.phase + gReactiveData.phaseShiftRad + gReactiveData.capCompRad);
+        currentPhase = Fast_WrapPhase(GridSPLL.phase + gReactiveData.phaseShiftRad + gReactiveData.capCompRad);
         currentRefSine = __sinpuf32(currentPhase * MATH_INV_TWO_PI_F);
-        gInvCtrlData.currentRef = gInvCtrlData.currentAmpApplied * ADC_BIPOLAR_ZERO *  currentRefSine;
+        gInvCtrlData.currentRef = gInvCtrlData.currentAmpApplied * ADC_BIPOLAR_ZERO * currentRefSine;
 
         /* This guard is only for a valid division denominator. Bus operating
          * range qualification belongs to the state machine. */
@@ -262,8 +479,6 @@ Uint16 Ctrl_FastRun(float gridVoltAdc, float inductorCurrentAdc, float dcBusVolt
             gInvCtrlData.piOut =
                 System_Clamp(gInvCtrlData.piOut + piIncrement, -1.0f, 1.0f);
 
-            /* This ratio uses centered raw ADC values; 1.203 is the raw-domain
-             * form of the legacy 0.8 physical feed-forward coefficient. */
             gInvCtrlData.gridVoltFeedForward = INV_GRID_FEED_FORWARD * gridVoltAdc / dcBusVoltAdc;
             gInvCtrlData.modulation = System_Clamp(
                 gInvCtrlData.piOut + gInvCtrlData.gridVoltFeedForward,

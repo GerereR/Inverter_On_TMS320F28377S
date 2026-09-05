@@ -359,6 +359,34 @@ typedef struct
     Uint16 fault;            /* 继电器粘连/失效故障 */
 } RelayCtrlData;
 
+/* PLL state and algorithms belong to the control layer, not system startup. */
+typedef struct
+{
+    float input;
+    float phase;
+    float freqHz;
+    float nomFreqHz;
+    float phaseDet;
+    float notchOut;
+    float piInt;
+    float loopOut;
+    float sampleTs;
+    float kp;
+    float ki;
+    float minFreqHz;
+    float maxFreqHz;
+    float notchB0;
+    float notchB1;
+    float notchB2;
+    float notchA1;
+    float notchA2;
+    float sogiAlpha;
+    float sogiBeta;
+    float sogiK;
+    float detHist[3];
+    float notchHist[3];
+} SPLL_1ph;
+
 extern volatile MachineData gMachineData;
 extern volatile SysFault gSysFault;
 extern volatile SysData gSysData;
@@ -370,5 +398,6 @@ extern volatile PowerLimitData gPowerLimitData;
 extern volatile GridMonitorData gGridData;
 extern volatile ReactiveCtrlData gReactiveData;
 extern volatile RelayCtrlData gRelayData;
+extern volatile SPLL_1ph GridSPLL;
 
 #endif

@@ -1,25 +1,27 @@
 #include "F28x_Project.h"
 
 #include "system.h"
-#include "scheduler.h"
 #include "task.h"
 #include "bsp.h"
-#include "z8_control/control.h"
-#include "z8_control/pll.h"
 
 int main(void)
 {
     Uint16 schedulerFlags;
 
     // Peripheral interrupts are configured first and enabled together here.
-    //SRF_PLL_Init(&GridSPLL, 50.0f, 20000.0f);//PLL state is consumed by ADCA1 ISR
-    SOGI_PLL_Init(&GridSPLL, 50.0f, 20000.0f);//PLL state is consumed by ADCA1 ISR
-    Ctrl_Init();
+    Fast_Init();  // PLL 初始化已收进 Fast_Init，main 不再直接接触 PLL。
 
     System_Init();
 
-    /* Initialize all task-owned state after the peripherals are ready. */
-    Task_Init();
+    /* Initialize task-owned state after the peripherals are ready. Each task
+     * owns its own init; there is no aggregate task_init translation unit. */
+    Task_Eeprom_Init();
+    Task_Comm_Init();
+    Task_State_Init();
+    Task_MPPT_Init();
+    Task_Reactive_Init();
+    Task_Power_Init();
+    Task_UI_Init();
     /* Start the ePWM time bases for ADC triggering. Power outputs remain
      * software-clamped until the state machine completes CHECK. */
     EPWM_Start();
@@ -45,19 +47,19 @@ int main(void)
             Task_State();
         }
 
-        if(schedulerFlags & TASK_GRID_FLAG)        // valid eCAP grid boundary
+        if(schedulerFlags & TASK_AC_MONITOR_FLAG)  // valid eCAP grid boundary
         {
-            Task_Grid();
+            Task_AcMonitor();
         }
 
-        if(schedulerFlags & TASK_POWER_LIMIT_FLAG) // 10 ms framework task
+        if(schedulerFlags & TASK_POWER_FLAG) // 10 ms framework task
         {
-            Task_PowerLimit();
+            Task_Power();
         }
 
-        if(schedulerFlags & TASK_REACTIVE_CTRL_FLAG) // 10 ms framework task
+        if(schedulerFlags & TASK_REACTIVE_FLAG) // 10 ms framework task
         {
-            Task_ReactiveCtrl();
+            Task_Reactive();
         }
 
         if(schedulerFlags & TASK_DC_CTRL_FLAG)     // positive/negative grid peak

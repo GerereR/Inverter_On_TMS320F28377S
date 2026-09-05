@@ -1,14 +1,13 @@
 #include "F28x_Project.h"
 
-#include "reactive_ctrl.h"
-#include "variable.h"
+#include "task.h"
 
-void ReactiveCtrl_Init(void)
+void Task_Reactive_Init(void)
 {
     /* Framework only: keep the current zero-phase-shift behavior unchanged. */
 }
 
-void ReactiveCtrl_Update(void)
+void Task_Reactive(void)
 {
     /* Framework only: Q control and capacitor compensation are not active yet. */
 }
