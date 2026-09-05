@@ -46,6 +46,8 @@ void Scheduler_Tick1ms(void)
     static Uint16 cntUi = 0U;
     static Uint16 cntComm = 0U;
     static Uint16 cntEeprom = 0U;
+    static Uint16 cntReactiveCtrl = 0U;
+    static Uint16 cntPowerLimit = 0U;
 
     // Derive all cooperative task rates from the common 1 ms tick.
     if(++cntMeasure >= TASK_MEASURE_PERIOD_MS)
@@ -82,6 +84,18 @@ void Scheduler_Tick1ms(void)
     {
         cntEeprom = 0U;
         Scheduler_Flags |= TASK_EEPROM_FLAG;
+    }
+
+    if(++cntReactiveCtrl >= TASK_REACTIVE_CTRL_PERIOD_MS)
+    {
+        cntReactiveCtrl = 0U;
+        Scheduler_Flags |= TASK_REACTIVE_CTRL_FLAG;
+    }
+
+    if(++cntPowerLimit >= TASK_POWER_LIMIT_PERIOD_MS)
+    {
+        cntPowerLimit = 0U;
+        Scheduler_Flags |= TASK_POWER_LIMIT_FLAG;
     }
 
 }

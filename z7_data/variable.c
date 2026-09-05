@@ -14,6 +14,7 @@ volatile InvCtrlData gInvCtrlData = {0};
 volatile PowerLimitData gPowerLimitData = {0};
 volatile GridMonitorData gGridData = {0};
 volatile ReactiveCtrlData gReactiveData = {0};
+volatile RelayCtrlData gRelayData = {0};
 
 volatile ADC_Calibrate gAdcCal =
 {

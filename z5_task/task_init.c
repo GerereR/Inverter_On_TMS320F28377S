@@ -10,5 +10,7 @@ void Task_Init(void)
     Task_Comm_Init();
     Task_State_Init();
     Task_MPPT_Init();
+    Task_ReactiveCtrl_Init();
+    Task_PowerLimit_Init();
     Task_UI_Init();
 }

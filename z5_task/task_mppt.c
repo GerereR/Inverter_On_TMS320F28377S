@@ -44,10 +44,6 @@ void Task_MPPT_Init(void)
     MPPT_ResetChannel(&gMpptData.pv1);
     MPPT_ResetChannel(&gMpptData.pv2);
     gMpptData.inputMode = MPPT_INPUT_NONE;
-    gMpptData.masterChannel = 0U;
-    gMpptData.topologyStage = 0U;
-    gMpptData.topologyCount = 0U;
-    gMpptData.powerAvgCount = 0U;
 }
 
 static void MPPT_ResetChannel(volatile MpptChannelData *channel)

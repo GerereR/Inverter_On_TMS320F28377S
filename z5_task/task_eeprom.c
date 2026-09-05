@@ -27,17 +27,25 @@ static volatile Uint16 EEPROM_SavePending = 0U;
 static volatile Uint16 EEPROM_LastStatus = I2C_STATUS_OK;
 
 static Uint16 EEPROM_Crc16(const unsigned char *data, Uint16 length);
+
 static void EEPROM_PutUint16(unsigned char *data, Uint16 *index, Uint16 value);
 static void EEPROM_PutUint32(unsigned char *data, Uint16 *index, Uint32 value);
+
 static Uint16 EEPROM_GetUint16(const unsigned char *data, Uint16 *index);
 static Uint32 EEPROM_GetUint32(const unsigned char *data, Uint16 *index);
+
 static void EEPROM_PutFloat(unsigned char *data, Uint16 *index, float value);
 static float EEPROM_GetFloat(const unsigned char *data, Uint16 *index);
+
 static Uint16 EEPROM_ReadBytes(Uint16 address, unsigned char *data, Uint16 length);
 static Uint16 EEPROM_WriteBytes(Uint16 address, const unsigned char *data, Uint16 length);
+
 static Uint16 EEPROM_WaitWriteCycle(void);
 static Uint16 EEPROM_SaveCalibration(void);
+
 static Uint16 EEPROM_LoadCalibration(void);
+
+
 
 static Uint16 EEPROM_Crc16(const unsigned char *data, Uint16 length)
 {

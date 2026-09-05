@@ -55,6 +55,37 @@
 #define DC_VOLT_MARGIN_25_V            25.0f
 #define DC_VOLT_MARGIN_50_V            50.0f
 
+/* Grid-relay self-test sequence (ms). 原工程用 2ms 一拍（wWaitTime），此处
+ * 按 1 拍 = 2ms 换算为毫秒，独立于调度周期。 */
+#define RELAY_SEQ_STEP1_MS          100U    /* 原 50 拍    合 relay1 */
+#define RELAY_SEQ_STEP2_MS          600U    /* 原 300 拍   合 relay2+relay3 */
+#define RELAY_SEQ_STEP3_MS         1600U    /* 原 800 拍   断 relay3 */
+#define RELAY_SEQ_STEP4_MS         1800U    /* 原 900 拍   合 relay4 */
+#define RELAY_SEQ_STEP5_MS         3400U    /* 原 1700 拍  断 relay2 */
+#define RELAY_SEQ_STEP6_MS         3600U    /* 原 1800 拍  合 relay3 */
+#define RELAY_SEQ_STEP7_MS         5400U    /* 原 2700 拍  断 relay1 */
+#define RELAY_SEQ_STEP8_MS         5600U    /* 原 2800 拍  合 relay2 */
+#define RELAY_SEQ_STEP9_MIN_MS     7600U    /* 原 3800 拍  最终合 relay1 */
+#define RELAY_SEQ_STEP9_MAX_MS     7800U    /* 原 3900 拍 */
+#define RELAY_SEQ_TIMEOUT_MS      10400U    /* 原 >5200 拍 超时全断 */
+
+/* Relay self-test voltage-difference criteria（方案A：电压差判据）. */
+#define RELAY_DELTA_V_TRIP_V        60.0f   /* 原 c60V 压差阈值 */
+#define RELAY_FAULT_FILTER_MS      250U     /* 原 125 拍 连续判据 */
+
+/* Relay check windows (ms，由原 2ms 拍换算). */
+#define RELAY_WIN_A_MIN_MS         1100U    /* 原 550 拍 */
+#define RELAY_WIN_A_MAX_MS         1600U    /* 原 800 拍 */
+#define RELAY_WIN_B_MIN_MS         2300U    /* 原 1150 拍 */
+#define RELAY_WIN_B_MAX_MS         2800U    /* 原 1400 拍 */
+#define RELAY_WIN_C_MIN_MS         4100U    /* 原 2050 拍 */
+#define RELAY_WIN_C_MAX_MS         4600U    /* 原 2300 拍 */
+#define RELAY_WIN_D_MIN_MS         6100U    /* 原 3050 拍 */
+#define RELAY_WIN_D_MAX_MS         6600U    /* 原 3300 拍 */
+#define RELAY_WIN_E_MIN_MS         8400U    /* 原 4200 拍 失效检测窗 */
+#define RELAY_WIN_E_MAX_MS         8900U    /* 原 4450 拍 */
+#define RELAY_SEQ_DONE_MS          8900U    /* 检测窗口结束后可判通过 */
+
 /* Initial DC-bus outer-loop settings. The gains are bring-up values and
  * should be retuned after the power stage and bus capacitance are verified. */
 #define BUS_CTRL_PERIOD_S                0.01f

@@ -1,7 +1,3 @@
-// Prefer direct register access throughout the application layer.
-//testing git
-//基石版本,即现在引脚配置是虚假的,下一步就是配置zhen
-
 #include "F28x_Project.h"
 
 #include "system.h"
@@ -52,6 +48,16 @@ int main(void)
         if(schedulerFlags & TASK_GRID_FLAG)        // valid eCAP grid boundary
         {
             Task_Grid();
+        }
+
+        if(schedulerFlags & TASK_POWER_LIMIT_FLAG) // 10 ms framework task
+        {
+            Task_PowerLimit();
+        }
+
+        if(schedulerFlags & TASK_REACTIVE_CTRL_FLAG) // 10 ms framework task
+        {
+            Task_ReactiveCtrl();
         }
 
         if(schedulerFlags & TASK_DC_CTRL_FLAG)     // positive/negative grid peak

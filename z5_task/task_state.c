@@ -203,6 +203,7 @@ static void State_ResetStartupData(void)
     gSysData.boostReady = 0U;
     gSysData.inverterReady = 0U;
     gSysData.relayReady = 0U;
+    System_RelaySelfTestInit();
 
     /* Controller internals are owned by z8_control. */
     Ctrl_BusReset();
@@ -240,6 +241,9 @@ static void State_Enter(SysState nextState)
     }
     else if(nextState == SYS_STATE_CHECK)
     {
+        /* Safe output once on entry; the RELAY stage drives the grid relays
+         * during self-test, so it must not be re-asserted every cycle. */
+        System_EnterSafeOutput();
         gSysData.checkStage = SYS_CHECK_RESET;
         gSysData.gridReady = 0U;
         gSysData.gridStableMs = 0UL;
@@ -274,8 +278,6 @@ static void State_RunWait(void)
 
 static void State_RunCheck(void)
 {
-    System_EnterSafeOutput();
-
     if(State_HasPermanentFault() != 0U)
     {
         State_Enter(SYS_STATE_PERMANENT);
@@ -333,10 +335,17 @@ static void State_RunCheck(void)
             break;
 
         case SYS_CHECK_RELAY:
-            /* Relay outputs have no feedback input in the current pin map.
-             * Keep them open and do not report a successful self-test. */
-            gSysData.relayReady = 0U;
-            gSysData.checkStage = SYS_CHECK_PREPARE;
+            System_RelaySelfTest((Uint16)TASK_STATE_PERIOD_MS);
+            if (gRelayData.fault != 0U)
+            {
+                /* 继电器粘连/失效：进 FAULT，恢复后重新走 CHECK 流程。 */
+                State_Enter(SYS_STATE_FAULT);
+            }
+            else if (gRelayData.selfTestPassed != 0U)
+            {
+                gSysData.relayReady = 1U;
+                gSysData.checkStage = SYS_CHECK_PREPARE;
+            }
             break;
 
         case SYS_CHECK_PREPARE:

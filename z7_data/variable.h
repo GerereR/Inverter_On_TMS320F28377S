@@ -212,10 +212,6 @@ typedef struct
     MpptChannelConfig pv1Config;
     MpptChannelConfig pv2Config;
     Uint16 inputMode;
-    Uint16 masterChannel;
-    Uint16 topologyStage;
-    Uint16 topologyCount;
-    Uint16 powerAvgCount;
 } MpptData;
 
 /* DC-bus outer-loop and Boost soft-start state. */
@@ -353,6 +349,16 @@ typedef struct
     float curvePfHigh;
 } ReactiveCtrlData;
 
+/* Grid-relay self-test state owned by system.c. */
+typedef struct
+{
+    Uint32 timerMs;          /* 继电器时序计时（ms） */
+    Uint16 relayOnFlag;      /* 原 RelayOnFlag：允许完成并网（1=允许，2=已吸合） */
+    Uint16 faultFilter;      /* 粘连/失效连续判据（ms） */
+    Uint16 selfTestPassed;   /* 自检通过 */
+    Uint16 fault;            /* 继电器粘连/失效故障 */
+} RelayCtrlData;
+
 extern volatile MachineData gMachineData;
 extern volatile SysFault gSysFault;
 extern volatile SysData gSysData;
@@ -363,5 +369,6 @@ extern volatile InvCtrlData gInvCtrlData;
 extern volatile PowerLimitData gPowerLimitData;
 extern volatile GridMonitorData gGridData;
 extern volatile ReactiveCtrlData gReactiveData;
+extern volatile RelayCtrlData gRelayData;
 
 #endif
