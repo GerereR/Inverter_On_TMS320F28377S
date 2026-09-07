@@ -432,11 +432,9 @@ static Uint16 DMA_ClaimBuffer(volatile DMA_BlockState *state,
 
 Uint16 DMA_ProcessBlocks
 (
-    ADC_UintData *rawInstant,
     ADC_UintData *rawAvg,
     ADC_FloatData *rawMeanSq,
     float *gridVoltCurrentMeanRaw,
-    float *fastWindowSec,
     const ADC_Calibrate *cal
 )
 {
@@ -520,12 +518,6 @@ Uint16 DMA_ProcessBlocks
         }
 
         //保存本数据块最后一次采样和直流分量(avg)
-        rawInstant->inductorCurrent = buffer[fastBlockBursts - 1U].inductorCurrent;
-        rawInstant->gridVoltage = buffer[fastBlockBursts - 1U].gridVoltage;
-        rawInstant->gfciCurrent = buffer[fastBlockBursts - 1U].gfciCurrent;
-        rawInstant->dcBusVoltage = buffer[fastBlockBursts - 1U].dcBusVoltage;
-        rawInstant->gridDcCurrent = buffer[fastBlockBursts - 1U].gridDcCurrent;
-        rawInstant->inverterVoltage = buffer[fastBlockBursts - 1U].inverterVoltage;
         rawAvg->inductorCurrent = (Uint16)(sum0 / fastBlockBursts);
         rawAvg->gridVoltage = (Uint16)(sum1 / fastBlockBursts);
         rawAvg->gfciCurrent = (Uint16)(sum2 / fastBlockBursts);
@@ -541,7 +533,6 @@ Uint16 DMA_ProcessBlocks
         rawMeanSq->gridDcCurrent = squareSum4 / (float)fastBlockBursts;
         rawMeanSq->inverterVoltage = squareSum5 / (float)fastBlockBursts;
         *gridVoltCurrentMeanRaw = gridVoltCurrentSum / (float)fastBlockBursts;
-        *fastWindowSec = (float)fastBlockBursts / ADC_FAST_SAMPLE_FREQ_HZ;
         updated |= DMA_UPDATE_FAST;
     }
 
@@ -563,8 +554,6 @@ Uint16 DMA_ProcessBlocks
             centeredSample = (float)buffer[sampleIndex].pv2Current - cal->pv2Current.offset;
             squareSum1 += centeredSample * centeredSample;
         }
-        rawInstant->pv1Current = buffer[ADC_PV_BLOCK_BURSTS - 1U].pv1Current;
-        rawInstant->pv2Current = buffer[ADC_PV_BLOCK_BURSTS - 1U].pv2Current;
         rawAvg->pv1Current = (Uint16)(sum0 / ADC_PV_BLOCK_BURSTS);
         rawAvg->pv2Current = (Uint16)(sum1 / ADC_PV_BLOCK_BURSTS);
         rawMeanSq->pv1Current = squareSum0 / (float)ADC_PV_BLOCK_BURSTS;
@@ -589,8 +578,6 @@ Uint16 DMA_ProcessBlocks
             centeredSample = (float)buffer[sampleIndex].pv2Voltage - cal->pv2Voltage.offset;
             squareSum1 += centeredSample * centeredSample;
         }
-        rawInstant->pv1Voltage = buffer[ADC_PV_BLOCK_BURSTS - 1U].pv1Voltage;
-        rawInstant->pv2Voltage = buffer[ADC_PV_BLOCK_BURSTS - 1U].pv2Voltage;
         rawAvg->pv1Voltage = (Uint16)(sum0 / ADC_PV_BLOCK_BURSTS);
         rawAvg->pv2Voltage = (Uint16)(sum1 / ADC_PV_BLOCK_BURSTS);
         rawMeanSq->pv1Voltage = squareSum0 / (float)ADC_PV_BLOCK_BURSTS;
@@ -615,8 +602,6 @@ Uint16 DMA_ProcessBlocks
             centeredSample = (float)buffer[sampleIndex].pv2Isolation - cal->pv2Isolation.offset;
             squareSum1 += centeredSample * centeredSample;
         }
-        rawInstant->pv1Isolation = buffer[ADC_SLOW_BLOCK_BURSTS - 1U].pv1Isolation;
-        rawInstant->pv2Isolation = buffer[ADC_SLOW_BLOCK_BURSTS - 1U].pv2Isolation;
         rawAvg->pv1Isolation = (Uint16)(sum0 / ADC_SLOW_BLOCK_BURSTS);
         rawAvg->pv2Isolation = (Uint16)(sum1 / ADC_SLOW_BLOCK_BURSTS);
         rawMeanSq->pv1Isolation = squareSum0 / (float)ADC_SLOW_BLOCK_BURSTS;
@@ -635,8 +620,6 @@ Uint16 DMA_ProcessBlocks
             sum0 += buffer[sampleIndex].inverterTemperature;
             sum1 += buffer[sampleIndex].boostTemperature;
         }
-        rawInstant->inverterTemperature = buffer[ADC_SLOW_BLOCK_BURSTS - 1U].inverterTemperature;
-        rawInstant->boostTemperature = buffer[ADC_SLOW_BLOCK_BURSTS - 1U].boostTemperature;
         rawAvg->inverterTemperature = (Uint16)(sum0 / ADC_SLOW_BLOCK_BURSTS);
         rawAvg->boostTemperature = (Uint16)(sum1 / ADC_SLOW_BLOCK_BURSTS);
         updated |= DMA_UPDATE_TEMP;

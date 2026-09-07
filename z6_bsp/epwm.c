@@ -1,6 +1,7 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
+#include "system.h"
 
 #define EPWM_PERIOD_TICKS          2500U
 #define EPWM_DEADBAND_TICKS        100U

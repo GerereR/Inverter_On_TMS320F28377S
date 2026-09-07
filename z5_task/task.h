@@ -7,6 +7,7 @@ void Task_State(void);
 
 /* Reset the DC-side loops (bus + boost). Owned by task_dc_ctrl.c. */
 void DC_Ctrl_Reset(void);
+void DC_Ctrl_StartSoftStart(void);
 
 /* 电流环假任务（由 ADC ISR 直接调用，非调度器触发）。 */
 #define FAST_EVENT_NONE          0x0000U

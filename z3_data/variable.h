@@ -235,118 +235,50 @@ typedef struct
     Uint16 reloadCount;   /* 打嗝恢复计数（NORMAL 态累加，>150 即 300ms 后恢复） */
 } SysData;
 
-/* One PV input's MPPT history and Boost command. */
+/* MPPT result consumed by the DC-control task. */
 typedef struct
 {
     float voltRef;
-    float voltRefPrev;
-    float openCircuitVolt;
-    float power;
-    float powerPrev;
-    float voltStep;
-    float duty;
-    float dutyPrev;
-    int16 direction;
     Uint16 enabled;
-    Uint16 fastSearch;
-} MpptChannelData;
+} MpptChannelOutput;
 
-/* Runtime MPPT limits selected once from the installed inverter model. */
+/* MPPT results consumed outside task_mppt.c. */
 typedef struct
 {
-    float currentLimit;
-    float minVoltage;
-    float smallPowerDelta;
-    float largePowerDelta;
-} MpptChannelConfig;
-
-/* Shared state for dual-input topology management and both MPPT trackers. */
-typedef struct
-{
-    MpptChannelData pv1;
-    MpptChannelData pv2;
-    MpptChannelConfig pv1Config;
-    MpptChannelConfig pv2Config;
+    MpptChannelOutput pv1;
+    MpptChannelOutput pv2;
     Uint16 inputMode;
 } MpptData;
 
-/* DC-bus outer-loop and Boost soft-start state. */
+/* DC-control values consumed outside task_dc_ctrl.c. */
 typedef struct
 {
-    float voltRef;
     float stableVoltRef;
-    float softStartVoltRef;
-    float voltErr;
-    float voltErrPrev;
-    float piIntegral;
-    float piOut;
-    float piOutPrev;
-    /* Normalized inverter-current amplitude command, range 0.0 to 1.0. */
     float currentAmpRef;
-    /* Independent PV-voltage PI states for the two Boost channels. */
-    float boost1VoltErr;
-    float boost2VoltErr;
-    float boost1PiIntegral;
-    float boost2PiIntegral;
     float boost1Duty;
     float boost2Duty;
-    Uint16 initialized;
-    Uint16 softStartActive;
-    Uint16 softStartStage;
-    Uint32 softStartTimerMs;
 } BusCtrlData;
 
-/* Inverter current-loop command, feedback and diagnostic state.
- * The applied current amplitude comes from the bus loop directly
- * (gBusCtrlData.currentAmpRef).
- * currentRef/currentFeedback/currentErr and the compensation/limit fields
- * use centered ADC-code units. PI, feed-forward and modulation are normalized
- * bridge commands (-1..1). */
+/* Inverter values shared with the slower AC monitor task. The current-loop
+ * working values remain private to task_ac_ctrl.c. */
 typedef struct
 {
-    float currentRef;
-    float currentFeedback;
-    float currentErr;
-    float currentErrPrev;
-    float piIntegral;
-    float piOut;
-    float gridVoltFeedForward;
-    float modulation;
     float dcCurrentComp;
-    float currentLimit;
-    Uint16 enabled;
-    Uint16 zeroCrossUpdatePending;
-    Uint16 dciAdjCount;       /* 直流补偿激活计数（并网态每个电网周期 +1） */
 } InvCtrlData;
 
-/* Calculated grid/PV power and accumulated output energy. */
+/* Calculated power values consumed by power limiting and MPPT. */
 typedef struct
 {
     float gridActivePower;
-    float gridReactivePower;
-    float gridApparentPower;
-    float powerFactor;
-
     float pv1Power;
     float pv2Power;
-    float totalPvPower;
-
-    float totalEnergyWh;
-    float dailyEnergyWh;
-    float monthlyEnergyWh;
 } PowerData;
 
 /* Output command and the limits currently constraining delivered power. */
 typedef struct
 {
-    float outputPowerCmd;
-    float outputPowerLimit;
     float currentAmpLimit;
     float currentAmpMax;       /* SCI 手动设置的电流上限（0..1，默认满） */
-    float thermalPowerLimit;
-    float pvPowerLimit;
-    float freqPowerLimit;
-    Uint32 overloadTimerMs;
 } PowerLimitData;
 
 /*
@@ -361,8 +293,6 @@ typedef struct
 {
     Uint32 measureSeq;
 
-    ADC_UintData  rawInstant;
-    ADC_FloatData realInstant;
     ADC_FloatData realAvg;
     ADC_FloatData realRms;
 
@@ -372,32 +302,16 @@ typedef struct
     Uint16 pllFreqCent;
 } MachineData;
 
-/* Grid qualification and long-window monitoring state. */
+/* Fast grid-presence state shared by the AC control and state tasks. */
 typedef struct
 {
-    float freqHz;
-    float freqAvgHz;
-    float voltageRmsAvg;
-    float voltageRmsAvg10Min;
-    float voltageRmsBuf[20];   /* 10 分钟窗口：20 槽，每槽 30 秒 */
-    Uint16 voltageRmsBufIdx;   /* 环形索引 */
-    Uint16 halfMinCnt;         /* 30 秒采样计数（电网周期数） */
-    float fastPeakVolt;
-    Uint32 periodTicks;
-    Uint32 validCycleCount;
     Uint32 noGridCount;
-    Uint16 gridPresent;
     Uint16 fastPresent;
-    Uint16 voltageValid;
-    Uint16 freqValid;
 } GridMonitorData;
 
 /* 并网安规参数（集中一个数据域，便于按国标/机型配置，将来可存 EEPROM）。 */
 typedef struct
 {
-    float nomVoltRms;          /* 额定电压(V) */
-    float nomFreqHz;           /* 额定频率(Hz) */
-
     float voltOverLevel1;      /* 一级过压(V) */
     float voltOverLevel2;      /* 二级过压(V) */
     float voltUnderLevel1;     /* 一级欠压(V) */
@@ -441,33 +355,6 @@ typedef struct
     Uint16 selfTestActive;   /* 自检进行中 */
 } GfciData;
 
-/* Reactive-power command and phase compensation shared with control.
- * Both phase offsets are signed final current-reference offsets: positive
- * leads the PLL grid phase and negative lags it. */
-typedef struct
-{
-    Uint16 mode;
-    float powerFactorCmd;
-    float reactivePowerCmd;
-    float phaseShiftRad;
-    float capCompRad;
-    float activePowerLimit;
-    float curvePowerLow;
-    float curvePowerHigh;
-    float curvePfLow;
-    float curvePfHigh;
-} ReactiveCtrlData;
-
-/* Grid-relay self-test state owned by system.c. */
-typedef struct
-{
-    Uint32 timerMs;          /* 继电器时序计时（ms） */
-    Uint16 relayOnFlag;      /* 原 RelayOnFlag：允许完成并网（1=允许，2=已吸合） */
-    Uint16 faultFilter;      /* 粘连/失效连续判据（ms） */
-    Uint16 selfTestPassed;   /* 自检通过 */
-    Uint16 fault;            /* 继电器粘连/失效故障 */
-} RelayCtrlData;
-
 /* PLL state and algorithms belong to the control layer, not system startup. */
 typedef struct
 {
@@ -508,8 +395,6 @@ extern volatile PowerLimitData gPowerLimitData;
 extern volatile GridMonitorData gGridData;
 extern volatile GridSafetyParams gGridSafety;
 extern volatile GfciData gGfciData;
-extern volatile ReactiveCtrlData gReactiveData;
-extern volatile RelayCtrlData gRelayData;
 extern volatile SPLL_1ph GridSPLL;
 
 #endif

@@ -274,27 +274,25 @@ class InverterSerialClient:
 
     def read_control_status(self) -> dict[str, float | int | bool]:
         payload = self.request(SCI_CMD_READ_CONTROL_STATUS)
-        expected_length = 41
+        expected_length = 37
         if len(payload) != expected_length:
             raise ProtocolError(
                 f"control状态响应长度应为{expected_length}字节，实际为{len(payload)}字节"
             )
 
-        values = struct.unpack_from("<6f6HHI", payload, 1)
+        values = struct.unpack_from("<4f4H3I", payload, 1)
         return {
             "bus_voltage_ref": values[0],
             "inductor_current_amp_ref": values[1],
             "boost1_duty": values[2],
             "boost2_duty": values[3],
-            "bus_voltage_error": values[4],
-            "bus_pi_output": values[5],
-            "system_state": values[6],
-            "mppt_input_mode": values[7],
-            "pll_locked": bool(values[8]),
-            "tz_fault": bool(values[9]),
-            "recoverable_faults": values[10],
-            "permanent_faults": values[11],
-            "measure_sequence": values[12],
+            "system_state": values[4],
+            "mppt_input_mode": values[5],
+            "pll_locked": bool(values[6]),
+            "tz_fault": bool(values[7]),
+            "recoverable_faults": values[8],
+            "permanent_faults": values[9],
+            "measure_sequence": values[10],
         }
 
     def read_fault_status(self) -> bool:
@@ -357,8 +355,6 @@ def print_control_status(status: dict[str, float | int | bool]) -> None:
     print(f"电流参考：{status['inductor_current_amp_ref']:.4f} PU")
     print(f"Boost1占空比：{status['boost1_duty']:.4f}")
     print(f"Boost2占空比：{status['boost2_duty']:.4f}")
-    print(f"母线误差：{status['bus_voltage_error']:.2f} V")
-    print(f"母线PI输出：{status['bus_pi_output']:.4f}")
     print(f"MPPT输入模式：{status['mppt_input_mode']}")
     print(f"PLL锁定：{'是' if status['pll_locked'] else '否'}")
     print(f"TZ故障：{'是' if status['tz_fault'] else '否'}")

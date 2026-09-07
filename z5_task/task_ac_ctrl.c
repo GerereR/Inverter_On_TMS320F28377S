@@ -59,6 +59,20 @@ static void CheckGridVoltAbnormal(float gridVoltAdc);
  * legacy physical feed-forward coefficient 0.8 after the voltage gain ratio. */
 #define INV_GRID_FEED_FORWARD             1.203f
 
+typedef struct
+{
+    float currentRef;
+    float currentFeedback;
+    float currentErr;
+    float currentErrPrev;
+    float piOut;
+    float gridVoltFeedForward;
+    float modulation;
+    Uint16 enabled;
+} AC_CtrlState;
+
+static volatile AC_CtrlState AC_State = {0};
+
 static void SRF_PLL_Init(volatile SPLL_1ph *pll, float nomFreqHz, float sampleFreqHz)
 {
     Uint16 index;
@@ -359,29 +373,29 @@ static void UpdatePllLock(float pllInput)
 
 static void AC_Ctrl_ResetCurrentLoop(void)
 {
-    gInvCtrlData.currentRef = 0.0f;
-    gInvCtrlData.currentFeedback = 0.0f;
-    gInvCtrlData.currentErr = 0.0f;
-    gInvCtrlData.currentErrPrev = 0.0f;
-    gInvCtrlData.piIntegral = 0.0f;
-    gInvCtrlData.piOut = 0.0f;
-    gInvCtrlData.gridVoltFeedForward = 0.0f;
-    gInvCtrlData.modulation = 0.0f;
+    AC_State.currentRef = 0.0f;
+    AC_State.currentFeedback = 0.0f;
+    AC_State.currentErr = 0.0f;
+    AC_State.currentErrPrev = 0.0f;
+    AC_State.piOut = 0.0f;
+    AC_State.gridVoltFeedForward = 0.0f;
+    AC_State.modulation = 0.0f;
 }
 
 void AC_Ctrl_Enable(void)
 {
     /* Establish a clean controller state before the fast ISR can use it. */
-    gInvCtrlData.enabled = 0U;
+    AC_State.enabled = 0U;
     AC_Ctrl_ResetCurrentLoop();
+    
     EPWM_SetInverterMode(0.0f);
-    gInvCtrlData.enabled = 1U;
+    AC_State.enabled = 1U;
 }
 
 void AC_Ctrl_Disable(void)
 {
     /* Preserve the CPU command, but reset all applied loop state. */
-    gInvCtrlData.enabled = 0U;
+    AC_State.enabled = 0U;
     AC_Ctrl_ResetCurrentLoop();
 }
 
@@ -407,7 +421,6 @@ void CheckGridPresence(Uint16 gridVoltRaw)
     windowSamples++;
     if(windowSamples >= GRID_FAST_WINDOW_SAMPLES)
     {
-        gGridData.fastPeakVolt = windowPeakVolt;
         if(windowPeakVolt >= GRID_FAST_PRESENT_PEAK_V)
         {
             gGridData.fastPresent = 1U;
@@ -468,7 +481,7 @@ void AC_Ctrl_Init(void)
     /* PLL 初始化收进电流环假任务，main 不再直接接触 PLL。 */
     SOGI_PLL_Init(&GridSPLL, 50.0f, 20000.0f);
 
-    gInvCtrlData.enabled = 0U;
+    AC_State.enabled = 0U;
     /* Until the power-limit manager is active, allow the full normalized
      * current range. A later zero limit must remain effective. */
     gPowerLimitData.currentAmpLimit = BUS_CURRENT_AMP_MAX_NORM;
@@ -513,12 +526,12 @@ Uint16 Task_AC_Ctrl(void)
     events = DetectGridPeak();
 
     /* Feedback remains in centered ADC-code units to match the legacy loop. */
-    gInvCtrlData.currentFeedback = inductorCurrentAdc;
+    AC_State.currentFeedback = inductorCurrentAdc;
 
     /* 打嗝保护期间不输出电流环。 */
-    if((gInvCtrlData.enabled != 0U) && (gSysData.reloadFlag == 0U))
+    if((AC_State.enabled != 0U) && (gSysData.reloadFlag == 0U))
     {
-        currentPhase = GridSPLL.phase + gReactiveData.phaseShiftRad + gReactiveData.capCompRad;
+        currentPhase = GridSPLL.phase;
         while(currentPhase >= MATH_TWO_PI_F)
         {
             currentPhase -= MATH_TWO_PI_F;
@@ -538,52 +551,49 @@ Uint16 Task_AC_Ctrl(void)
         {
             refMaxCode = gBusCtrlData.currentAmpRef * ADC_BIPOLAR_ZERO;
         }
-        gInvCtrlData.currentRef = refMaxCode * currentRefSine;
+        AC_State.currentRef = refMaxCode * currentRefSine;
 
         /* This guard is only for a valid division denominator. Bus operating
          * range qualification belongs to the state machine. */
         if(dcBusVoltAdc > 0.0f)
         {
-            gInvCtrlData.currentErrPrev = gInvCtrlData.currentErr;
-            gInvCtrlData.currentErr = gInvCtrlData.currentRef - gInvCtrlData.currentFeedback;
+            AC_State.currentErrPrev = AC_State.currentErr;
+            AC_State.currentErr = AC_State.currentRef - AC_State.currentFeedback;
 
             /* Incremental PI: scale the new increment before accumulating it. */
             piIncrement =
-                (gInvCtrlData.currentErr *
+                (AC_State.currentErr *
                  (INV_CURRENT_KP + INV_CURRENT_KI) -
-                 gInvCtrlData.currentErrPrev * INV_CURRENT_KP) *
+                 AC_State.currentErrPrev * INV_CURRENT_KP) *
                 INV_LEGACY_BUS_GAIN /
                 (dcBusVoltAdc * INV_PI_BUS_SCALE *
                  INV_LEGACY_PWM_PERIOD);
-            gInvCtrlData.piOut = System_Clamp(gInvCtrlData.piOut + piIncrement, -1.0f, 1.0f);
+            AC_State.piOut = System_Clamp(AC_State.piOut + piIncrement, -1.0f, 1.0f);
 
-            gInvCtrlData.gridVoltFeedForward = INV_GRID_FEED_FORWARD * gridVoltAdc / dcBusVoltAdc;
-            gInvCtrlData.modulation = System_Clamp(gInvCtrlData.piOut+gInvCtrlData.gridVoltFeedForward,-1.0f,1.0f);
+            AC_State.gridVoltFeedForward = INV_GRID_FEED_FORWARD * gridVoltAdc / dcBusVoltAdc;
+            AC_State.modulation = System_Clamp(AC_State.piOut+AC_State.gridVoltFeedForward,-1.0f,1.0f);
         }
         else
         {
             /* Do not let an invalid denominator produce a PWM command. */
-            gInvCtrlData.currentErr = 0.0f;
-            gInvCtrlData.currentErrPrev = 0.0f;
-            gInvCtrlData.piOut = 0.0f;
-            gInvCtrlData.gridVoltFeedForward = 0.0f;
-            gInvCtrlData.modulation = 0.0f;
+            AC_State.currentErr = 0.0f;
+            AC_State.currentErrPrev = 0.0f;
+            AC_State.piOut = 0.0f;
+            AC_State.gridVoltFeedForward = 0.0f;
+            AC_State.modulation = 0.0f;
         }
 
-        EPWM_SetInverterMode(gInvCtrlData.modulation);
+        EPWM_SetInverterMode(AC_State.modulation);
     }
     else
     {
-        gInvCtrlData.currentRef = 0.0f;
-        gInvCtrlData.currentErr = 0.0f;
-        gInvCtrlData.currentErrPrev = 0.0f;
-        gInvCtrlData.piOut = 0.0f;
-        gInvCtrlData.gridVoltFeedForward = 0.0f;
-        gInvCtrlData.modulation = 0.0f;
+        AC_State.currentRef = 0.0f;
+        AC_State.currentErr = 0.0f;
+        AC_State.currentErrPrev = 0.0f;
+        AC_State.piOut = 0.0f;
+        AC_State.gridVoltFeedForward = 0.0f;
+        AC_State.modulation = 0.0f;
     }
 
     return events;
 }
-
-
-

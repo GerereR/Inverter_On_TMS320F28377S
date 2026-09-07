@@ -288,8 +288,6 @@ static void SCI_HandleCommand(void)
             SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.currentAmpRef);
             SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.boost1Duty);
             SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.boost2Duty);
-            SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.voltErr);
-            SCI_PutFloatLE(responsePayload, &responseIndex, gBusCtrlData.piOut);
             SCI_PutWordLE(responsePayload, &responseIndex, (Uint16)gSysData.state);
             SCI_PutWordLE(responsePayload, &responseIndex, gMpptData.inputMode);
             SCI_PutWordLE(responsePayload, &responseIndex,

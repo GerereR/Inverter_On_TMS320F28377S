@@ -8,7 +8,6 @@
 #include <string.h>
 
 /* OLED 字库（原 constant.h 迁入，UI 任务私有数据）。 */
-static const char OLED_FontSupported[] = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.:?!()-_~";
 #define OLED_FONT_IDX_SPACE     0U
 #define OLED_FONT_IDX_DIGIT     1U
 #define OLED_FONT_IDX_ALPHA     11U

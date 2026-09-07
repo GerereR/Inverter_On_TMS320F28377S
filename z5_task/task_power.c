@@ -17,24 +17,35 @@
  * 本工程 Task_Power 10ms 一次，等效增益 = 7500*(500/10) = 375000。 */
 #define POWER_INT_GAIN_W                  375000.0f
 
+typedef struct
+{
+    float boostTemperature;
+    float pv1Voltage;
+    float gridActivePower;
+    float currentAmpMax;
+} PowerInput;
+
 void Task_Power_Init(void)
 {
     /* 电流上限默认满：电流由母线环 + 功率环自动产生。
      * currentAmpMax 供 SCI 手动降载（未来实现），现在默认不限制。 */
     gPowerLimitData.currentAmpMax = BUS_CURRENT_AMP_MAX_NORM;
     gPowerLimitData.currentAmpLimit = BUS_CURRENT_AMP_MAX_NORM;
-    gPowerLimitData.outputPowerCmd = POWER_OVERLOAD_W;
-    gPowerLimitData.thermalPowerLimit = POWER_OVERLOAD_W;
-    gPowerLimitData.pvPowerLimit = POWER_OVERLOAD_W;
 }
 
 void Task_Power(void)
 {
+    PowerInput input;
     float thermalLimit;
     float pvLimit;
     float targetPower;
     float powerError;
     float ampMax;
+
+    input.boostTemperature = gMachineData.realAvg.boostTemperature;
+    input.pv1Voltage = gMachineData.realAvg.pv1Voltage;
+    input.gridActivePower = gMachineData.powerData.gridActivePower;
+    input.currentAmpMax = gPowerLimitData.currentAmpMax;
 
     /* 仅并网态限功率；脱离并网复位限流，进 NORMAL 后功率环从 0 积分爬起。 */
     if (gSysData.state != SYS_STATE_NORMAL)
@@ -47,11 +58,11 @@ void Task_Power(void)
 
     /* 温度降额：overload - rate*(temp - start)。
      * 老代码带 1 分钟迟滞 + 5s 滤波，此处先直接计算，迟滞后续补。 */
-    if (gMachineData.realAvg.boostTemperature > POWER_TEMP_DERATE_START_C)
+    if (input.boostTemperature > POWER_TEMP_DERATE_START_C)
     {
         thermalLimit = POWER_OVERLOAD_W -
                        POWER_TEMP_DERATE_RATE_W_PER_C *
-                       (gMachineData.realAvg.boostTemperature - POWER_TEMP_DERATE_START_C);
+                       (input.boostTemperature - POWER_TEMP_DERATE_START_C);
     }
     else
     {
@@ -59,11 +70,11 @@ void Task_Power(void)
     }
 
     /* PV 过压降额：overload - slope*(vpv - start)。 */
-    if (gMachineData.realAvg.pv1Voltage > POWER_PV_DERATE_START_V)
+    if (input.pv1Voltage > POWER_PV_DERATE_START_V)
     {
         pvLimit = POWER_OVERLOAD_W -
                   POWER_PV_DERATE_SLOPE_W_PER_V *
-                  (gMachineData.realAvg.pv1Voltage - POWER_PV_DERATE_START_V);
+                  (input.pv1Voltage - POWER_PV_DERATE_START_V);
     }
     else
     {
@@ -76,16 +87,12 @@ void Task_Power(void)
     if (thermalLimit < targetPower) { targetPower = thermalLimit; }
     if (pvLimit < targetPower)      { targetPower = pvLimit; }
 
-    gPowerLimitData.thermalPowerLimit = thermalLimit;
-    gPowerLimitData.pvPowerLimit = pvLimit;
-    gPowerLimitData.outputPowerCmd = targetPower;
-
     /* --- 3. 功率环（纯积分器）：功率误差 → 电流限幅 --- */
-    powerError = targetPower - gMachineData.powerData.gridActivePower;
+    powerError = targetPower - input.gridActivePower;
     gPowerLimitData.currentAmpLimit += powerError / POWER_INT_GAIN_W;
 
     /* --- 4. 最终 clamp：上限 = SCI 手动上限 currentAmpMax（钳到 [0,满]） --- */
-    ampMax = System_Clamp(gPowerLimitData.currentAmpMax,
+    ampMax = System_Clamp(input.currentAmpMax,
                           BUS_CURRENT_AMP_MIN_NORM,
                           BUS_CURRENT_AMP_MAX_NORM);
     gPowerLimitData.currentAmpLimit = System_Clamp(gPowerLimitData.currentAmpLimit,

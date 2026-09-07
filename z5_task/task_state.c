@@ -2,6 +2,17 @@
 #include "task.h"
 #include "bsp.h"
 #include "system.h"
+
+typedef struct
+{
+    Uint32 timerMs;
+    Uint16 relayOnFlag;
+    Uint16 faultFilter;
+    Uint16 selfTestPassed;
+    Uint16 fault;
+} RelayState;
+
+static RelayState gRelayData = {0};
 #include "variable.h"
 
 /* 电网丢失（过零看门狗）连续计数阈值，约 50 × 10ms = 500ms。 */
@@ -157,22 +168,21 @@ static Uint16 State_IsPresent_AC(void)
 {
     float gridFreqHz;
     float gridVoltageRms;
+    Uint16 voltageValid;
+    Uint16 freqValid;
 
     gridFreqHz = (float)gMachineData.ecapFreqCent * 0.01f;
     gridVoltageRms = gMachineData.realRms.gridVoltage;
 
-    gGridData.freqHz = gridFreqHz;
-    gGridData.voltageValid =
+    voltageValid =
         ((gridVoltageRms >= gGridSafety.reconnMinVolt) &&
          (gridVoltageRms <= gGridSafety.reconnMaxVolt)) ? 1U : 0U;
-    gGridData.freqValid =
+    freqValid =
         ((gridFreqHz >= gGridSafety.reconnMinFreq) &&
          (gridFreqHz <= gGridSafety.reconnMaxFreq)) ? 1U : 0U;
-    gGridData.gridPresent =
-        ((gGridData.voltageValid != 0U) &&
-         (gGridData.freqValid != 0U) &&
+    return ((voltageValid != 0U) &&
+         (freqValid != 0U) &&
          (gGridData.fastPresent != 0U)) ? 1U : 0U;
-    return gGridData.gridPresent;
 }
 
 /* Reconnect timing belongs to CHECK only. The timer is reset whenever either
@@ -239,19 +249,10 @@ static void State_ResetStartupData(void)
     gGfciData.deviceFilter2 = 0U;
     GFCI_CHECK_OFF();
 
-    /* Controller internals are owned by z8_control. */
+    /* Controller internals are reset through their task interfaces. */
     DC_Ctrl_Reset();
-    gBusCtrlData.softStartActive = 0U;
-    gBusCtrlData.softStartStage = 0U;
-    gBusCtrlData.softStartTimerMs = 0UL;
 
-    gInvCtrlData.currentErr = 0.0f;
-    gInvCtrlData.currentErrPrev = 0.0f;
-    gInvCtrlData.piIntegral = 0.0f;
-    gInvCtrlData.piOut = 0.0f;
-    gInvCtrlData.zeroCrossUpdatePending = 0U;
     AC_Ctrl_Disable();
-    EPWM_SetBoostDuty(0.0f, 0.0f);
 }
 
 static void State_Enter(SysState nextState)
@@ -352,7 +353,7 @@ static void State_RunCheck(void)
             }
             else if(State_IsReady_AC() != 0U)
             {
-                gBusCtrlData.softStartActive = 1U;   /* 电网就绪，启动 Boost 软启动建母线 */
+                DC_Ctrl_StartSoftStart();   /* 电网就绪，启动 Boost 软启动建母线 */
                 gSysData.checkStage = SYS_CHECK_BUS;
             }
             break;

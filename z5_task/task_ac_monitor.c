@@ -9,6 +9,11 @@
 #define GRID_10MIN_SLOT_COUNT         20U
 #define GRID_10MIN_HALF_MIN_COUNT   1500U
 
+static float GridVoltageRmsAvg10Min = 0.0f;
+static float GridVoltageRmsBuf[GRID_10MIN_SLOT_COUNT] = {0};
+static Uint16 GridVoltageRmsBufIdx = 0U;
+static Uint16 GridHalfMinCount = 0U;
+
 /* DCI（直流分量）检测与直流注入补偿。 */
 #define DCI_DEADBAND_A           0.02f
 #define DCI_ADJ_LIMIT            65.0f
@@ -49,26 +54,27 @@
 /* DCI 检测 + 直流注入补偿 + 超标保护（原 signal_calc_dci + DciCheck）。 */
 static void DCI_Inject(void)
 {
+    static Uint16 adjustmentCount = 0U;
     float dci = gMachineData.realAvg.gridDcCurrent;   /* 直流分量（物理值 A） */
 
     /* 激活计数：并网态每个电网周期 +1，脱离并网清零 */
     if (gSysData.state == SYS_STATE_NORMAL)
     {
-        if (gInvCtrlData.dciAdjCount < 9U)
+        if (adjustmentCount < 9U)
         {
-            gInvCtrlData.dciAdjCount++;
+            adjustmentCount++;
         }
     }
     else
     {
-        gInvCtrlData.dciAdjCount = 0U;
+        adjustmentCount = 0U;
     }
 
     /* 直流注入补偿：并网 + 稳定(>=8 周期) + 有功率，死区积分器调 dcCurrentComp */
     if 
     (
         (gSysData.state == SYS_STATE_NORMAL) &&
-        (gInvCtrlData.dciAdjCount >= DCI_ADJ_ACTIVE_COUNT) &&
+        (adjustmentCount >= DCI_ADJ_ACTIVE_COUNT) &&
         (gMachineData.powerData.gridActivePower > DCI_ACTIVE_POWER_W)
     )
     {
@@ -184,7 +190,7 @@ static void GridVolt_Protect(void)
             voltOverFilter2 = 0U; 
             voltUnderFilter2 = 0U;
         }
-        else if (gGridData.voltageRmsAvg10Min > gGridSafety.voltOver10Min)  /* 10 分钟长期过压，立即置故障 */
+        else if (GridVoltageRmsAvg10Min > gGridSafety.voltOver10Min)  /* 10 分钟长期过压，立即置故障 */
         {
             gSysFault.bit.gridOverVolt = 1U;
             voltOverFilter1 = 0U; 
@@ -332,25 +338,25 @@ static void GridFreq_Protect(void)
 /* 10 分钟平均电压窗：每 30 秒采一个 RMS，20 槽环形平均（原 vgrid_20_buf 机制）。 */
 static void GridVolt_10minWindow(void)
 {
-    gGridData.halfMinCnt++;
-    if (gGridData.halfMinCnt >= GRID_10MIN_HALF_MIN_COUNT)
+    GridHalfMinCount++;
+    if (GridHalfMinCount >= GRID_10MIN_HALF_MIN_COUNT)
     {
         Uint16 i;
         float sum = 0.0f;
 
-        gGridData.halfMinCnt = 0U;
-        gGridData.voltageRmsBuf[gGridData.voltageRmsBufIdx] = gMachineData.realRms.gridVoltage;
-        gGridData.voltageRmsBufIdx++;
-        if (gGridData.voltageRmsBufIdx >= GRID_10MIN_SLOT_COUNT)
+        GridHalfMinCount = 0U;
+        GridVoltageRmsBuf[GridVoltageRmsBufIdx] = gMachineData.realRms.gridVoltage;
+        GridVoltageRmsBufIdx++;
+        if (GridVoltageRmsBufIdx >= GRID_10MIN_SLOT_COUNT)
         {
-            gGridData.voltageRmsBufIdx = 0U;
+            GridVoltageRmsBufIdx = 0U;
         }
 
         for (i = 0U; i < GRID_10MIN_SLOT_COUNT; i++)
         {
-            sum += gGridData.voltageRmsBuf[i];
+            sum += GridVoltageRmsBuf[i];
         }
-        gGridData.voltageRmsAvg10Min = sum / (float)GRID_10MIN_SLOT_COUNT;
+        GridVoltageRmsAvg10Min = sum / (float)GRID_10MIN_SLOT_COUNT;
     }
 }
 
@@ -442,7 +448,7 @@ static void Gfci_Protect(void)
         }
 
         //自检保护静默期
-        else (gGfciData.checkDelay >= GFCI_PROTECT_DELAY_CYCLES)
+        else if (gGfciData.checkDelay >= GFCI_PROTECT_DELAY_CYCLES)
         {
             deltaGfi = gGfciData.avgBuf[2] - gGfciData.avgBuf[0];
             deltaGfi = deltaGfi >= 0.0f ? deltaGfi : -deltaGfi ;

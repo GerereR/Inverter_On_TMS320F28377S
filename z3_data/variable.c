@@ -15,7 +15,6 @@ volatile PowerLimitData gPowerLimitData = {0};
 volatile GridMonitorData gGridData = {0};
 volatile GridSafetyParams gGridSafety =
 {
-    220.0f, 50.0f,                         /* 额定电压/频率 */
     242.0f, 264.0f, 187.0f, 176.0f,        /* 过/欠压一级/二级 */
     50.5f, 51.0f, 49.5f, 49.0f,            /* 过/欠频一级/二级 */
     253.0f,                                /* 10 分钟平均过压 */
@@ -23,8 +22,6 @@ volatile GridSafetyParams gGridSafety =
     3U, 3U, 300U                           /* 一级/二级判定计数 + 恢复计数 */
 };
 volatile GfciData gGfciData = {0};
-volatile ReactiveCtrlData gReactiveData = {0};
-volatile RelayCtrlData gRelayData = {0};
 volatile SPLL_1ph GridSPLL = {0};
 
 volatile ADC_Calibrate gAdcCal =

@@ -3,59 +3,96 @@
 #include "bsp.h"
 #include "variable.h"
 
-static void MPPT_ResetChannel(volatile MpptChannelData *channel);
+typedef struct
+{
+    float voltage;
+    float current;
+    float power;
+    float currentLimit;
+    float minVoltage;
+    float smallPowerDelta;
+    float largePowerDelta;
+} MPPT_Input;
+
+typedef struct
+{
+    float voltRef;
+    float openCircuitVolt;
+    float power;
+    float powerPrev;
+    float voltStep;
+    int16 direction;
+    Uint16 enabled;
+    Uint16 fastSearch;
+} MPPT_ChannelState;
+
+typedef struct
+{
+    float currentLimit;
+    float minVoltage;
+    float smallPowerDelta;
+    float largePowerDelta;
+} MPPT_ChannelConfig;
+
+typedef struct
+{
+    MPPT_ChannelState pv1;
+    MPPT_ChannelState pv2;
+    MPPT_ChannelConfig config;
+} MPPT_State;
+
+static MPPT_State MPPT_StateData = {0};
+
+static void MPPT_PublishOutputs(void)
+{
+    gMpptData.pv1.voltRef = MPPT_StateData.pv1.voltRef;
+    gMpptData.pv1.enabled = MPPT_StateData.pv1.enabled;
+    gMpptData.pv2.voltRef = MPPT_StateData.pv2.voltRef;
+    gMpptData.pv2.enabled = MPPT_StateData.pv2.enabled;
+}
+
+static void MPPT_ResetChannel(MPPT_ChannelState *channel);
 
 static void MPPT_UpdateChannel
 (
-    volatile MpptChannelData *channel,
-    float pvVoltage,
-    float pvCurrent,
-    float pvPower,
-    float pvCurrentLimit,
-    float pvMinVoltage,
-    float smallPowerDelta,
-    float largePowerDelta
+    MPPT_ChannelState *channel,
+    const MPPT_Input *input
 );
 
 static void MPPT_LoadModelConfig(void)
 {
     if(gSysData.model == MODEL_4KW)
     {
-        gMpptData.pv1Config.currentLimit = MODEL_4KW_PV_CUR_LIMIT_A;
-        gMpptData.pv1Config.minVoltage = MODEL_4KW_MPPT_MIN_V;
-        gMpptData.pv1Config.smallPowerDelta = MODEL_4KW_MPPT_SMALL_DELTA_W;
-        gMpptData.pv1Config.largePowerDelta = MODEL_4KW_MPPT_LARGE_DELTA_W;
+        MPPT_StateData.config.currentLimit = MODEL_4KW_PV_CUR_LIMIT_A;
+        MPPT_StateData.config.minVoltage = MODEL_4KW_MPPT_MIN_V;
+        MPPT_StateData.config.smallPowerDelta = MODEL_4KW_MPPT_SMALL_DELTA_W;
+        MPPT_StateData.config.largePowerDelta = MODEL_4KW_MPPT_LARGE_DELTA_W;
     }
     else
     {
-        gMpptData.pv1Config.currentLimit = MODEL_3KW_PV_CUR_LIMIT_A;
-        gMpptData.pv1Config.minVoltage = MODEL_3KW_MPPT_MIN_V;
-        gMpptData.pv1Config.smallPowerDelta = MODEL_3KW_MPPT_SMALL_DELTA_W;
-        gMpptData.pv1Config.largePowerDelta = MODEL_3KW_MPPT_LARGE_DELTA_W;
+        MPPT_StateData.config.currentLimit = MODEL_3KW_PV_CUR_LIMIT_A;
+        MPPT_StateData.config.minVoltage = MODEL_3KW_MPPT_MIN_V;
+        MPPT_StateData.config.smallPowerDelta = MODEL_3KW_MPPT_SMALL_DELTA_W;
+        MPPT_StateData.config.largePowerDelta = MODEL_3KW_MPPT_LARGE_DELTA_W;
     }
-
-    /* Both physical inputs use the same model limits in the current design. */
-    gMpptData.pv2Config = gMpptData.pv1Config;
 }
 
 void Task_MPPT_Init(void)
 {
     MPPT_LoadModelConfig();
-    MPPT_ResetChannel(&gMpptData.pv1);
-    MPPT_ResetChannel(&gMpptData.pv2);
+    MPPT_ResetChannel(&MPPT_StateData.pv1);
+    MPPT_ResetChannel(&MPPT_StateData.pv2);
+    MPPT_PublishOutputs();
     gMpptData.inputMode = MPPT_INPUT_NONE;
 }
 
-static void MPPT_ResetChannel(volatile MpptChannelData *channel)
+static void MPPT_ResetChannel(MPPT_ChannelState *channel)
 {
     channel->voltRef = 0.0f;
-    channel->voltRefPrev = 0.0f;
     channel->openCircuitVolt = 0.0f;
     channel->power = 0.0f;
     channel->powerPrev = 0.0f;
     channel->voltStep = MPPT_VOLT_STEP_V;
-    channel->duty = 0.0f;
-    channel->dutyPrev = 0.0f;
     channel->direction = -1;
     channel->enabled = 0U;
     channel->fastSearch = 1U;
@@ -64,15 +101,8 @@ static void MPPT_ResetChannel(volatile MpptChannelData *channel)
 
 static void MPPT_UpdateChannel
 (
-    volatile MpptChannelData *channel,
-    float pvVoltage,
-    float pvCurrent,
-    float pvPower,
-
-    float pvCurrentLimit,
-    float pvMinVoltage,
-    float smallPowerDelta,
-    float largePowerDelta
+    MPPT_ChannelState *channel,
+    const MPPT_Input *input
 )
 {
     float powerDelta;
@@ -81,29 +111,28 @@ static void MPPT_UpdateChannel
     //PV参考电压扰动步长
     float step;
 
-    if((pvVoltage <= 0.0f) || (pvCurrent <= 0.0f))
+    if((input->voltage <= 0.0f) || (input->current <= 0.0f))
     {
         MPPT_ResetChannel(channel);
         return;
     }
 
     /* Power is calculated once by Task_Measure and shared through MachineData. */
-    channel->power = pvPower;
+    channel->power = input->power;
 
     if(channel->enabled == 0U)
     {
         /* Use the first valid sample as the open-circuit estimate. The real
          * Boost startup code can replace this with a dedicated Voc sample. */
         //重启MPPT时,给初始参考电压和扰动步长
-        channel->openCircuitVolt = pvVoltage;
-        channel->voltRef = pvVoltage * 0.98f;
-        channel->voltStep = pvVoltage * 0.01f;
+        channel->openCircuitVolt = input->voltage;
+        channel->voltRef = input->voltage * 0.98f;
+        channel->voltStep = input->voltage * 0.01f;
         if(channel->voltStep < MPPT_VOLT_STEP_V)
         {
             channel->voltStep = MPPT_VOLT_STEP_V;
         }
 
-        channel->voltRefPrev = channel->voltRef;
         channel->powerPrev = channel->power;
 
         //第一次减小参考电压
@@ -119,7 +148,8 @@ static void MPPT_UpdateChannel
         step = MPPT_VOLT_STEP_V;
     }
 
-    powerDeadband = (channel->fastSearch != 0U) ? largePowerDelta : smallPowerDelta;
+    powerDeadband = (channel->fastSearch != 0U) ?
+                    input->largePowerDelta : input->smallPowerDelta;
     powerDelta = channel->power - channel->powerPrev;
 
     if(channel->fastSearch != 0U)
@@ -164,77 +194,77 @@ static void MPPT_UpdateChannel
     /* More PV current than allowed: raise the voltage reference to reduce
      * current, matching the safety branch in New_Master's MPPT code. */
      //如果电流限制的话,那么增大参考电压值
-    if(pvCurrent > (pvCurrentLimit + MPPT_CURRENT_LIMIT_MARGIN_A))
+    if(input->current > (input->currentLimit + MPPT_CURRENT_LIMIT_MARGIN_A))
     {
         channel->voltRef += MPPT_VOLT_STEP_V;
     }
     //如果参考值比当前 PV 电压高出 30 V 以上，则拉回当前值附近
-    if((pvVoltage > 0.0f) && (channel->voltRef > (pvVoltage + 30.0f)))
+    if((input->voltage > 0.0f) &&
+       (channel->voltRef > (input->voltage + 30.0f)))
     {
-        channel->voltRef = pvVoltage - MPPT_VOLT_STEP_V;
+        channel->voltRef = input->voltage - MPPT_VOLT_STEP_V;
     }
     //不能低于机型设定的 MPPT 最低电压
-    if(channel->voltRef < pvMinVoltage)
+    if(channel->voltRef < input->minVoltage)
     {
-        channel->voltRef = pvMinVoltage;
+        channel->voltRef = input->minVoltage;
     }
     //不能高于记录到的开路电压
-    if((channel->openCircuitVolt >= pvMinVoltage) && (channel->voltRef > channel->openCircuitVolt))
+    if((channel->openCircuitVolt >= input->minVoltage) &&
+       (channel->voltRef > channel->openCircuitVolt))
     {
         channel->voltRef = channel->openCircuitVolt;
     }
-    channel->voltRefPrev = channel->voltRef;
     channel->powerPrev = channel->power;
 }
 
 void Task_MPPT(void)
 {
+    MPPT_Input pv1Input;
+    MPPT_Input pv2Input;
+
     /* MPPT is deliberately inactive outside NORMAL. It only updates target
      * PV voltages; the Boost PI consumes those references in Task_DC_Ctrl(). */
      //我们这个好多了,老代码是直接一个超级大IF
     if(gSysData.state != SYS_STATE_NORMAL)
     {
-        MPPT_ResetChannel(&gMpptData.pv1);
-        MPPT_ResetChannel(&gMpptData.pv2);
+        MPPT_ResetChannel(&MPPT_StateData.pv1);
+        MPPT_ResetChannel(&MPPT_StateData.pv2);
+        MPPT_PublishOutputs();
         gMpptData.inputMode = MPPT_INPUT_NONE;
         return;
     }
 
-    MPPT_UpdateChannel
-    (
-        &gMpptData.pv1,
-        gMachineData.realAvg.pv1Voltage,
-        gMachineData.realAvg.pv1Current,
-        gMachineData.powerData.pv1Power,
+    pv1Input.voltage = gMachineData.realAvg.pv1Voltage;
+    pv1Input.current = gMachineData.realAvg.pv1Current;
+    pv1Input.power = gMachineData.powerData.pv1Power;
+    pv1Input.currentLimit = MPPT_StateData.config.currentLimit;
+    pv1Input.minVoltage = MPPT_StateData.config.minVoltage;
+    pv1Input.smallPowerDelta = MPPT_StateData.config.smallPowerDelta;
+    pv1Input.largePowerDelta = MPPT_StateData.config.largePowerDelta;
 
-        gMpptData.pv1Config.currentLimit,
-        gMpptData.pv1Config.minVoltage,
-        gMpptData.pv1Config.smallPowerDelta,
-        gMpptData.pv1Config.largePowerDelta
-    );
-    
-    MPPT_UpdateChannel
-    (
-        &gMpptData.pv2,
-        gMachineData.realAvg.pv2Voltage,
-        gMachineData.realAvg.pv2Current,
-        gMachineData.powerData.pv2Power,
+    pv2Input.voltage = gMachineData.realAvg.pv2Voltage;
+    pv2Input.current = gMachineData.realAvg.pv2Current;
+    pv2Input.power = gMachineData.powerData.pv2Power;
+    pv2Input.currentLimit = MPPT_StateData.config.currentLimit;
+    pv2Input.minVoltage = MPPT_StateData.config.minVoltage;
+    pv2Input.smallPowerDelta = MPPT_StateData.config.smallPowerDelta;
+    pv2Input.largePowerDelta = MPPT_StateData.config.largePowerDelta;
 
-        gMpptData.pv2Config.currentLimit,
-        gMpptData.pv2Config.minVoltage,
-        gMpptData.pv2Config.smallPowerDelta,
-        gMpptData.pv2Config.largePowerDelta
-    );
+    MPPT_UpdateChannel(&MPPT_StateData.pv1, &pv1Input);
+    MPPT_UpdateChannel(&MPPT_StateData.pv2, &pv2Input);
 
-    if((gMpptData.pv1.enabled != 0U) && (gMpptData.pv2.enabled != 0U))
+    MPPT_PublishOutputs();
+
+    if((MPPT_StateData.pv1.enabled != 0U) && (MPPT_StateData.pv2.enabled != 0U))
     {
         gMpptData.inputMode = MPPT_INPUT_DUAL;
     }
-    else if(gMpptData.pv1.enabled != 0U)
+    else if(MPPT_StateData.pv1.enabled != 0U)
     {
         gMpptData.inputMode = MPPT_INPUT_PV1_ONLY;
     }
-    else if(gMpptData.pv2.enabled != 0U)
+    else if(MPPT_StateData.pv2.enabled != 0U)
     {
         gMpptData.inputMode = MPPT_INPUT_PV2_ONLY;
     }

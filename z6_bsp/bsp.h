@@ -105,11 +105,9 @@ void ADC_Config(void);
 void DMA_Config(void);
 void DMA_NotifyFastFrameEoc(void);
 void DMA_GridCycleBoundary(void);
-Uint16 DMA_ProcessBlocks(ADC_UintData *rawInstant,
-                                  ADC_UintData *rawAvg,
+Uint16 DMA_ProcessBlocks(ADC_UintData *rawAvg,
                                   ADC_FloatData *rawMeanSq,
                                   float *gridVoltCurrentMeanRaw,
-                                  float *fastWindowSec,
                                   const ADC_Calibrate *cal);
 void ECAP_Config(void);
 void SCI_Config(void);
