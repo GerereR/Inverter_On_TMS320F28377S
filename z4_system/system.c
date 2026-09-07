@@ -55,7 +55,7 @@ void System_EnterSafeOutput(void)
     ISO_RELAY1_OFF();
     ISO_RELAY2_OFF();
     GFCI_CHECK_OFF();
-    Fast_Disable();
+    AC_Ctrl_Disable();
     DSP_STATE_LOW();
 }
 

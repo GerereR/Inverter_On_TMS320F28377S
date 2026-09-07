@@ -9,7 +9,7 @@ int main(void)
     Uint16 schedulerFlags;
 
     // Peripheral interrupts are configured first and enabled together here.
-    Fast_Init();  // PLL 初始化已收进 Fast_Init，main 不再直接接触 PLL。
+    AC_Ctrl_Init();  // PLL 初始化已收进 AC_Ctrl_Init，main 不再直接接触 PLL。
 
     System_Init();
 
@@ -49,7 +49,7 @@ int main(void)
 
         if(schedulerFlags & TASK_AC_MONITOR_FLAG)  // valid eCAP grid boundary
         {
-            Task_AcMonitor();
+            Task_AC_Monitor();
         }
 
         if(schedulerFlags & TASK_POWER_FLAG) // 10 ms framework task
@@ -64,7 +64,7 @@ int main(void)
 
         if(schedulerFlags & TASK_DC_CTRL_FLAG)     // positive/negative grid peak
         {
-            Task_DcCtrl();
+            Task_DC_Ctrl();
         }
 
         if(schedulerFlags & TASK_MPPT_FLAG)        // 500 ms

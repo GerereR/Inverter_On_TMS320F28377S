@@ -67,6 +67,24 @@ typedef struct
     ADC_CalParam pv2Isolation;
 } ADC_Calibrate;
 
+/* 运行时 ADC 零漂值（码值，采样时减去）。 */
+typedef struct
+{
+    float inductorCurrent;
+    float gridVoltage;
+    float gfciCurrent;
+    float gridDcCurrent;
+} AdcOffsetValues;
+
+/* ADC 运行时零漂校准（开机/重连时采 32 组码值平均，补偿温度漂移）。 */
+typedef struct
+{
+    AdcOffsetValues offset;   /* 运行时零漂 */
+    AdcOffsetValues sum;      /* 校准累积器 */
+    Uint16 checkCount;        /* 校准采样计数 */
+    Uint16 adInitial;         /* 校准标志：1=校准中 */
+} AdcOffsetCal;
+
 /* ADCA RESULT0 through RESULT5 form one complete 20 kHz fast frame. */
 typedef struct
 {
@@ -108,16 +126,16 @@ typedef struct
 
 /*
  * Fault bits can be accessed individually or checked as recoverable/permanent
- * groups. Keep each group exactly 16 bits so its word view stays stable.
+ * groups. Keep each group exactly 32 bits so its word view stays stable.
  */
 typedef union
 {
-    Uint32 all;
+    Uint64 all;
 
     struct
     {
-        Uint16 recoverable;
-        Uint16 permanent;
+        Uint32 recoverable;
+        Uint32 permanent;
     } word;
 
     struct
@@ -129,8 +147,8 @@ typedef union
         Uint16 gridUnderVolt : 1;
         Uint16 gridOverFreq : 1;
         Uint16 gridUnderFreq : 1;
-        Uint16 dcBusOverVolt : 1;
-        Uint16 dcBusUnderVolt : 1;
+        Uint16 reserved6 : 1;
+        Uint16 reserved7 : 1;
         Uint16 pv1OverVolt : 1;
         Uint16 pv2OverVolt : 1;
         Uint16 pv1OverCurrent : 1;
@@ -140,11 +158,11 @@ typedef union
         Uint16 gfciFault : 1;
         Uint16 isolationFault : 1;
 
-        /* Permanent fault word, bits 16..31. */
-        Uint16 inverterOverTemp : 1;
-        Uint16 boostOverTemp : 1;
-        Uint16 adcFault : 1;
-        Uint16 eepromFault : 1;
+        /* Recoverable fault word, bits 16..31. */
+        Uint16 noUtility : 1;
+        Uint16 reserved17 : 1;
+        Uint16 reserved18 : 1;
+        Uint16 reserved19 : 1;
         Uint16 reserved20 : 1;
         Uint16 reserved21 : 1;
         Uint16 reserved22 : 1;
@@ -157,6 +175,42 @@ typedef union
         Uint16 reserved29 : 1;
         Uint16 reserved30 : 1;
         Uint16 reserved31 : 1;
+
+        /* Permanent fault word, bits 32..47. */
+        Uint16 inverterOverTemp : 1;
+        Uint16 boostOverTemp : 1;
+        Uint16 adcFault : 1;
+        Uint16 eepromFault : 1;
+        Uint16 gfciDeviceFault : 1;   /* 原 GFCIDeviceFault：GFCI 自检硬件故障 */
+        Uint16 dcBusOverVolt : 1;     /* 母线过压：permanent，Boost 失控/硬件损坏不可恢复 */
+        Uint16 reserved38 : 1;
+        Uint16 reserved39 : 1;
+        Uint16 reserved40 : 1;
+        Uint16 reserved41 : 1;
+        Uint16 reserved42 : 1;
+        Uint16 reserved43 : 1;
+        Uint16 reserved44 : 1;
+        Uint16 reserved45 : 1;
+        Uint16 reserved46 : 1;
+        Uint16 reserved47 : 1;
+
+        /* Reserved, bits 48..63. */
+        Uint16 reserved48 : 1;
+        Uint16 reserved49 : 1;
+        Uint16 reserved50 : 1;
+        Uint16 reserved51 : 1;
+        Uint16 reserved52 : 1;
+        Uint16 reserved53 : 1;
+        Uint16 reserved54 : 1;
+        Uint16 reserved55 : 1;
+        Uint16 reserved56 : 1;
+        Uint16 reserved57 : 1;
+        Uint16 reserved58 : 1;
+        Uint16 reserved59 : 1;
+        Uint16 reserved60 : 1;
+        Uint16 reserved61 : 1;
+        Uint16 reserved62 : 1;
+        Uint16 reserved63 : 1;
     } bit;
 } SysFault;
 
@@ -177,6 +231,8 @@ typedef struct
     Uint32 sourceStableMs;
     Uint32 gridStableMs;
     Uint32 restartCount;
+    Uint16 reloadFlag;    /* 打嗝保护标志：快速层(ISR)置位，状态机恢复 */
+    Uint16 reloadCount;   /* 打嗝恢复计数（NORMAL 态累加，>150 即 300ms 后恢复） */
 } SysData;
 
 /* One PV input's MPPT history and Boost command. */
@@ -241,14 +297,13 @@ typedef struct
 } BusCtrlData;
 
 /* Inverter current-loop command, feedback and diagnostic state.
- * currentAmpCmd/currentAmpApplied are normalized peak commands (0..1).
+ * The applied current amplitude comes from the bus loop directly
+ * (gBusCtrlData.currentAmpRef).
  * currentRef/currentFeedback/currentErr and the compensation/limit fields
  * use centered ADC-code units. PI, feed-forward and modulation are normalized
  * bridge commands (-1..1). */
 typedef struct
 {
-    float currentAmpCmd;
-    float currentAmpApplied;
     float currentRef;
     float currentFeedback;
     float currentErr;
@@ -261,6 +316,7 @@ typedef struct
     float currentLimit;
     Uint16 enabled;
     Uint16 zeroCrossUpdatePending;
+    Uint16 dciAdjCount;       /* 直流补偿激活计数（并网态每个电网周期 +1） */
 } InvCtrlData;
 
 /* Calculated grid/PV power and accumulated output energy. */
@@ -286,6 +342,7 @@ typedef struct
     float outputPowerCmd;
     float outputPowerLimit;
     float currentAmpLimit;
+    float currentAmpMax;       /* SCI 手动设置的电流上限（0..1，默认满） */
     float thermalPowerLimit;
     float pvPowerLimit;
     float freqPowerLimit;
@@ -322,6 +379,9 @@ typedef struct
     float freqAvgHz;
     float voltageRmsAvg;
     float voltageRmsAvg10Min;
+    float voltageRmsBuf[20];   /* 10 分钟窗口：20 槽，每槽 30 秒 */
+    Uint16 voltageRmsBufIdx;   /* 环形索引 */
+    Uint16 halfMinCnt;         /* 30 秒采样计数（电网周期数） */
     float fastPeakVolt;
     Uint32 periodTicks;
     Uint32 validCycleCount;
@@ -331,6 +391,55 @@ typedef struct
     Uint16 voltageValid;
     Uint16 freqValid;
 } GridMonitorData;
+
+/* 并网安规参数（集中一个数据域，便于按国标/机型配置，将来可存 EEPROM）。 */
+typedef struct
+{
+    float nomVoltRms;          /* 额定电压(V) */
+    float nomFreqHz;           /* 额定频率(Hz) */
+
+    float voltOverLevel1;      /* 一级过压(V) */
+    float voltOverLevel2;      /* 二级过压(V) */
+    float voltUnderLevel1;     /* 一级欠压(V) */
+    float voltUnderLevel2;     /* 二级欠压(V) */
+
+    float freqOverLevel1;      /* 一级过频(Hz) */
+    float freqOverLevel2;      /* 二级过频(Hz) */
+    float freqUnderLevel1;     /* 一级欠频(Hz) */
+    float freqUnderLevel2;     /* 二级欠频(Hz) */
+
+    float voltOver10Min;       /* 10 分钟平均过压(V) */
+
+    float reconnMaxVolt;       /* 重连电压上限(V) */
+    float reconnMinVolt;       /* 重连电压下限(V) */
+    float reconnMaxFreq;       /* 重连频率上限(Hz) */
+    float reconnMinFreq;       /* 重连频率下限(Hz) */
+
+    Uint16 faultFilterCount1;  /* 一级判定计数 */
+    Uint16 faultFilterCount2;  /* 二级判定计数 */
+    Uint16 backFilterCount;    /* 恢复计数 */
+} GridSafetyParams;
+
+/* GFCI 漏电保护状态（自检 + 运行保护差分跳变 + 多级反时限）。 */
+typedef struct
+{
+    float rmsBuf[3];         /* 最近 3 周期漏电流 RMS */
+    float avgBuf[3];         /* 最近 3 周期漏电流平均值 */
+    float deltaBaseAvg;         /* 突变基准（平均值，原 delta_base） */
+    float deltaBaseRms;      /* 突变基准（RMS，原 delta_base_rms） */
+    Uint16 breakFlag;        /* 突变标志（原 ubBreakFlag） */
+    Uint16 breakSwFlag;      /* 突变基准锁定（bit0=30mA档, bit1=60mA档） */
+    Uint16 noBreakCnt;       /* 无突变计数（原 gfci_cnt） */
+    Uint16 filter30ma;       /* 30mA 档滤波 */
+    Uint16 filter60ma;       /* 60mA 档滤波 */
+    Uint16 filter300ma;      /* 300mA 档滤波 */
+    Uint16 deviceFilter1;    /* 自检静态检测滤波（原 gfci_fault_filter1） */
+    Uint16 deviceFilter2;    /* 自检注入检测滤波（原 gfci_fault_filter2） */
+    Uint16 backFilter;       /* 恢复滤波 */
+    Uint16 checkDelay;       /* 自检后保护静默期计数（原 wCheckGFCIDelay） */
+    Uint16 selfTestIndex;    /* 自检计数（原 gfci_50ma_index） */
+    Uint16 selfTestActive;   /* 自检进行中 */
+} GfciData;
 
 /* Reactive-power command and phase compensation shared with control.
  * Both phase offsets are signed final current-reference offsets: positive
@@ -391,11 +500,14 @@ extern volatile MachineData gMachineData;
 extern volatile SysFault gSysFault;
 extern volatile SysData gSysData;
 extern volatile ADC_Calibrate gAdcCal;
+extern volatile AdcOffsetCal gAdcOffsetCal;
 extern volatile MpptData gMpptData;
 extern volatile BusCtrlData gBusCtrlData;
 extern volatile InvCtrlData gInvCtrlData;
 extern volatile PowerLimitData gPowerLimitData;
 extern volatile GridMonitorData gGridData;
+extern volatile GridSafetyParams gGridSafety;
+extern volatile GfciData gGfciData;
 extern volatile ReactiveCtrlData gReactiveData;
 extern volatile RelayCtrlData gRelayData;
 extern volatile SPLL_1ph GridSPLL;

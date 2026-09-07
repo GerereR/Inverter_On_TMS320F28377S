@@ -6,15 +6,15 @@
 #include "variable.h"
 #include "system.h"
 
-/*============================================================================
- * task_fast.c —— 电流环假任务（非调度器触发，由 ADC ISR 直接调用）
- *
- * 合并原 z8_control/pll.c + current_ctrl.c：
- *   - PLL：SRF/SOGI 单相锁相环
- *   - 电流环：50us 快速闭环（PLL + 电流环 PI + PWM 更新 + 峰值检测）
- *==========================================================================*/
+/* 前置声明：电网电压瞬时异常检测（定义见文件末尾）。 */
+static void CheckGridVoltAbnormal(float gridVoltAdc);
 
-/* --- PLL（原 pll.c） --- */
+/* Fast ADC-domain grid-presence check. A 205-sample window is about one
+ * half-cycle at the 20 kHz control rate used by this project. */
+#define GRID_FAST_PRESENT_PEAK_V      180.0f
+#define GRID_FAST_WINDOW_SAMPLES        205U
+
+//PLL宏定义
 #define SPLL_MAX_DEVIATION_HZ       5.0f
 
 #define SRF_PLL_DEFAULT_KP          60.0f
@@ -29,9 +29,37 @@
 #define SRF_PLL_DEFAULT_NOTCH_A1   -1.9590329f
 #define SRF_PLL_DEFAULT_NOTCH_A2    0.9604000f
 
-static void SRF_PLL_Init(volatile SPLL_1ph *pll,
-                  float nomFreqHz,
-                  float sampleFreqHz)
+/* Temporary PLL lock thresholds for the current bring-up stage. */
+#define PLL_INPUT_ABS_FILTER_COEFF       0.001f
+
+#define PLL_LOCK_INPUT_ABS_MIN           0.10f
+#define PLL_UNLOCK_INPUT_ABS_MIN         0.05f
+
+#define PLL_LOCK_PHASE_ERROR_MAX         0.05f
+#define PLL_UNLOCK_PHASE_ERROR_MAX       0.10f
+
+#define PLL_LOCK_FREQ_MARGIN_HZ          0.25f
+#define PLL_UNLOCK_FREQ_MARGIN_HZ        0.05f
+
+#define PLL_LOCK_CONFIRM_SAMPLES         2000U
+#define PLL_UNLOCK_CONFIRM_SAMPLES       200U   //50us*200=10ms
+
+/* Legacy 20 kHz current-loop tuning. The PI result is normalized below, so
+ * the present F28377S TBPRD does not change these discrete coefficients. */
+#define INV_CURRENT_KP                    300.0f
+#define INV_CURRENT_KI                     30.0f
+
+#define INV_LEGACY_BUS_GAIN              6935.0f
+
+#define INV_PI_BUS_SCALE                 1024.0f
+
+#define INV_LEGACY_PWM_PERIOD            1500.0f
+
+/* With centered raw ADC values, 1.203 is the raw-domain equivalent of the
+ * legacy physical feed-forward coefficient 0.8 after the voltage gain ratio. */
+#define INV_GRID_FEED_FORWARD             1.203f
+
+static void SRF_PLL_Init(volatile SPLL_1ph *pll, float nomFreqHz, float sampleFreqHz)
 {
     Uint16 index;
 
@@ -65,9 +93,7 @@ static void SRF_PLL_Init(volatile SPLL_1ph *pll,
     }
 }
 
-static void SOGI_PLL_Init(volatile SPLL_1ph *pll,
-                   float nomFreqHz,
-                   float sampleFreqHz)
+static void SOGI_PLL_Init(volatile SPLL_1ph *pll, float nomFreqHz, float sampleFreqHz)
 {
     Uint16 index;
 
@@ -218,58 +244,9 @@ static void SOGI_PLL_Run(volatile SPLL_1ph *pll, float input)
     }
 }
 
-/* --- 电流环（原 current_ctrl.c，接口改名 Fast_*） --- */
 
-/* Temporary PLL lock thresholds for the current bring-up stage. */
-#define PLL_INPUT_ABS_FILTER_COEFF       0.001f
-#define PLL_LOCK_INPUT_ABS_MIN           0.10f
-#define PLL_UNLOCK_INPUT_ABS_MIN         0.05f
-#define PLL_LOCK_PHASE_ERROR_MAX         0.05f
-#define PLL_UNLOCK_PHASE_ERROR_MAX       0.10f
-#define PLL_LOCK_FREQ_MARGIN_HZ          0.25f
-#define PLL_UNLOCK_FREQ_MARGIN_HZ        0.05f
-#define PLL_LOCK_CONFIRM_SAMPLES         2000U
-#define PLL_UNLOCK_CONFIRM_SAMPLES       200U
-
-/* Legacy 20 kHz current-loop tuning. The PI result is normalized below, so
- * the present F28377S TBPRD does not change these discrete coefficients. */
-#define INV_CURRENT_KP                    300.0f
-#define INV_CURRENT_KI                     30.0f
-#define INV_LEGACY_BUS_GAIN              6935.0f
-#define INV_LEGACY_PWM_PERIOD            1500.0f
-#define INV_PI_BUS_SCALE                 1024.0f
-
-/* With centered raw ADC values, 1.203 is the raw-domain equivalent of the
- * legacy physical feed-forward coefficient 0.8 after the voltage gain ratio. */
-#define INV_GRID_FEED_FORWARD             1.203f
-
-static float Fast_WrapPhase(float phase)
-{
-    while(phase >= MATH_TWO_PI_F)
-    {
-        phase -= MATH_TWO_PI_F;
-    }
-    while(phase < 0.0f)
-    {
-        phase += MATH_TWO_PI_F;
-    }
-    return phase;
-}
-
-static void Fast_ResetCurrentLoop(void)
-{
-    gInvCtrlData.currentAmpApplied = 0.0f;
-    gInvCtrlData.currentRef = 0.0f;
-    gInvCtrlData.currentFeedback = 0.0f;
-    gInvCtrlData.currentErr = 0.0f;
-    gInvCtrlData.currentErrPrev = 0.0f;
-    gInvCtrlData.piIntegral = 0.0f;
-    gInvCtrlData.piOut = 0.0f;
-    gInvCtrlData.gridVoltFeedForward = 0.0f;
-    gInvCtrlData.modulation = 0.0f;
-}
-
-static Uint16 Fast_DetectGridPeak(void)
+//之所以峰值检测放在这里,是因为我把ADC的快采放到电流环里面去了
+static Uint16 DetectGridPeak(void)
 {
     static Uint16 phasePrimed = 0U;
     static float phasePrev = 0.0f;
@@ -277,8 +254,7 @@ static Uint16 Fast_DetectGridPeak(void)
     Uint16 peakCrossed = 0U;
 
     /* Phase scheduling is valid only after eCAP and PLL have become valid. */
-    if((gMachineData.ecapFreqCent == 0U) ||
-       (gSysFault.bit.pllFault != 0U))
+    if((gMachineData.ecapFreqCent == 0U) || (gSysFault.bit.pllFault != 0U))
     {
         phasePrimed = 0U;
         return FAST_EVENT_NONE;
@@ -295,10 +271,13 @@ static Uint16 Fast_DetectGridPeak(void)
     /* Crossing pi/2 or 3*pi/2 identifies each voltage peak once. */
     if(phase >= phasePrev)
     {
-        if(((phasePrev < MATH_HALF_PI_F) &&
+        if
+        (
+            ((phasePrev < MATH_HALF_PI_F) &&
             (phase >= MATH_HALF_PI_F)) ||
            ((phasePrev < MATH_THREE_HALF_PI_F) &&
-            (phase >= MATH_THREE_HALF_PI_F)))
+            (phase >= MATH_THREE_HALF_PI_F))
+        )
         {
             peakCrossed = 1U;
         }
@@ -308,7 +287,7 @@ static Uint16 Fast_DetectGridPeak(void)
     return (peakCrossed != 0U) ? FAST_EVENT_GRID_PEAK : FAST_EVENT_NONE;
 }
 
-static void Fast_UpdatePllLock(float pllInput)
+static void UpdatePllLock(float pllInput)
 {
     float inputAbs;
     float phaseErrorAbs;
@@ -321,10 +300,8 @@ static void Fast_UpdatePllLock(float pllInput)
     inputAbs = (pllInput >= 0.0f) ? pllInput : -pllInput;
 
     /* SOGI-PLL stores its q-axis phase error in phaseDet. */
-    phaseErrorAbs = (GridSPLL.phaseDet >= 0.0f) ?
-                    GridSPLL.phaseDet : -GridSPLL.phaseDet;
-    inputAbsFiltered += PLL_INPUT_ABS_FILTER_COEFF *
-                        (inputAbs - inputAbsFiltered);
+    phaseErrorAbs = (GridSPLL.phaseDet >= 0.0f) ? GridSPLL.phaseDet : -GridSPLL.phaseDet;
+    inputAbsFiltered += PLL_INPUT_ABS_FILTER_COEFF * (inputAbs - inputAbsFiltered);
 
     lockCondition =
         (inputAbsFiltered >= PLL_LOCK_INPUT_ABS_MIN) &&
@@ -380,86 +357,188 @@ static void Fast_UpdatePllLock(float pllInput)
     }
 }
 
-void Fast_Init(void)
+static void AC_Ctrl_ResetCurrentLoop(void)
 {
-    /* PLL 初始化收进电流环假任务，main 不再直接接触 PLL。 */
-    SOGI_PLL_Init(&GridSPLL, 50.0f, 20000.0f);
-
-    /* Startup does not invent a nonzero current command. */
-    gInvCtrlData.currentAmpCmd = 0.0f;
-    gInvCtrlData.enabled = 0U;
-    /* Until the power-limit manager is active, allow the full normalized
-     * current range. A later zero limit must remain effective. */
-    gPowerLimitData.currentAmpLimit = BUS_CURRENT_AMP_MAX_NORM;
-    Fast_ResetCurrentLoop();
+    gInvCtrlData.currentRef = 0.0f;
+    gInvCtrlData.currentFeedback = 0.0f;
+    gInvCtrlData.currentErr = 0.0f;
+    gInvCtrlData.currentErrPrev = 0.0f;
+    gInvCtrlData.piIntegral = 0.0f;
+    gInvCtrlData.piOut = 0.0f;
+    gInvCtrlData.gridVoltFeedForward = 0.0f;
+    gInvCtrlData.modulation = 0.0f;
 }
 
-void Fast_Enable(void)
+void AC_Ctrl_Enable(void)
 {
     /* Establish a clean controller state before the fast ISR can use it. */
     gInvCtrlData.enabled = 0U;
-    Fast_ResetCurrentLoop();
-    gInvCtrlData.currentAmpApplied = gInvCtrlData.currentAmpCmd;
+    AC_Ctrl_ResetCurrentLoop();
     EPWM_SetInverterMode(0.0f);
     gInvCtrlData.enabled = 1U;
 }
 
-void Fast_Disable(void)
+void AC_Ctrl_Disable(void)
 {
     /* Preserve the CPU command, but reset all applied loop state. */
     gInvCtrlData.enabled = 0U;
-    Fast_ResetCurrentLoop();
+    AC_Ctrl_ResetCurrentLoop();
 }
 
-void Fast_SetCurrentAmp(float amp)
+/* 快速电网存在性检测（原 adc.c 的 ADC_CheckGridPresence，迁入快速层）。
+ * 在 20kHz ISR 里对电网电压做峰值窗口判断，给出快速掉网指示。
+ * 正式 RMS 判定与恢复时序仍在 Task_AcMonitor()/状态机里。 */
+void CheckGridPresence(Uint16 gridVoltRaw)
 {
-    /* The external command is a normalized peak-current request. */
-    if(amp < 0.0f)
+    static Uint16 windowSamples = 0U;
+    static float windowPeakVolt = 0.0f;
+    float gridVolt;
+
+    gridVolt = ((float)gridVoltRaw - gAdcCal.gridVoltage.offset) * gAdcCal.gridVoltage.gain;
+    if(gridVolt < 0.0f)
     {
-        amp = 0.0f;
+        gridVolt = -gridVolt;
     }
-    else if(amp > 1.0f)
+    if(gridVolt > windowPeakVolt)
     {
-        amp = 1.0f;
+        windowPeakVolt = gridVolt;
     }
 
-    gInvCtrlData.currentAmpCmd = amp;
-    if(gInvCtrlData.enabled != 0U)
+    windowSamples++;
+    if(windowSamples >= GRID_FAST_WINDOW_SAMPLES)
     {
-        gInvCtrlData.currentAmpApplied = amp;
+        gGridData.fastPeakVolt = windowPeakVolt;
+        if(windowPeakVolt >= GRID_FAST_PRESENT_PEAK_V)
+        {
+            gGridData.fastPresent = 1U;
+            gGridData.noGridCount = 0UL;
+        }
+        else
+        {
+            gGridData.fastPresent = 0U;
+            if(gGridData.noGridCount < 0xFFFFFFFFUL)
+            {
+                gGridData.noGridCount++;
+            }
+        }
+
+        windowSamples = 0U;
+        windowPeakVolt = 0.0f;
     }
 }
 
-float Fast_GetCurrentAmp(void)
+/* 电网电压瞬时值异常检测（原 adc_isr.c 的打嗝保护）。
+ * 并网态下，电网电压瞬时值若比母线折算值高 15V 以上，连续 3 次则打嗝封波。
+ * 0.663 为母线到电网的调制比折算系数，需按实际硬件校准。 */
+static void CheckGridVoltAbnormal(float gridVoltAdc)
 {
-    return gInvCtrlData.currentAmpCmd;
+    static Uint16 abnormalCount = 0U;
+    float gridVoltV;
+    float threshold;
+
+    if((gSysData.state != SYS_STATE_NORMAL) || (gSysData.reloadFlag != 0U))
+    {
+        abnormalCount = 0U;
+        return;
+    }
+
+    /* 电网电压物理值（V）；阈值 = 母线电压 × 0.663（调制比）+ 15V 裕量 */
+    gridVoltV = gridVoltAdc * gAdcCal.gridVoltage.gain;
+    threshold = gBusCtrlData.stableVoltRef * 0.663f + 15.0f;
+
+    if((gridVoltV > threshold) || (gridVoltV < -threshold))
+    {
+        abnormalCount++;
+    }
+    else
+    {
+        abnormalCount = 0U;
+    }
+
+    if(abnormalCount >= 3U)
+    {
+        abnormalCount = 0U;
+        gSysData.reloadFlag = 1U;
+        EPWM_Disable();
+    }
 }
 
-/* All three arguments are centered ADC values after total offset removal. */
-Uint16 Fast_Run(float gridVoltAdc, float inductorCurrentAdc, float dcBusVoltAdc)
+void AC_Ctrl_Init(void)
 {
+    /* PLL 初始化收进电流环假任务，main 不再直接接触 PLL。 */
+    SOGI_PLL_Init(&GridSPLL, 50.0f, 20000.0f);
+
+    gInvCtrlData.enabled = 0U;
+    /* Until the power-limit manager is active, allow the full normalized
+     * current range. A later zero limit must remain effective. */
+    gPowerLimitData.currentAmpLimit = BUS_CURRENT_AMP_MAX_NORM;
+    gPowerLimitData.currentAmpMax = BUS_CURRENT_AMP_MAX_NORM;
+    AC_Ctrl_ResetCurrentLoop();
+}
+
+/* 电流环假任务入口：由 ADC ISR 直接调用。
+ * 内部读取 ADC 结果、去零漂、做快速电网存在性检测，然后跑 PLL + 电流环。 */
+Uint16 Task_AC_Ctrl(void)
+{
+    Uint16 gridVoltRaw;
+    float gridVoltAdc;
+    float inductorCurrentAdc;
+    float dcBusVoltAdc;
     Uint16 events;
     float gridVoltUnif;
     float currentPhase;
     float currentRefSine;
+    float refMaxCode;
     float piIncrement;
+
+    /* 读取当前 ADC 帧并去除零漂（原 ISR 中的采样逻辑收进任务）。 */
+    gridVoltRaw = AdcaResultRegs.ADCRESULT1;
+    inductorCurrentAdc = (float)AdcaResultRegs.ADCRESULT0 - gAdcCal.inductorCurrent.offset - gAdcOffsetCal.offset.inductorCurrent;
+    gridVoltAdc = (float)gridVoltRaw - gAdcCal.gridVoltage.offset - gAdcOffsetCal.offset.gridVoltage;
+    dcBusVoltAdc = (float)AdcaResultRegs.ADCRESULT3 - gAdcCal.dcBusVoltage.offset;//其实是否用BUS瞬时值,有待商榷,因为这样的话BUS瞬变会导致电流环不稳定
+
+    /* 快速电网存在性检测（快速掉网指示）。 */
+    CheckGridPresence(gridVoltRaw);
+
+    /* 电网电压瞬时值异常 -> 打嗝保护。 */
+    CheckGridVoltAbnormal(gridVoltAdc);
 
     /* SOGI input is normalized to the centered 12-bit ADC half-range. */
     gridVoltUnif = gridVoltAdc / ADC_BIPOLAR_ZERO;
 
     SOGI_PLL_Run(&GridSPLL, gridVoltUnif);
-    Fast_UpdatePllLock(gridVoltUnif);
+    UpdatePllLock(gridVoltUnif);
+
     gMachineData.pllFreqCent = (Uint16)(GridSPLL.freqHz * 100.0f);
-    events = Fast_DetectGridPeak();
+    events = DetectGridPeak();
 
     /* Feedback remains in centered ADC-code units to match the legacy loop. */
     gInvCtrlData.currentFeedback = inductorCurrentAdc;
 
-    if(gInvCtrlData.enabled != 0U)
+    /* 打嗝保护期间不输出电流环。 */
+    if((gInvCtrlData.enabled != 0U) && (gSysData.reloadFlag == 0U))
     {
-        currentPhase = Fast_WrapPhase(GridSPLL.phase + gReactiveData.phaseShiftRad + gReactiveData.capCompRad);
+        currentPhase = GridSPLL.phase + gReactiveData.phaseShiftRad + gReactiveData.capCompRad;
+        while(currentPhase >= MATH_TWO_PI_F)
+        {
+            currentPhase -= MATH_TWO_PI_F;
+        }
+        while(currentPhase < 0.0f)
+        {
+            currentPhase += MATH_TWO_PI_F;
+        }
+        /* 电流参考：幅值 × sin；正半周幅值减直流分量补偿（原 DCcurrentAdj），
+         * 负半周不变，从而产生反向直流抵消电网电流里的直流分量。 */
         currentRefSine = __sinpuf32(currentPhase * MATH_INV_TWO_PI_F);
-        gInvCtrlData.currentRef = gInvCtrlData.currentAmpApplied * ADC_BIPOLAR_ZERO * currentRefSine;
+        if(currentRefSine > 0.0f)
+        {
+            refMaxCode = gBusCtrlData.currentAmpRef * ADC_BIPOLAR_ZERO - gInvCtrlData.dcCurrentComp;
+        }
+        else
+        {
+            refMaxCode = gBusCtrlData.currentAmpRef * ADC_BIPOLAR_ZERO;
+        }
+        gInvCtrlData.currentRef = refMaxCode * currentRefSine;
 
         /* This guard is only for a valid division denominator. Bus operating
          * range qualification belongs to the state machine. */
@@ -476,14 +555,10 @@ Uint16 Fast_Run(float gridVoltAdc, float inductorCurrentAdc, float dcBusVoltAdc)
                 INV_LEGACY_BUS_GAIN /
                 (dcBusVoltAdc * INV_PI_BUS_SCALE *
                  INV_LEGACY_PWM_PERIOD);
-            gInvCtrlData.piOut =
-                System_Clamp(gInvCtrlData.piOut + piIncrement, -1.0f, 1.0f);
+            gInvCtrlData.piOut = System_Clamp(gInvCtrlData.piOut + piIncrement, -1.0f, 1.0f);
 
             gInvCtrlData.gridVoltFeedForward = INV_GRID_FEED_FORWARD * gridVoltAdc / dcBusVoltAdc;
-            gInvCtrlData.modulation = System_Clamp(
-                gInvCtrlData.piOut + gInvCtrlData.gridVoltFeedForward,
-                -1.0f,
-                1.0f);
+            gInvCtrlData.modulation = System_Clamp(gInvCtrlData.piOut+gInvCtrlData.gridVoltFeedForward,-1.0f,1.0f);
         }
         else
         {
@@ -509,3 +584,6 @@ Uint16 Fast_Run(float gridVoltAdc, float inductorCurrentAdc, float dcBusVoltAdc)
 
     return events;
 }
+
+
+

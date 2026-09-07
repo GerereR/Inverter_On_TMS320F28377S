@@ -21,12 +21,15 @@
 
 static volatile Uint16 EPWM_TripZoneFaulted = 0U;
 
-static void EPWM_ConfigPowerStage(volatile struct EPWM_REGS *pwm,
-                                  Uint16 syncMode,
-                                  Uint16 useDeadband,
-                                  Uint16 useTz1,
-                                  Uint16 useTz2,
-                                  Uint16 useTz3)
+static void EPWM_ConfigPowerStage
+(
+    volatile struct EPWM_REGS *pwm,
+    Uint16 syncMode,
+    Uint16 useDeadband,
+    Uint16 useTz1,
+    Uint16 useTz2,
+    Uint16 useTz3
+)
 {
     pwm->TBCTL.all = 0U;
     pwm->TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN;
@@ -323,15 +326,8 @@ void EPWM_SetInverterMode(float modulation)
 {
     Uint16 compareValue;
 
-    if(modulation > 1.0f)
-    {
-        modulation = 1.0f;
-    }
-    else if(modulation < -1.0f)
-    {
-        modulation = -1.0f;
-    }
-
+    modulation = System_Clamp(modulation, -1.0f, 1.0f);
+    
     compareValue = (Uint16)(((modulation >= 0.0f) ? modulation : -modulation) * (float)EPWM_PERIOD_TICKS);
     EPwm1Regs.CMPA.bit.CMPA = compareValue;
     EPwm2Regs.CMPA.bit.CMPA = compareValue;
@@ -368,27 +364,13 @@ void EPWM_SetBoostDuty(float boost1Duty, float boost2Duty)
     Uint16 boost1Compare;
     Uint16 boost2Compare;
 
-    if(boost1Duty < 0.0f)
-    {
-        boost1Duty = 0.0f;
-    }
-    else if(boost1Duty > 0.98f)
-    {
-        boost1Duty = 0.98f;
-    }
-
-    if(boost2Duty < 0.0f)
-    {
-        boost2Duty = 0.0f;
-    }
-    else if(boost2Duty > 0.98f)
-    {
-        boost2Duty = 0.98f;
-    }
+    boost1Duty = System_Clamp(boost1Duty, 0.0f, 0.98f);
+    boost1Duty = System_Clamp(boost2Duty, 0.0f, 0.98f);
 
     /* Match the old EPWM4 formulas for its two independent Boost outputs. */
     boost1Compare = (Uint16)((1.0f - boost1Duty) * (float)EPWM_PERIOD_TICKS);
     boost2Compare = (Uint16)(boost2Duty * (float)EPWM_PERIOD_TICKS);
+    
     EPwm3Regs.CMPA.bit.CMPA = boost1Compare;
     EPwm3Regs.CMPB.bit.CMPB = boost2Compare;
 }

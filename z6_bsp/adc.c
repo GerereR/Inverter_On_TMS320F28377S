@@ -4,47 +4,6 @@
 #include "system.h"
 #include "../z5_task/task.h"
 
-static void ADC_UpdateGridPresence(Uint16 gridVoltRaw)
-{
-    static Uint16 windowSamples = 0U;
-    static float windowPeakVolt = 0.0f;
-    float gridVolt;
-
-    /* This is only a fast loss-of-grid indication. RMS qualification and
-     * reconnect timing remain in Task_State(). */
-    gridVolt = ((float)gridVoltRaw - gAdcCal.gridVoltage.offset) * gAdcCal.gridVoltage.gain;
-    if(gridVolt < 0.0f)
-    {
-        gridVolt = -gridVolt;
-    }
-    if(gridVolt > windowPeakVolt)
-    {
-        windowPeakVolt = gridVolt;
-    }
-
-    windowSamples++;
-    if(windowSamples >= GRID_FAST_WINDOW_SAMPLES)
-    {
-        gGridData.fastPeakVolt = windowPeakVolt;
-        if(windowPeakVolt >= GRID_FAST_PRESENT_PEAK_V)
-        {
-            gGridData.fastPresent = 1U;
-            gGridData.noGridCount = 0UL;
-        }
-        else
-        {
-            gGridData.fastPresent = 0U;
-            if(gGridData.noGridCount < 0xFFFFFFFFUL)
-            {
-                gGridData.noGridCount++;
-            }
-        }
-
-        windowSamples = 0U;
-        windowPeakVolt = 0.0f;
-    }
-}
-
 /* The fast ISR normalizes grid voltage before handing it to the control layer. */
 void ADC_Config(void)
 {
@@ -190,32 +149,21 @@ void ADC_Config(void)
 
 __interrupt void ADCA1_CPU_ISR(void)
 {
-    Uint16 gridVoltRaw;
-    float inductorCurrentHalfRaw;
-    float gridVoltHalfRaw;
-    float dcBusVoltHalfRaw;
     Uint16 ctrlEvents;
-
-    /* The control loop consumes the current ADC frame directly. */
-    gridVoltRaw = AdcaResultRegs.ADCRESULT1;
-    inductorCurrentHalfRaw = (float)AdcaResultRegs.ADCRESULT0 - gAdcCal.inductorCurrent.offset;
-    gridVoltHalfRaw = (float)gridVoltRaw - gAdcCal.gridVoltage.offset;
-    dcBusVoltHalfRaw = (float)AdcaResultRegs.ADCRESULT3 - gAdcCal.dcBusVoltage.offset;//其实是否用BUS瞬时值,有待商榷,因为这样的话BUS瞬变会导致电流环不稳定
 
     /* ADCINT2 triggers DMA from the same EOC5 event. Count this ADC frame so
      * eCAP can close the active DMA block at the next grid-cycle boundary. */
     DMA_NotifyFastFrameEoc();
 
-    ADC_UpdateGridPresence(gridVoltRaw);
+    /* 采样、归一化、快速电网存在性检测、PLL、电流环都在假任务里完成。 */
+    ctrlEvents = Task_AC_Ctrl();
 
-    ctrlEvents = Fast_Run(gridVoltHalfRaw, inductorCurrentHalfRaw, dcBusVoltHalfRaw);
     if((ctrlEvents & FAST_EVENT_GRID_PEAK) != 0U)
     {
         Scheduler_NotifyGridPeak();
     }
 
-    /* The CPU consumed grid voltage; DMA handles the six-result data frame.
-     * Clear only the CPU fast-loop interrupt request here. */
+    /* Clear the CPU fast-loop interrupt request. */
     if(AdcaRegs.ADCINTOVF.bit.ADCINT1 != 0U)
     {
         AdcaRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;

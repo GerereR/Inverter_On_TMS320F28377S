@@ -4,6 +4,39 @@
 #include "system.h"
 #include "variable.h"
 
+/* 电网丢失（过零看门狗）连续计数阈值，约 50 × 10ms = 500ms。 */
+#define GRID_LOST_COUNT_THRESHOLD  50U
+
+/* 继电器自检时序（ms）。原工程 2ms 一拍（wWaitTime），此处按 1 拍 = 2ms 换算，独立于调度周期。 */
+#define RELAY_SEQ_STEP1_MS          100U    /* 原 50 拍    合 relay1 */
+#define RELAY_SEQ_STEP2_MS          600U    /* 原 300 拍   合 relay2+relay3 */
+#define RELAY_SEQ_STEP3_MS         1600U    /* 原 800 拍   断 relay3 */
+#define RELAY_SEQ_STEP4_MS         1800U    /* 原 900 拍   合 relay4 */
+#define RELAY_SEQ_STEP5_MS         3400U    /* 原 1700 拍  断 relay2 */
+#define RELAY_SEQ_STEP6_MS         3600U    /* 原 1800 拍  合 relay3 */
+#define RELAY_SEQ_STEP7_MS         5400U    /* 原 2700 拍  断 relay1 */
+#define RELAY_SEQ_STEP8_MS         5600U    /* 原 2800 拍  合 relay2 */
+#define RELAY_SEQ_STEP9_MIN_MS     7600U    /* 原 3800 拍  最终合 relay1 */
+#define RELAY_SEQ_STEP9_MAX_MS     7800U    /* 原 3900 拍 */
+#define RELAY_SEQ_TIMEOUT_MS      10400U    /* 原 >5200 拍 超时全断 */
+
+/* 继电器自检压差判据（方案A：电压差判据）. */
+#define RELAY_DELTA_V_TRIP_V        60.0f   /* 原 c60V 压差阈值 */
+#define RELAY_FAULT_FILTER_MS      250U     /* 原 125 拍 连续判据 */
+
+/* 继电器检测窗口（ms，由原 2ms 拍换算）. */
+#define RELAY_WIN_A_MIN_MS         1100U    /* 原 550 拍 */
+#define RELAY_WIN_A_MAX_MS         1600U    /* 原 800 拍 */
+#define RELAY_WIN_B_MIN_MS         2300U    /* 原 1150 拍 */
+#define RELAY_WIN_B_MAX_MS         2800U    /* 原 1400 拍 */
+#define RELAY_WIN_C_MIN_MS         4100U    /* 原 2050 拍 */
+#define RELAY_WIN_C_MAX_MS         4600U    /* 原 2300 拍 */
+#define RELAY_WIN_D_MIN_MS         6100U    /* 原 3050 拍 */
+#define RELAY_WIN_D_MAX_MS         6600U    /* 原 3300 拍 */
+#define RELAY_WIN_E_MIN_MS         8400U    /* 原 4200 拍 失效检测窗 */
+#define RELAY_WIN_E_MAX_MS         8900U    /* 原 4450 拍 */
+#define RELAY_SEQ_DONE_MS          8900U    /* 检测窗口结束后可判通过 */
+
 static Uint16 State_IsPresent_DC(void);
 static Uint16 State_IsReady_DC(void);
 
@@ -15,7 +48,6 @@ static Uint16 State_IsReady_AC(void);
 static Uint16 State_HasRecoverFault(void);
 static Uint16 State_HasPermanentFault(void);
 
-static void State_UpdateGridFaults(void);
 static void State_ResetStartupData(void);
 static void State_Enter(SysState nextState);
 
@@ -104,8 +136,7 @@ static Uint16 State_IsReady_DC(void)
         gSysData.sourceStableMs = 0UL;
     }
 
-    gSysData.sourceReady =
-        (gSysData.sourceStableMs >= SOURCE_QUALIFY_DELAY_MS) ? 1U : 0U;
+    gSysData.sourceReady = (gSysData.sourceStableMs >= SOURCE_QUALIFY_DELAY_MS) ? 1U : 0U;
     return gSysData.sourceReady;
 }
 
@@ -132,11 +163,11 @@ static Uint16 State_IsPresent_AC(void)
 
     gGridData.freqHz = gridFreqHz;
     gGridData.voltageValid =
-        ((gridVoltageRms >= GRID_RECONN_MIN_RMS_V) &&
-         (gridVoltageRms <= GRID_RECONN_MAX_RMS_V)) ? 1U : 0U;
+        ((gridVoltageRms >= gGridSafety.reconnMinVolt) &&
+         (gridVoltageRms <= gGridSafety.reconnMaxVolt)) ? 1U : 0U;
     gGridData.freqValid =
-        ((gridFreqHz >= GRID_RECONN_MIN_FREQ_HZ) &&
-         (gridFreqHz <= GRID_RECONN_MAX_FREQ_HZ)) ? 1U : 0U;
+        ((gridFreqHz >= gGridSafety.reconnMinFreq) &&
+         (gridFreqHz <= gGridSafety.reconnMaxFreq)) ? 1U : 0U;
     gGridData.gridPresent =
         ((gGridData.voltageValid != 0U) &&
          (gGridData.freqValid != 0U) &&
@@ -179,35 +210,37 @@ static Uint16 State_HasPermanentFault(void)
     return (gSysFault.word.permanent != 0U) ? 1U : 0U;
 }
 
-/* Grid fault bits are asserted only after the unit has reached NORMAL. In
- * FAULT they continue following the measurements so recovery can be seen. */
-static void State_UpdateGridFaults(void)
-{
-    float gridFreqHz;
-    float gridVoltageRms;
-
-    gridFreqHz = (float)gMachineData.ecapFreqCent * 0.01f;
-    gridVoltageRms = gMachineData.realRms.gridVoltage;
-
-    gSysFault.bit.gridOverVolt = (gridVoltageRms > GRID_OV_TRIP_RMS_V) ? 1U : 0U;
-    gSysFault.bit.gridUnderVolt = ((gridVoltageRms < GRID_UV_TRIP_RMS_V) || (gGridData.fastPresent == 0U)) ? 1U : 0U;
-    gSysFault.bit.gridOverFreq = (gridFreqHz > GRID_OF_TRIP_HZ) ? 1U : 0U;
-    gSysFault.bit.gridUnderFreq = (gridFreqHz < GRID_UF_TRIP_HZ) ? 1U : 0U;
-    (void)State_IsPresent_AC();
-}
-
 /* Reset only startup/control runtime values. Measurement history and active
  * protection bits remain owned by their producer modules. */
 static void State_ResetStartupData(void)
 {
+    /* 重新校准 ADC 运行时零漂（开机/重连时信号本应为 0）。 */
+    gAdcOffsetCal.adInitial = 1U;
+    gAdcOffsetCal.checkCount = 0U;
+    gAdcOffsetCal.offset.inductorCurrent = 0.0f;
+    gAdcOffsetCal.offset.gridVoltage = 0.0f;
+    gAdcOffsetCal.offset.gfciCurrent = 0.0f;
+    gAdcOffsetCal.offset.gridDcCurrent = 0.0f;
+    gAdcOffsetCal.sum.inductorCurrent = 0.0f;
+    gAdcOffsetCal.sum.gridVoltage = 0.0f;
+    gAdcOffsetCal.sum.gfciCurrent = 0.0f;
+    gAdcOffsetCal.sum.gridDcCurrent = 0.0f;
+
     gSysData.busReady = 0U;
     gSysData.boostReady = 0U;
     gSysData.inverterReady = 0U;
     gSysData.relayReady = 0U;
     State_RelaySelfTestInit();
 
+    /* 启动 GFCI 自检（并网前注入 50mA 验证硬件 + 静态/注入检测） */
+    gGfciData.selfTestActive = 1U;
+    gGfciData.selfTestIndex = 0U;
+    gGfciData.deviceFilter1 = 0U;
+    gGfciData.deviceFilter2 = 0U;
+    GFCI_CHECK_OFF();
+
     /* Controller internals are owned by z8_control. */
-    DcCtrl_Reset();
+    DC_Ctrl_Reset();
     gBusCtrlData.softStartActive = 0U;
     gBusCtrlData.softStartStage = 0U;
     gBusCtrlData.softStartTimerMs = 0UL;
@@ -217,7 +250,7 @@ static void State_ResetStartupData(void)
     gInvCtrlData.piIntegral = 0.0f;
     gInvCtrlData.piOut = 0.0f;
     gInvCtrlData.zeroCrossUpdatePending = 0U;
-    Fast_Disable();
+    AC_Ctrl_Disable();
     EPWM_SetBoostDuty(0.0f, 0.0f);
 }
 
@@ -319,6 +352,7 @@ static void State_RunCheck(void)
             }
             else if(State_IsReady_AC() != 0U)
             {
+                gBusCtrlData.softStartActive = 1U;   /* 电网就绪，启动 Boost 软启动建母线 */
                 gSysData.checkStage = SYS_CHECK_BUS;
             }
             break;
@@ -359,13 +393,19 @@ static void State_RunCheck(void)
                 gSysData.sourceReady = 0U;
                 gSysData.gridReady = 0U;
             }
+            else if(gGfciData.selfTestActive != 0U)
+            {
+                /* GFCI 自检未完成，停留在 PREPARE 等待。通常继电器自检(8.9s)
+                 * 远长于 GFCI 自检(约1s)，此处为防御性门控：避免将来调整时序后
+                 * 自检未完成就并网。 */
+            }
             else
             {
                 /* ADC/DMA flags are owned by their ISRs and are not cleared
                  * here. Only the verified-inactive TZ latches are eligible. */
                 if(EPWM_Enable() != 0U)
                 {
-                    Fast_Enable();
+                    AC_Ctrl_Enable();
                     DSP_STATE_HIGH();
                     State_Enter(SYS_STATE_NORMAL);
                 }
@@ -380,7 +420,33 @@ static void State_RunCheck(void)
 
 static void State_RunNormal(void)
 {
-    State_UpdateGridFaults();
+    /* 过零看门狗：快速掉网计数超阈值 → 电网丢失，进 FAULT（会全断输出） */
+    if (gGridData.noGridCount > GRID_LOST_COUNT_THRESHOLD)
+    {
+        gSysFault.bit.noUtility = 1U;
+        State_Enter(SYS_STATE_FAULT);
+        return;
+    }
+
+    /* 打嗝保护恢复：reloadFlag 由快速层（ISR）置位，此处计数到 300ms 后重新软启动。 */
+    if(gSysData.reloadFlag != 0U)
+    {
+        gSysData.reloadCount++;
+        if(gSysData.reloadCount > 150U)   /* 150 × 2ms = 300ms */
+        {
+            gSysData.reloadCount = 0U;
+            gSysData.reloadFlag = 0U;
+            DC_Ctrl_Reset();
+            if(EPWM_Enable() != 0U)
+            {
+                AC_Ctrl_Enable();
+            }
+        }
+    }
+    else
+    {
+        gSysData.reloadCount = 0U;
+    }
 
     if(State_HasPermanentFault() != 0U)
     {
@@ -403,7 +469,6 @@ static void State_RunNormal(void)
 static void State_RunFault(void)
 {
     System_EnterSafeOutput();
-    State_UpdateGridFaults();
 
     if(State_HasPermanentFault() != 0U)
     {

@@ -244,7 +244,7 @@ static void SCI_HandleCommand(void)
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pllFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex,
-                          (Uint16)(Fast_GetCurrentAmp() * 4096.0f));
+                          (Uint16)(gBusCtrlData.currentAmpRef * 4096.0f));
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
                              responsePayload, responseLength);
@@ -295,8 +295,8 @@ static void SCI_HandleCommand(void)
             SCI_PutWordLE(responsePayload, &responseIndex,
                           (gSysFault.bit.pllFault == 0U) ? 1U : 0U);
             SCI_PutWordLE(responsePayload, &responseIndex, gSysFault.bit.tzFault);
-            SCI_PutWordLE(responsePayload, &responseIndex, gSysFault.word.recoverable);
-            SCI_PutWordLE(responsePayload, &responseIndex, gSysFault.word.permanent);
+            SCI_PutDwordLE(responsePayload, &responseIndex, gSysFault.word.recoverable);
+            SCI_PutDwordLE(responsePayload, &responseIndex, gSysFault.word.permanent);
             SCI_PutDwordLE(responsePayload, &responseIndex, gMachineData.measureSeq);
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
@@ -324,8 +324,9 @@ static void SCI_HandleCommand(void)
                 }
                 else
                 {
-                    /* Q12: 4096 represents a normalized amplitude of 1.0. */
-                    Fast_SetCurrentAmp((float)requestedAmp / 4096.0f);
+                    /* Q12: 4096 represents a normalized amplitude of 1.0.
+                     * 手动电流上限：写 currentAmpMax，由 Task_Power 最终判断执行。 */
+                    gPowerLimitData.currentAmpMax = (float)requestedAmp / 4096.0f;
                     responsePayload[1] = requestedAmp & 0x00FFU;
                     responsePayload[2] = (requestedAmp >> 8U) & 0x00FFU;
                     responseLength = 3U;

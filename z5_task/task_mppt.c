@@ -190,7 +190,7 @@ static void MPPT_UpdateChannel
 void Task_MPPT(void)
 {
     /* MPPT is deliberately inactive outside NORMAL. It only updates target
-     * PV voltages; the Boost PI consumes those references in Task_DcCtrl(). */
+     * PV voltages; the Boost PI consumes those references in Task_DC_Ctrl(). */
      //我们这个好多了,老代码是直接一个超级大IF
     if(gSysData.state != SYS_STATE_NORMAL)
     {

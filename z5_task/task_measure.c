@@ -5,6 +5,10 @@
 #include "variable.h"
 #include "system.h"
 
+/* Legacy 4.7 kOhm NTC divider and piecewise temperature-curve constants. */
+#define ADC_TEMP_DIVIDER_RESISTANCE        4700.0f
+#define ADC_DECI_C_TO_C                    0.1f
+
 static float ADC_ToReal(Uint16 raw, const ADC_CalParam *cal);
 static float ADC_MeanSqToRms(float meanSq, const ADC_CalParam *cal);
 static float ADC_ConvertTemp(Uint16 raw);
@@ -22,6 +26,49 @@ static void Measure_UpdatePower(PowerData *powerData,
 static float ADC_ToReal(Uint16 raw, const ADC_CalParam *cal)
 {
     return ((float)raw - cal->offset) * cal->gain;
+}
+
+/* 带运行时零漂的物理值换算：先减出厂校准再减运行时零漂，最后乘增益。 */
+static float ADC_ToRealOffset(Uint16 raw, const ADC_CalParam *cal, float offset)
+{
+    return ((float)raw - cal->offset - offset) * cal->gain;
+}
+
+/* ADC 运行时零漂校准（原 signal_check_adc_offset）。
+ * 开机/重连时（adInitial==1）信号本应为 0，采 32 组码值平均得到采样链路零漂。 */
+static void Measure_CheckAdcOffset(const ADC_UintData *rawAvg)
+{
+    if (gAdcOffsetCal.adInitial == 0U)
+    {
+        return;
+    }
+
+    if (gAdcOffsetCal.checkCount != 0U && gAdcOffsetCal.checkCount <= 32U)
+    {
+        gAdcOffsetCal.sum.inductorCurrent += (float)rawAvg->inductorCurrent;
+        gAdcOffsetCal.sum.gridVoltage     += (float)rawAvg->gridVoltage;
+        gAdcOffsetCal.sum.gfciCurrent     += (float)rawAvg->gfciCurrent;
+        gAdcOffsetCal.sum.gridDcCurrent   += (float)rawAvg->gridDcCurrent;
+    }
+
+    if (gAdcOffsetCal.checkCount <= 32U)
+    {
+        gAdcOffsetCal.checkCount++;
+    }
+    else
+    {
+        gAdcOffsetCal.offset.inductorCurrent = gAdcOffsetCal.sum.inductorCurrent / 32.0f;
+        gAdcOffsetCal.offset.gridVoltage     = gAdcOffsetCal.sum.gridVoltage     / 32.0f;
+        gAdcOffsetCal.offset.gfciCurrent     = gAdcOffsetCal.sum.gfciCurrent     / 32.0f;
+        gAdcOffsetCal.offset.gridDcCurrent   = gAdcOffsetCal.sum.gridDcCurrent   / 32.0f;
+
+        gAdcOffsetCal.sum.inductorCurrent = 0.0f;
+        gAdcOffsetCal.sum.gridVoltage     = 0.0f;
+        gAdcOffsetCal.sum.gfciCurrent     = 0.0f;
+        gAdcOffsetCal.sum.gridDcCurrent   = 0.0f;
+        gAdcOffsetCal.checkCount = 0U;
+        gAdcOffsetCal.adInitial  = 0U;
+    }
 }
 
 static float ADC_MeanSqToRms(float meanSq, const ADC_CalParam *cal)
@@ -82,11 +129,12 @@ static float ADC_ConvertTemp(Uint16 raw)
 
 static void ADC_RawToReal(const ADC_UintData *rawData, const ADC_Calibrate *cal, ADC_FloatData *realData)
 {
-    realData->gridVoltage =         ADC_ToReal(rawData->gridVoltage, &cal->gridVoltage);
-    realData->inductorCurrent =     ADC_ToReal(rawData->inductorCurrent, &cal->inductorCurrent);
-    realData->gfciCurrent =         ADC_ToReal(rawData->gfciCurrent, &cal->gfciCurrent);
+    /* 4 个交流/测零通道减运行时零漂，其余通道只减出厂校准。 */
+    realData->gridVoltage =         ADC_ToRealOffset(rawData->gridVoltage, &cal->gridVoltage, gAdcOffsetCal.offset.gridVoltage);
+    realData->inductorCurrent =     ADC_ToRealOffset(rawData->inductorCurrent, &cal->inductorCurrent, gAdcOffsetCal.offset.inductorCurrent);
+    realData->gfciCurrent =         ADC_ToRealOffset(rawData->gfciCurrent, &cal->gfciCurrent, gAdcOffsetCal.offset.gfciCurrent);
+    realData->gridDcCurrent =       ADC_ToRealOffset(rawData->gridDcCurrent, &cal->gridDcCurrent, gAdcOffsetCal.offset.gridDcCurrent);
     realData->dcBusVoltage =        ADC_ToReal(rawData->dcBusVoltage, &cal->dcBusVoltage);
-    realData->gridDcCurrent =       ADC_ToReal(rawData->gridDcCurrent, &cal->gridDcCurrent);
     realData->inverterVoltage =     ADC_ToReal(rawData->inverterVoltage, &cal->inverterVoltage);
     realData->pv1Current =          ADC_ToReal(rawData->pv1Current, &cal->pv1Current);
     realData->pv2Current =          ADC_ToReal(rawData->pv2Current, &cal->pv2Current);
@@ -232,6 +280,9 @@ void Task_Measure(void)
     {
         pvUpdateMask &= (Uint16)(~DMA_UPDATE_PV_ALL);
     }
+
+    /* ADC 运行时零漂校准（开机/重连时采 32 组码值平均）。 */
+    Measure_CheckAdcOffset(&rawAvg);
 
     ADC_RawToReal(&rawInstant, &cal, &realInstant);
     ADC_RawToReal(&rawAvg, &cal, &realAvg);

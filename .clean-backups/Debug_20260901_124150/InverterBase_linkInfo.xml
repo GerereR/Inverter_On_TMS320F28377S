@@ -10623,7 +10623,7 @@
          <object_component_ref idref="oc-24b"/>
       </symbol>
       <symbol id="sm-6f7">
-         <name>_Task_DcCtrl</name>
+         <name>_Task_DC_Ctrl</name>
          <value>0x8591f</value>
          <object_component_ref idref="oc-24b"/>
       </symbol>
