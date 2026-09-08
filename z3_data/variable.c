@@ -22,22 +22,22 @@ volatile GridSafetyParams gGridSafety =
     3U, 3U, 300U                           /* 一级/二级判定计数 + 恢复计数 */
 };
 volatile GfciData gGfciData = {0};
-volatile SPLL_1ph GridSPLL = {0};
+volatile PLL_Data GridPLL = {0};
 
 volatile ADC_Calibrate gAdcCal =
 {
-    {ADC_BIPOLAR_ZERO, ADC_GRID_VOLTAGE_GAIN},
-    {ADC_BIPOLAR_ZERO, ADC_INDUCTOR_CURRENT_GAIN},
-    {ADC_BIPOLAR_ZERO, ADC_GFCI_CURRENT_GAIN},
-    {0.0f, ADC_DC_BUS_VOLTAGE_GAIN},
-    {ADC_BIPOLAR_ZERO, ADC_INVERTER_DC_CURRENT_GAIN},
-    {ADC_BIPOLAR_ZERO, ADC_INVERTER_VOLTAGE_GAIN},
-    {0.0f, ADC_PV_CURRENT_GAIN},
-    {0.0f, ADC_PV_CURRENT_GAIN},
-    {0.0f, ADC_PV_VOLTAGE_GAIN},
-    {0.0f, ADC_PV_VOLTAGE_GAIN},
-    {0.0f, ADC_ISOLATION_VOLTAGE_GAIN},
-    {0.0f, ADC_ISOLATION_VOLTAGE_GAIN}
+    {ADC_BIPOLAR_ZERO,  ADC_GRID_VOLTAGE_GAIN},
+    {ADC_BIPOLAR_ZERO,  ADC_INDUCTOR_CURRENT_GAIN},
+    {ADC_BIPOLAR_ZERO,  ADC_GFCI_CURRENT_GAIN},
+    {0.0f,              ADC_DC_BUS_VOLTAGE_GAIN},
+    {ADC_BIPOLAR_ZERO,  ADC_INVERTER_DC_CURRENT_GAIN},
+    {ADC_BIPOLAR_ZERO,  ADC_INVERTER_VOLTAGE_GAIN},
+    {0.0f,              ADC_PV_CURRENT_GAIN},
+    {0.0f,              ADC_PV_CURRENT_GAIN},
+    {0.0f,              ADC_PV_VOLTAGE_GAIN},
+    {0.0f,              ADC_PV_VOLTAGE_GAIN},
+    {0.0f,              ADC_ISOLATION_VOLTAGE_GAIN},
+    {0.0f,              ADC_ISOLATION_VOLTAGE_GAIN}
 };
 
 /* ADC 运行时零漂校准状态，开机/重连时采 32 组码值平均得到零漂。 */

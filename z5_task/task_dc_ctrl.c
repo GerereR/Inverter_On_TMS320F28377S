@@ -55,6 +55,7 @@ typedef struct
     Uint16 pv2Enabled;
 } DC_CtrlInput;
 
+/* 母线环私有迭代状态：积分项、输出（电流幅值）、初始化标志。 */
 typedef struct
 {
     float integral;
@@ -62,22 +63,26 @@ typedef struct
     Uint16 initialized;
 } DC_BusLoopState;
 
+/* Boost 环私有迭代状态：积分项、输出占空比。 */
 typedef struct
 {
     float integral;
     float duty;
 } DC_BoostLoopState;
 
+/* DC 控制任务的私有状态集合（不暴露给外部，外部只能看 gBusCtrlData 里的结果）。 */
 typedef struct
 {
     DC_BusLoopState bus;
     DC_BoostLoopState boost1;
     DC_BoostLoopState boost2;
-    Uint16 softStartActive;
+    Uint16 softStartActive;   /* 软启动进行中标志（由 DC_Ctrl_StartSoftStart 置位） */
 } DC_CtrlState;
 
+/* 文件私有静态实例：控制环内部状态（积分/输出/软启动）都关在这里。 */
 static DC_CtrlState DC_State = {0};
 
+/* 把私有 Boost 占空比发布到全局（供 SCI/UI 上报），并写入 PWM。 */
 static void DC_Ctrl_ApplyBoostDuty(void)
 {
     gBusCtrlData.boost1Duty = DC_State.boost1.duty;
@@ -142,9 +147,7 @@ static void DC_Ctrl_BusRun(const DC_CtrlInput *input)
         DC_State.bus.initialized = 1U;
     }
 
-    currentAmpLimit = System_Clamp(input->currentAmpLimit,
-                                   BUS_CURRENT_AMP_MIN_NORM,
-                                   BUS_CURRENT_AMP_MAX_NORM);
+    currentAmpLimit = System_Clamp(input->currentAmpLimit, BUS_CURRENT_AMP_MIN_NORM, BUS_CURRENT_AMP_MAX_NORM);
 
     proportional = BUS_PI_KP * (input->busVoltage - gBusCtrlData.stableVoltRef);
 
@@ -191,6 +194,7 @@ static void DC_Ctrl_BoostUpdateChannel
     channel->duty = System_Clamp(candidate, BOOST_DUTY_MIN, BOOST_DUTY_MAX);
 }
 
+/* 双路 Boost 环编排：逐路判断（使能 + 电压有效 + 目标有效），跑 PI 或复位该通道。 */
 static void DC_Ctrl_BoostRun(const DC_CtrlInput *input)
 {
     /* 两路都没使能：全部复位 */
@@ -203,9 +207,7 @@ static void DC_Ctrl_BoostRun(const DC_CtrlInput *input)
     /* 每路独立：使能 && 电压有效 && 目标有效 → 跑 PI；否则复位该通道 */
     if((input->pv1Enabled != 0U) && (input->pv1Voltage > 0.0f) && (input->pv1VoltageRef >= PV_PRESENT_MIN_V))
     {
-        DC_Ctrl_BoostUpdateChannel(&DC_State.boost1,
-                                   input->pv1Voltage,
-                                   input->pv1VoltageRef);
+        DC_Ctrl_BoostUpdateChannel(&DC_State.boost1, input->pv1Voltage, input->pv1VoltageRef);
     }
     else
     {
@@ -215,9 +217,7 @@ static void DC_Ctrl_BoostRun(const DC_CtrlInput *input)
 
     if((input->pv2Enabled != 0U) && (input->pv2Voltage > 0.0f) && (input->pv2VoltageRef >= PV_PRESENT_MIN_V))
     {
-        DC_Ctrl_BoostUpdateChannel(&DC_State.boost2,
-                                   input->pv2Voltage,
-                                   input->pv2VoltageRef);
+        DC_Ctrl_BoostUpdateChannel(&DC_State.boost2, input->pv2Voltage, input->pv2VoltageRef);
     }
     else
     {
@@ -226,6 +226,7 @@ static void DC_Ctrl_BoostRun(const DC_CtrlInput *input)
     }
 }
 
+/* 复位双路 Boost 环的积分与占空比（通道禁用/故障时清零）。 */
 static void DC_Ctrl_BoostResetChannels(void)
 {
     DC_State.boost1.integral = 0.0f;
@@ -249,6 +250,7 @@ void DC_Ctrl_Reset(void)
     DC_Ctrl_ApplyBoostDuty();
 }
 
+/* 对外接口：启动 Boost 软启动（置位标志，实际爬升在 DC_Ctrl_BoostSoftStart 里做）。 */
 void DC_Ctrl_StartSoftStart(void)
 {
     DC_State.softStartActive = 1U;

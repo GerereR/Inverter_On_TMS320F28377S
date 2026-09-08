@@ -10978,7 +10978,7 @@
          <object_component_ref idref="oc-242"/>
       </symbol>
       <symbol id="sm-a3a">
-         <name>_GridSPLL</name>
+         <name>_GridPLL</name>
          <value>0xc082</value>
          <object_component_ref idref="oc-1ee"/>
       </symbol>

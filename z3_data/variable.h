@@ -381,7 +381,7 @@ typedef struct
     float sogiK;
     float detHist[3];
     float notchHist[3];
-} SPLL_1ph;
+} PLL_Data;
 
 extern volatile MachineData gMachineData;
 extern volatile SysFault gSysFault;
@@ -395,6 +395,6 @@ extern volatile PowerLimitData gPowerLimitData;
 extern volatile GridMonitorData gGridData;
 extern volatile GridSafetyParams gGridSafety;
 extern volatile GfciData gGfciData;
-extern volatile SPLL_1ph GridSPLL;
+extern volatile PLL_Data GridPLL;
 
 #endif

@@ -464,9 +464,7 @@ Uint16 DMA_ProcessBlocks
 
     //以下就是轮询5个DMA通道的状态,看是否有数据更新
 
-    if(DMA_ClaimBuffer(&ADC_FastDmaState,
-                       &bufferIndex,
-                       &fastBlockBursts) != 0U)//如果快环数据更新
+    if(DMA_ClaimBuffer(&ADC_FastDmaState, &bufferIndex, &fastBlockBursts) != 0U)//如果快环数据更新
     {
         //这里的bufferIndex就是刚刚问DMA"你有哪个buffer是准备好的?" 这是DMA"回答"的结果
         volatile ADC_FastRawFrame *buffer = (bufferIndex == 0U) ? ADC_FastRawBuffer0 : ADC_FastRawBuffer1;
@@ -496,43 +494,46 @@ Uint16 DMA_ProcessBlocks
 
             //偏置
             centeredSample = (float)buffer[sampleIndex].inductorCurrent - cal->inductorCurrent.offset;
+            centeredInductorCurrent = centeredSample;
             squareSum0 += centeredSample * centeredSample;
+
             centeredSample = (float)buffer[sampleIndex].gridVoltage - cal->gridVoltage.offset;
             squareSum1 += centeredSample * centeredSample;
+
             centeredSample = (float)buffer[sampleIndex].gfciCurrent - cal->gfciCurrent.offset;
+            centeredGridVoltage = centeredSample
             squareSum2 += centeredSample * centeredSample;
+
             centeredSample = (float)buffer[sampleIndex].dcBusVoltage - cal->dcBusVoltage.offset;
             squareSum3 += centeredSample * centeredSample;
+
             centeredSample = (float)buffer[sampleIndex].gridDcCurrent - cal->gridDcCurrent.offset;
             squareSum4 += centeredSample * centeredSample;
+
             centeredSample = (float)buffer[sampleIndex].inverterVoltage - cal->inverterVoltage.offset;
             squareSum5 += centeredSample * centeredSample;
 
             /* Keep the voltage/current samples paired so active power is
              * calculated from average(v*i), rather than Vavg*Iavg. */
-            centeredGridVoltage = (float)buffer[sampleIndex].gridVoltage -
-                                  cal->gridVoltage.offset;
-            centeredInductorCurrent = (float)buffer[sampleIndex].inductorCurrent -
-                                      cal->inductorCurrent.offset;
             gridVoltCurrentSum += centeredGridVoltage * centeredInductorCurrent;
         }
 
         //保存本数据块最后一次采样和直流分量(avg)
-        rawAvg->inductorCurrent = (Uint16)(sum0 / fastBlockBursts);
-        rawAvg->gridVoltage = (Uint16)(sum1 / fastBlockBursts);
-        rawAvg->gfciCurrent = (Uint16)(sum2 / fastBlockBursts);
-        rawAvg->dcBusVoltage = (Uint16)(sum3 / fastBlockBursts);
-        rawAvg->gridDcCurrent = (Uint16)(sum4 / fastBlockBursts);
-        rawAvg->inverterVoltage = (Uint16)(sum5 / fastBlockBursts);
+        rawAvg->inductorCurrent =   (Uint16)(sum0 / fastBlockBursts);
+        rawAvg->gridVoltage =       (Uint16)(sum1 / fastBlockBursts);
+        rawAvg->gfciCurrent =       (Uint16)(sum2 / fastBlockBursts);
+        rawAvg->dcBusVoltage =      (Uint16)(sum3 / fastBlockBursts);
+        rawAvg->gridDcCurrent =     (Uint16)(sum4 / fastBlockBursts);
+        rawAvg->inverterVoltage =   (Uint16)(sum5 / fastBlockBursts);
 
         //算直流等效值(rms)
-        rawMeanSq->inductorCurrent = squareSum0 / (float)fastBlockBursts;
-        rawMeanSq->gridVoltage = squareSum1 / (float)fastBlockBursts;
-        rawMeanSq->gfciCurrent = squareSum2 / (float)fastBlockBursts;
-        rawMeanSq->dcBusVoltage = squareSum3 / (float)fastBlockBursts;
-        rawMeanSq->gridDcCurrent = squareSum4 / (float)fastBlockBursts;
-        rawMeanSq->inverterVoltage = squareSum5 / (float)fastBlockBursts;
-        *gridVoltCurrentMeanRaw = gridVoltCurrentSum / (float)fastBlockBursts;
+        rawMeanSq->inductorCurrent =    squareSum0 / (float)fastBlockBursts;
+        rawMeanSq->gridVoltage =        squareSum1 / (float)fastBlockBursts;
+        rawMeanSq->gfciCurrent =        squareSum2 / (float)fastBlockBursts;
+        rawMeanSq->dcBusVoltage =       squareSum3 / (float)fastBlockBursts;
+        rawMeanSq->gridDcCurrent =      squareSum4 / (float)fastBlockBursts;
+        rawMeanSq->inverterVoltage =    squareSum5 / (float)fastBlockBursts;
+        *gridVoltCurrentMeanRaw =       gridVoltCurrentSum / (float)fastBlockBursts;
         updated |= DMA_UPDATE_FAST;
     }
 

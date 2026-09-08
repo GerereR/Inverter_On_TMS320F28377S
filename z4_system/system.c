@@ -6,15 +6,12 @@
 
 float System_Clamp(float value, float minimum, float maximum)
 {
-    if(value > maximum)
-    {
-        return maximum;
-    }
-    if(value < minimum)
-    {
-        return minimum;
-    }
-    return value;
+float System_Clamp(float value, float minimum, float maximum)
+{
+    return (value > maximum) ? maximum :
+           (value < minimum) ? minimum :
+                               value;
+}
 }
 
 void System_Init(void)
