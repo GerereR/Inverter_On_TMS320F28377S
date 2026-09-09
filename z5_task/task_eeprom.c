@@ -227,12 +227,13 @@ static Uint16 EEPROM_SaveCalibration(void)
     unsigned char record[EEPROM_CONFIG_BYTES];
     Uint16 index = 0U;
     Uint16 crc;
+    Uint16 interruptState;
     ADC_Calibrate cal;
 
     /* Copy once so a communication command cannot change half a record. */
-    DINT;
+    interruptState = CPU_InterruptSaveDisable();
     cal = gAdcCal;
-    EINT;
+    CPU_InterruptRestore(interruptState);
 
     EEPROM_PutUint32(record, &index, EEPROM_CONFIG_MAGIC);
     EEPROM_PutUint16(record, &index, EEPROM_CONFIG_VERSION);

@@ -3,7 +3,8 @@
 #include "task.h"
 #include "constant.h"
 #include "variable.h"
-#include "system.h"
+#include "inverter.h"
+#include "scheduler.h"
 
 /* --- 功率限幅常量（原 powercalc.c / power_mgr.c，按机型配置，当前为默认值） ---
  * 单位：功率 W、温度 ℃、电压 V、频率 Hz；电流上限归一化 0..1。
@@ -24,8 +25,7 @@
 #define POWER_OVERLOAD_TIME_MS           3000U     /* 超额定持续多久才降档 */
 #define POWER_OVERLOAD_BACK_TIME_MS      30000U    /* 回落多久才升档（迟滞） */
 
-/* 频率降额 + 无功调度上限：见下方 Power_FreqDerate / Power_ReactiveDerate 接口，
- * 待安规/国家码接入时实现，当前不降额。 */
+/* 频率降额仍保留为国家码接口；无功调度上限按当前相移实时生效。 */
 
 /* 功率环积分增益：老代码 500ms 一次 amp_limit += delta_watt/7500；
  * 本工程 Task_Power 10ms 一次，等效增益 = 7500*(500/10) = 375000。 */
@@ -51,6 +51,7 @@ typedef struct
     float gridActivePower;
     float gridFreqHz;
     float currentAmpMax;
+    float phaseShiftPu;
 } PowerInput;
 
 void Task_Power_Init(void)
@@ -74,13 +75,19 @@ static float Power_FreqDerate(float freqHz)
     return POWER_OVERLOAD_W;
 }
 
-/* 无功调度上限接口（预留）：有功功率 → 有功上限 W（cosφ(P) 曲线）。
- * 老代码 reactive.c 的 full_load_q_limit，依赖国家码。
- * 待安规/国家码接入时在此实现，当前不降额。 */
-static float Power_ReactiveDerate(float activePower)
+/* 无功调度上限：将额定视在功率折算为当前相移下允许的有功功率。
+ * phaseShiftPu 由无功任务发布，输入和输出均为周标幺角。 */
+static float Power_ReactiveDerate(float phaseShiftPu)
 {
-    (void)activePower;
-    return POWER_OVERLOAD_W;
+    float phaseAbsPu = (phaseShiftPu < 0.0f) ? -phaseShiftPu : phaseShiftPu;
+    float pf = __cospuf32(phaseAbsPu);
+
+    if (pf < 0.0f)
+    {
+        pf = -pf;
+    }
+
+    return POWER_OVERLOAD_W * pf;
 }
 
 /*============================================================================
@@ -169,8 +176,8 @@ static void Power_Compute(const PowerInput *input)
     /* 4. 频率降额（接口预留，当前不降额） */
     freqLimit = Power_FreqDerate(input->gridFreqHz);
 
-    /* 5. 无功调度上限（接口预留，当前不降额） */
-    reactiveLimit = Power_ReactiveDerate(input->gridActivePower);
+    /* 5. 无功调度上限（按当前相移折算视在功率） */
+    reactiveLimit = Power_ReactiveDerate(input->phaseShiftPu);
 
     /* 6. 各路取 min 得目标功率 */
     targetPower = POWER_OVERLOAD_W;
@@ -184,8 +191,8 @@ static void Power_Compute(const PowerInput *input)
     gPowerLimitData.currentAmpLimit += (targetPower - input->gridActivePower) / POWER_INT_GAIN_W;
 
     /* 8. 最终 clamp：上限 = SCI 手动上限 currentAmpMax */
-    ampMax = System_Clamp(input->currentAmpMax, BUS_CURRENT_AMP_MIN_NORM, BUS_CURRENT_AMP_MAX_NORM);
-    gPowerLimitData.currentAmpLimit = System_Clamp(gPowerLimitData.currentAmpLimit, BUS_CURRENT_AMP_MIN_NORM, ampMax);
+    ampMax = Inverter_Clamp(input->currentAmpMax, BUS_CURRENT_AMP_MIN_NORM, BUS_CURRENT_AMP_MAX_NORM);
+    gPowerLimitData.currentAmpLimit = Inverter_Clamp(gPowerLimitData.currentAmpLimit, BUS_CURRENT_AMP_MIN_NORM, ampMax);
 }
 
 /* 任务入口：先调度（判断是否该干活），再功能（限幅计算）。 */
@@ -199,6 +206,7 @@ void Task_Power(void)
     input.gridActivePower = gMachineData.powerData.gridActivePower;
     input.gridFreqHz = (float)gMachineData.ecapFreqCent * 0.01f;
     input.currentAmpMax = gPowerLimitData.currentAmpMax;
+    input.phaseShiftPu = gReactiveData.phaseShiftPu;
 
     /* 调度层：仅并网态限功率；脱离并网复位限流和私有状态。 */
     if (gSysData.state != SYS_STATE_NORMAL)

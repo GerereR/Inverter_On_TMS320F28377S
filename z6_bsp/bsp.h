@@ -30,7 +30,13 @@
 #define ADC_SLOW_TRIGGER_COUNTS  2000000UL
 
 void GPIO_Config(void);
-void SchedulerTimer_Config(void);
+void CPU_InterruptInit(void);
+void CPU_InterruptEnable(void);
+Uint16 CPU_InterruptSaveDisable(void);
+void CPU_InterruptRestore(Uint16 interruptState);
+void Timer0_Init(void);
+void Timer2_Init(void);
+Uint32 Timer2_GetCount(void);
 
 /* Board digital inputs. These macros expose logical states, not GPIO numbers. */
 #define POWER_SW1()        ((GpioDataRegs.GPCDAT.bit.GPIO82 == 0U) ? 1U : 0U)

@@ -1,7 +1,8 @@
 #include "F28x_Project.h"
 #include "task.h"
 #include "bsp.h"
-#include "system.h"
+#include "inverter.h"
+#include "scheduler.h"
 
 typedef struct
 {
@@ -79,12 +80,9 @@ void Task_State_Init(void)
     gSysData.sourceReady = 0U;
     gSysData.gridReady = 0U;
     gSysData.busReady = 0U;
-    gSysData.boostReady = 0U;
-    gSysData.inverterReady = 0U;
-    gSysData.relayReady = 0U;
     gSysData.sourceStableMs = 0UL;
     gSysData.gridStableMs = 0UL;
-    System_EnterSafeOutput();
+    Inverter_EnterSafeOutput();
 }
 
 void Task_State(void)
@@ -237,9 +235,6 @@ static void State_ResetStartupData(void)
     gAdcOffsetCal.sum.gridDcCurrent = 0.0f;
 
     gSysData.busReady = 0U;
-    gSysData.boostReady = 0U;
-    gSysData.inverterReady = 0U;
-    gSysData.relayReady = 0U;
     State_RelaySelfTestInit();
 
     /* 启动 GFCI 自检（并网前注入 50mA 验证硬件 + 静态/注入检测） */
@@ -266,7 +261,7 @@ static void State_Enter(SysState nextState)
        (nextState == SYS_STATE_FAULT) ||
        (nextState == SYS_STATE_PERMANENT))
     {
-        System_EnterSafeOutput();
+        Inverter_EnterSafeOutput();
         gSysData.sourceReady = 0U;
         gSysData.gridReady = 0U;
         gSysData.busReady = 0U;
@@ -277,7 +272,7 @@ static void State_Enter(SysState nextState)
     {
         /* Safe output once on entry; the RELAY stage drives the grid relays
          * during self-test, so it must not be re-asserted every cycle. */
-        System_EnterSafeOutput();
+        Inverter_EnterSafeOutput();
         gSysData.checkStage = SYS_CHECK_RESET;
         gSysData.gridReady = 0U;
         gSysData.gridStableMs = 0UL;
@@ -288,7 +283,7 @@ static void State_Enter(SysState nextState)
 
 static void State_RunWait(void)
 {
-    System_EnterSafeOutput();
+    Inverter_EnterSafeOutput();
 
     if(State_HasPermanentFault() != 0U)
     {
@@ -378,7 +373,6 @@ static void State_RunCheck(void)
             }
             else if (gRelayData.selfTestPassed != 0U)
             {
-                gSysData.relayReady = 1U;
                 gSysData.checkStage = SYS_CHECK_PREPARE;
             }
             break;
@@ -469,7 +463,7 @@ static void State_RunNormal(void)
 
 static void State_RunFault(void)
 {
-    System_EnterSafeOutput();
+    Inverter_EnterSafeOutput();
 
     if(State_HasPermanentFault() != 0U)
     {
@@ -477,14 +471,13 @@ static void State_RunFault(void)
     }
     else if(State_HasRecoverFault() == 0U)
     {
-        gSysData.restartCount++;
         State_Enter(SYS_STATE_WAIT);
     }
 }
 
 static void State_RunPermanent(void)
 {
-    System_EnterSafeOutput();
+    Inverter_EnterSafeOutput();
 }
 
 /*============================================================================

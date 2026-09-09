@@ -11,6 +11,9 @@
 #define MODEL_3KW                       1U
 #define MODEL_4KW                       2U
 
+/* Fault mask used while waiting for the grid PLL to acquire lock. */
+#define SYS_FAULT_PLL_STARTUP_MASK      1ULL
+
 /* 电网安规阈值已迁移到 gGridSafety 数据域（variable.h/.c）。
  * 10min窗口/DCI/GFCI/电网丢失/快速掉网等单文件常量已迁移到各自任务 .c。 */
 
@@ -23,6 +26,24 @@
 #define MPPT_VOLT_FINE_STEP_V           0.25f
 #define MPPT_FAST_POWER_DELTA_W         19.0f
 #define MPPT_CURRENT_LIMIT_MARGIN_A      0.05f
+
+/* Default grid-safety parameters. Units are part of each macro name. */
+#define GRID_VOLT_OVER_LEVEL1_V        242.0f
+#define GRID_VOLT_OVER_LEVEL2_V        264.0f
+#define GRID_VOLT_UNDER_LEVEL1_V       187.0f
+#define GRID_VOLT_UNDER_LEVEL2_V       176.0f
+#define GRID_FREQ_OVER_LEVEL1_HZ        50.5f
+#define GRID_FREQ_OVER_LEVEL2_HZ        51.0f
+#define GRID_FREQ_UNDER_LEVEL1_HZ       49.5f
+#define GRID_FREQ_UNDER_LEVEL2_HZ       49.0f
+#define GRID_VOLT_OVER_10MIN_V         253.0f
+#define GRID_RECONN_MAX_V              242.0f
+#define GRID_RECONN_MIN_V              187.0f
+#define GRID_RECONN_MAX_FREQ_HZ         50.5f
+#define GRID_RECONN_MIN_FREQ_HZ         49.5f
+#define GRID_FAULT_FILTER_COUNT_LEVEL1  3U
+#define GRID_FAULT_FILTER_COUNT_LEVEL2  3U
+#define GRID_FAULT_BACK_FILTER_COUNT  300U
 
 /* PV input modes retained for the future topology detector. The current
  * hardware uses two independent MPPT channels. */
@@ -46,6 +67,21 @@
 /* 电流幅值限幅范围：母线环(dc)与电流环(ac)共享。 */
 #define BUS_CURRENT_AMP_MIN_NORM         0.0f
 #define BUS_CURRENT_AMP_MAX_NORM         1.0f
+
+/* 无功调度模式（ReactiveData.mode）。 */
+#define REACTIVE_MODE_OFF               0U    /* 禁用：纯有功，零相移 */
+#define REACTIVE_MODE_PF                1U    /* 固定功率因数 cosφ */
+#define REACTIVE_MODE_Q                 2U    /* 固定无功功率 Q */
+
+/* 无功相移角限幅：cosφ 下限 0.8（用户要求 PF 最低 0.8），对应 φmax = acos(0.8) ≈ 36.87° */
+#define REACTIVE_PF_MIN                 0.8f
+
+/* 电容补偿系数（沿用老代码 VALUE_CAP_3K，3kW 机型）。 */
+#define REACTIVE_VALUE_CAP_3K           218.0f
+
+/* 电容补偿角缩放。老代码：theta_c = atan((2π/2366000)*(freq_centiHz/10000)*Vrms*cap/Irms)
+ * 浮点化合并后：theta_c = atan(2π*freqHz*Vrms*cap / (scale*Irms))，scale = 2366000*100。 */
+#define REACTIVE_THETA_C_SCALE          236600000.0f
 
 /* Boost 环常量已迁移到 task_dc_ctrl.c。 */
 
@@ -109,6 +145,7 @@ typedef enum
 /* 12-bit ADC code-domain constants. */
 #define ADC_FULL_SCALE                 4096.0f
 #define ADC_BIPOLAR_ZERO               2048.0f
+#define ADC_UNIPOLAR_ZERO                 0.0f
 
  /* Default measurement gains recovered from the legacy 5/6 kW design.
  * They are initialization values only; final hardware must be calibrated.*/
@@ -121,9 +158,5 @@ typedef enum
 #define ADC_GFCI_CURRENT_GAIN              (3000.0f / (ADC_FULL_SCALE * 2098.0f))
 #define ADC_INVERTER_DC_CURRENT_GAIN       0.000547f
 #define ADC_ISOLATION_VOLTAGE_GAIN         0.732f
-
-/* NTC 温度换算常量已迁移到 task_measure.c。 */
-
-/* OLED 字库与索引常量已迁移到 task_ui.c。 */
 
 #endif

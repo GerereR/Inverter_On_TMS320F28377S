@@ -501,7 +501,7 @@ Uint16 DMA_ProcessBlocks
             squareSum1 += centeredSample * centeredSample;
 
             centeredSample = (float)buffer[sampleIndex].gfciCurrent - cal->gfciCurrent.offset;
-            centeredGridVoltage = centeredSample
+            centeredGridVoltage = centeredSample;
             squareSum2 += centeredSample * centeredSample;
 
             centeredSample = (float)buffer[sampleIndex].dcBusVoltage - cal->dcBusVoltage.offset;

@@ -4,7 +4,7 @@
 #include "constant.h"
 #include "bsp.h"
 #include "variable.h"
-#include "system.h"
+#include "inverter.h"
 
 /* 前置声明：电网电压瞬时异常检测（定义见文件末尾）。 */
 static void CheckGridVoltAbnormal(float gridVoltAdc);
@@ -17,17 +17,18 @@ static void CheckGridVoltAbnormal(float gridVoltAdc);
 //PLL宏定义
 #define SPLL_MAX_DEVIATION_HZ       5.0f
 
+#if 0 /* Candidate algorithm retained for later SRF/SOGI comparison. */
 #define SRF_PLL_DEFAULT_KP          60.0f
 #define SRF_PLL_DEFAULT_KI          2000.0f
-
-#define SOGI_PLL_DEFAULT_KP         90.0f
-#define SOGI_PLL_DEFAULT_KI         4000.0f
-
 #define SRF_PLL_DEFAULT_NOTCH_B0    1.3853181f
 #define SRF_PLL_DEFAULT_NOTCH_B1   -2.7692690f
 #define SRF_PLL_DEFAULT_NOTCH_B2    1.3853181f
 #define SRF_PLL_DEFAULT_NOTCH_A1   -1.9590329f
 #define SRF_PLL_DEFAULT_NOTCH_A2    0.9604000f
+#endif
+
+#define SOGI_PLL_DEFAULT_KP         90.0f
+#define SOGI_PLL_DEFAULT_KI         4000.0f
 
 /* Temporary PLL lock thresholds for the current bring-up stage. */
 #define PLL_INPUT_ABS_FILTER_COEFF       0.001f
@@ -73,6 +74,7 @@ typedef struct
 
 static volatile AC_CtrlState AC_State = {0};
 
+#if 0 /* Candidate algorithm retained for later SRF/SOGI comparison. */
 static void SRF_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleFreqHz)
 {
     Uint16 index;
@@ -105,35 +107,6 @@ static void SRF_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleFr
         pll->detHist[index] = 0.0f;
         pll->notchHist[index] = 0.0f;
     }
-}
-
-static void SOGI_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleFreqHz)
-{
-    Uint16 index;
-
-    pll->input = 0.0f;
-    pll->phase = 0.0f;
-    pll->freqHz = nomFreqHz;
-    pll->nomFreqHz = nomFreqHz;
-    pll->phaseDet = 0.0f;
-    pll->notchOut = 0.0f;
-    pll->piInt = 0.0f;
-    pll->loopOut = 0.0f;
-    pll->sampleTs = 1.0f / sampleFreqHz;
-    pll->kp = SOGI_PLL_DEFAULT_KP;
-    pll->ki = SOGI_PLL_DEFAULT_KI;
-    pll->minFreqHz = nomFreqHz - SPLL_MAX_DEVIATION_HZ;
-    pll->maxFreqHz = nomFreqHz + SPLL_MAX_DEVIATION_HZ;
-
-    for(index = 0U; index < 3U; index++)
-    {
-        pll->detHist[index] = 0.0f;
-        pll->notchHist[index] = 0.0f;
-    }
-
-    pll->sogiAlpha = 0.0f;
-    pll->sogiBeta = 0.0f;
-    pll->sogiK = 1.41421356f;
 }
 
 static void SRF_PLL_Run(volatile PLL_Data *pll, float input)
@@ -195,6 +168,27 @@ static void SRF_PLL_Run(volatile PLL_Data *pll, float input)
     pll->detHist[1] = pll->detHist[0];
     pll->notchHist[2] = pll->notchHist[1];
     pll->notchHist[1] = pll->notchHist[0];
+}
+#endif
+
+static void SOGI_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleFreqHz)
+{
+    pll->input = 0.0f;
+    pll->phase = 0.0f;
+    pll->freqHz = nomFreqHz;
+    pll->nomFreqHz = nomFreqHz;
+    pll->phaseDet = 0.0f;
+    pll->piInt = 0.0f;
+    pll->loopOut = 0.0f;
+    pll->sampleTs = 1.0f / sampleFreqHz;
+    pll->kp = SOGI_PLL_DEFAULT_KP;
+    pll->ki = SOGI_PLL_DEFAULT_KI;
+    pll->minFreqHz = nomFreqHz - SPLL_MAX_DEVIATION_HZ;
+    pll->maxFreqHz = nomFreqHz + SPLL_MAX_DEVIATION_HZ;
+
+    pll->sogiAlpha = 0.0f;
+    pll->sogiBeta = 0.0f;
+    pll->sogiK = 1.41421356f;
 }
 
 static void SOGI_PLL_Run(volatile PLL_Data *pll, float input)
@@ -491,7 +485,7 @@ void AC_Ctrl_Init(void)
 
 /* 电流环假任务入口：由 ADC ISR 直接调用。
  * 内部读取 ADC 结果、去零漂、做快速电网存在性检测，然后跑 PLL + 电流环。 */
-Uint16 Task_AC_Ctrl(void)
+Uint16 Task_AC_Ctrl(const AC_CtrlRawInput *input)
 {
     Uint16 gridVoltRaw;
     float gridVoltAdc;
@@ -501,14 +495,16 @@ Uint16 Task_AC_Ctrl(void)
     float gridVoltUnif;
     float currentPhase;
     float currentRefSine;
+    float phasePu;
+    float phaseShiftPu;
     float refMaxCode;
     float piIncrement;
 
     /* 读取当前 ADC 帧并去除零漂（原 ISR 中的采样逻辑收进任务）。 */
-    gridVoltRaw = AdcaResultRegs.ADCRESULT1;
-    inductorCurrentAdc = (float)AdcaResultRegs.ADCRESULT0 - gAdcCal.inductorCurrent.offset - gAdcOffsetCal.offset.inductorCurrent;
+    gridVoltRaw = input->gridVoltage;
+    inductorCurrentAdc = (float)input->inductorCurrent - gAdcCal.inductorCurrent.offset - gAdcOffsetCal.offset.inductorCurrent;
     gridVoltAdc = (float)gridVoltRaw - gAdcCal.gridVoltage.offset - gAdcOffsetCal.offset.gridVoltage;
-    dcBusVoltAdc = (float)AdcaResultRegs.ADCRESULT3 - gAdcCal.dcBusVoltage.offset;//其实是否用BUS瞬时值,有待商榷,因为这样的话BUS瞬变会导致电流环不稳定
+    dcBusVoltAdc = (float)input->dcBusVoltage - gAdcCal.dcBusVoltage.offset;//其实是否用BUS瞬时值,有待商榷,因为这样的话BUS瞬变会导致电流环不稳定
 
     /* 快速电网存在性检测（快速掉网指示）。 */
     CheckGridPresence(gridVoltRaw);
@@ -540,9 +536,18 @@ Uint16 Task_AC_Ctrl(void)
         {
             currentPhase += MATH_TWO_PI_F;
         }
-        /* 电流参考：幅值 × sin；正半周幅值减直流分量补偿（原 DCcurrentAdj），
-         * 负半周不变，从而产生反向直流抵消电网电流里的直流分量。 */
-        currentRefSine = __sinpuf32(currentPhase * MATH_INV_TWO_PI_F);
+        /* 电流参考：直接 sin(θ+φ)，把无功+电容补偿相移（归一化周期）加进 PLL 相位。
+         * __sinpuf32 输入须在 [0,1)，加相移后 wrap 一次。 */
+        phaseShiftPu = gReactiveData.phaseShiftPu;
+        phasePu = currentPhase * MATH_INV_TWO_PI_F + phaseShiftPu;
+
+        if(phasePu >= 1.0f) phasePu -= 1.0f;
+        else if(phasePu < 0.0f) phasePu += 1.0f;
+
+        currentRefSine = __sinpuf32(phasePu);
+
+        /* 直流分量补偿（原 DCcurrentAdj）：按实际电流参考的正负半周切换，
+         * 避免加入无功相移后在电网电压过零点产生幅值跳变。 */
         if(currentRefSine > 0.0f)
         {
             refMaxCode = gBusCtrlData.currentAmpRef * ADC_BIPOLAR_ZERO - gInvCtrlData.dcCurrentComp;
@@ -551,6 +556,7 @@ Uint16 Task_AC_Ctrl(void)
         {
             refMaxCode = gBusCtrlData.currentAmpRef * ADC_BIPOLAR_ZERO;
         }
+
         AC_State.currentRef = refMaxCode * currentRefSine;
 
         /* This guard is only for a valid division denominator. Bus operating
@@ -568,10 +574,10 @@ Uint16 Task_AC_Ctrl(void)
                 INV_LEGACY_BUS_GAIN /
                 (dcBusVoltAdc * INV_PI_BUS_SCALE *
                  INV_LEGACY_PWM_PERIOD);
-            AC_State.piOut = System_Clamp(AC_State.piOut + piIncrement, -1.0f, 1.0f);
+            AC_State.piOut = Inverter_Clamp(AC_State.piOut + piIncrement, -1.0f, 1.0f);
 
             AC_State.gridVoltFeedForward = INV_GRID_FEED_FORWARD * gridVoltAdc / dcBusVoltAdc;
-            AC_State.modulation = System_Clamp(AC_State.piOut+AC_State.gridVoltFeedForward,-1.0f,1.0f);
+            AC_State.modulation = Inverter_Clamp(AC_State.piOut+AC_State.gridVoltFeedForward,-1.0f,1.0f);
         }
         else
         {

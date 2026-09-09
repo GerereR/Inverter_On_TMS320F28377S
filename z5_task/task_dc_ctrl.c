@@ -3,7 +3,7 @@
 #include "task.h"
 #include "bsp.h"
 #include "variable.h"
-#include "system.h"
+#include "inverter.h"
 
 /* --- 母线环 / Boost 环私有常量（原 constant.h 迁入） --- */
 /* Initial DC-bus outer-loop settings. The gains are bring-up values and
@@ -110,7 +110,7 @@ static void BusVoltRef_Adapt(const DC_CtrlInput *input)
 
     /* 母线目标下限：跟随电网峰值 + 余量，clamp 370~430V */
     standVolt = gridPeak + BUS_VOLT_GRID_MARGIN_V;
-    standVolt = System_Clamp(standVolt, DC_BUS_MIN_V, DC_BUS_MAX_V);
+    standVolt = Inverter_Clamp(standVolt, DC_BUS_MIN_V, DC_BUS_MAX_V);
 
     /* MPPT 目标 PV 电压（取两路较大者）+ 余量 → 至少一路 Boost 直通 */
     mpptTarget = input->pv1VoltageRef;
@@ -126,7 +126,7 @@ static void BusVoltRef_Adapt(const DC_CtrlInput *input)
     {
         stableRef = mpptTarget;
     }
-    stableRef = System_Clamp(stableRef, DC_BUS_MIN_V, DC_BUS_MAX_V);
+    stableRef = Inverter_Clamp(stableRef, DC_BUS_MIN_V, DC_BUS_MAX_V);
 
     gBusCtrlData.stableVoltRef = stableRef;
 }
@@ -147,7 +147,7 @@ static void DC_Ctrl_BusRun(const DC_CtrlInput *input)
         DC_State.bus.initialized = 1U;
     }
 
-    currentAmpLimit = System_Clamp(input->currentAmpLimit, BUS_CURRENT_AMP_MIN_NORM, BUS_CURRENT_AMP_MAX_NORM);
+    currentAmpLimit = Inverter_Clamp(input->currentAmpLimit, BUS_CURRENT_AMP_MIN_NORM, BUS_CURRENT_AMP_MAX_NORM);
 
     proportional = BUS_PI_KP * (input->busVoltage - gBusCtrlData.stableVoltRef);
 
@@ -156,7 +156,7 @@ static void DC_Ctrl_BusRun(const DC_CtrlInput *input)
     DC_State.bus.integral += BUS_PI_KI * BUS_CTRL_PERIOD_S * (input->busVoltage - gBusCtrlData.stableVoltRef);
 
     candidate = proportional + DC_State.bus.integral;
-    DC_State.bus.output = System_Clamp(candidate, BUS_CURRENT_AMP_MIN_NORM, currentAmpLimit);
+    DC_State.bus.output = Inverter_Clamp(candidate, BUS_CURRENT_AMP_MIN_NORM, currentAmpLimit);
 
     /* 反算：piIntegral = clamp后输出 - 比例项，锚定到限幅处。 */
     DC_State.bus.integral = DC_State.bus.output - proportional;
@@ -191,7 +191,7 @@ static void DC_Ctrl_BoostUpdateChannel
     }
 
     candidate = proportional + channel->integral;
-    channel->duty = System_Clamp(candidate, BOOST_DUTY_MIN, BOOST_DUTY_MAX);
+    channel->duty = Inverter_Clamp(candidate, BOOST_DUTY_MIN, BOOST_DUTY_MAX);
 }
 
 /* 双路 Boost 环编排：逐路判断（使能 + 电压有效 + 目标有效），跑 PI 或复位该通道。 */

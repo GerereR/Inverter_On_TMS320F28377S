@@ -13,8 +13,15 @@ void DC_Ctrl_StartSoftStart(void);
 #define FAST_EVENT_NONE          0x0000U
 #define FAST_EVENT_GRID_PEAK     0x0001U
 
+typedef struct
+{
+    Uint16 inductorCurrent;
+    Uint16 gridVoltage;
+    Uint16 dcBusVoltage;
+} AC_CtrlRawInput;
+
 void AC_Ctrl_Init(void);
-Uint16 Task_AC_Ctrl(void);
+Uint16 Task_AC_Ctrl(const AC_CtrlRawInput *input);
 void CheckGridPresence(Uint16 gridVoltRaw);
 void AC_Ctrl_Enable(void);
 void AC_Ctrl_Disable(void);

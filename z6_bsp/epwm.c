@@ -1,7 +1,7 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
-#include "system.h"
+#include "inverter.h"
 
 #define EPWM_PERIOD_TICKS          2500U
 #define EPWM_DEADBAND_TICKS        100U
@@ -327,7 +327,7 @@ void EPWM_SetInverterMode(float modulation)
 {
     Uint16 compareValue;
 
-    modulation = System_Clamp(modulation, -1.0f, 1.0f);
+    modulation = Inverter_Clamp(modulation, -1.0f, 1.0f);
     
     compareValue = (Uint16)(((modulation >= 0.0f) ? modulation : -modulation) * (float)EPWM_PERIOD_TICKS);
     EPwm1Regs.CMPA.bit.CMPA = compareValue;
@@ -365,8 +365,8 @@ void EPWM_SetBoostDuty(float boost1Duty, float boost2Duty)
     Uint16 boost1Compare;
     Uint16 boost2Compare;
 
-    boost1Duty = System_Clamp(boost1Duty, 0.0f, 0.98f);
-    boost1Duty = System_Clamp(boost2Duty, 0.0f, 0.98f);
+    boost1Duty = Inverter_Clamp(boost1Duty, 0.0f, 0.98f);
+    boost2Duty = Inverter_Clamp(boost2Duty, 0.0f, 0.98f);
 
     /* Match the old EPWM4 formulas for its two independent Boost outputs. */
     boost1Compare = (Uint16)((1.0f - boost1Duty) * (float)EPWM_PERIOD_TICKS);

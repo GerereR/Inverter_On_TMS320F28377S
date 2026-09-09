@@ -3,7 +3,6 @@
 #include "task.h"
 #include "bsp.h"
 #include "variable.h"
-#include "system.h"
 
 /* 老代码 4.7kΩ NTC 分压电阻 + 分段温度曲线常量。 */
 #define ADC_TEMP_DIVIDER_RESISTANCE        4700.0f
@@ -227,15 +226,15 @@ void Task_Measure(void)
     static          ADC_UintData  rawAvg = {0};
     static          ADC_FloatData rawMeanSq = {0};
     static float    gridVoltCurrentMeanRaw = 0.0f;
-AAvAvgAvg
     ADC_Calibrate   cal;
     Uint16          updatedMask;
     Uint16          pvUpdated;
+    Uint16          interruptState;
 
     /* 用一份校准快照同时供 DMA 统计和物理值换算。 */
-    DINT;
+    interruptState = CPU_InterruptSaveDisable();
     cal = gAdcCal;
-    EINT;
+    CPU_InterruptRestore(interruptState);
 
     /* 调度层：消费 DMA 块，判断本周期是否该执行。 */
     updatedMask = Measure_TrySchedule(&cal, &rawAvg, &rawMeanSq, &gridVoltCurrentMeanRaw, &pvUpdated);

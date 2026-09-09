@@ -10543,17 +10543,17 @@
          <object_component_ref idref="oc-15c"/>
       </symbol>
       <symbol id="sm-5eb">
-         <name>_System_Init</name>
+         <name>_Inverter_Init</name>
          <value>0x85944</value>
          <object_component_ref idref="oc-244"/>
       </symbol>
       <symbol id="sm-5ed">
-         <name>_System_EnterSafeOutput</name>
+         <name>_Inverter_EnterSafeOutput</name>
          <value>0x85961</value>
          <object_component_ref idref="oc-244"/>
       </symbol>
       <symbol id="sm-60d">
-         <name>_Scheduler_Config</name>
+         <name>_Scheduler_Init</name>
          <value>0x8587b</value>
          <object_component_ref idref="oc-23a"/>
       </symbol>
@@ -10888,7 +10888,7 @@
          <object_component_ref idref="oc-255"/>
       </symbol>
       <symbol id="sm-9cd">
-         <name>_SchedulerTimer_Config</name>
+         <name>_Timer0_Init</name>
          <value>0x85a50</value>
          <object_component_ref idref="oc-243"/>
       </symbol>

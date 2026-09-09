@@ -224,13 +224,8 @@ typedef struct
     Uint16 sourceReady;
     Uint16 gridReady;
     Uint16 busReady;
-    Uint16 boostReady;
-    Uint16 inverterReady;
-    Uint16 relayReady;
-    Uint16 restartRequest;
     Uint32 sourceStableMs;
     Uint32 gridStableMs;
-    Uint32 restartCount;
     Uint16 reloadFlag;    /* 打嗝保护标志：快速层(ISR)置位，状态机恢复 */
     Uint16 reloadCount;   /* 打嗝恢复计数（NORMAL 态累加，>150 即 300ms 后恢复） */
 } SysData;
@@ -280,6 +275,17 @@ typedef struct
     float currentAmpLimit;
     float currentAmpMax;       /* SCI 手动设置的电流上限（0..1，默认满） */
 } PowerLimitData;
+
+/* 无功调度公共契约。
+ * mode/setValue 是未来 Scalpel 的设定入口；phaseShiftPu 是电流环唯一消费的输出。
+ * 电容系数、弧度中间量和诊断量均由无功任务私有持有，避免把实现细节扩散到全局域。 */
+typedef struct
+{
+    /* 设定（通讯/Scalpel 将来写入） */
+    Uint16 mode;            /* REACTIVE_MODE_OFF/PF/Q */
+    float  setValue;        /* mode=PF: 带符号 cosφ(正=超前, 负=滞后); mode=Q: 带符号 Q(Var) */
+    float  phaseShiftPu;    /* 总相移的周标幺值，电流环直接加进 PLL 相位 */
+} ReactiveData;
 
 /*
  * Runtime machine data shared by acquisition, control and communication.
@@ -363,7 +369,6 @@ typedef struct
     float freqHz;
     float nomFreqHz;
     float phaseDet;
-    float notchOut;
     float piInt;
     float loopOut;
     float sampleTs;
@@ -371,6 +376,7 @@ typedef struct
     float ki;
     float minFreqHz;
     float maxFreqHz;
+    float notchOut;
     float notchB0;
     float notchB1;
     float notchB2;
@@ -392,6 +398,7 @@ extern volatile MpptData gMpptData;
 extern volatile BusCtrlData gBusCtrlData;
 extern volatile InvCtrlData gInvCtrlData;
 extern volatile PowerLimitData gPowerLimitData;
+extern volatile ReactiveData gReactiveData;
 extern volatile GridMonitorData gGridData;
 extern volatile GridSafetyParams gGridSafety;
 extern volatile GfciData gGfciData;

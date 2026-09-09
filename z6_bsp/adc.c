@@ -1,7 +1,7 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
-#include "system.h"
+#include "scheduler.h"
 #include "../z5_task/task.h"
 
 /* The fast ISR normalizes grid voltage before handing it to the control layer. */
@@ -150,13 +150,18 @@ void ADC_Config(void)
 __interrupt void ADCA1_CPU_ISR(void)
 {
     Uint16 ctrlEvents;
+    AC_CtrlRawInput rawInput;
 
     /* ADCINT2 triggers DMA from the same EOC5 event. Count this ADC frame so
      * eCAP can close the active DMA block at the next grid-cycle boundary. */
     DMA_NotifyFastFrameEoc();
 
+    rawInput.inductorCurrent = AdcaResultRegs.ADCRESULT0;
+    rawInput.gridVoltage = AdcaResultRegs.ADCRESULT1;
+    rawInput.dcBusVoltage = AdcaResultRegs.ADCRESULT3;
+
     /* 采样、归一化、快速电网存在性检测、PLL、电流环都在假任务里完成。 */
-    ctrlEvents = Task_AC_Ctrl();
+    ctrlEvents = Task_AC_Ctrl(&rawInput);
 
     if((ctrlEvents & FAST_EVENT_GRID_PEAK) != 0U)
     {
