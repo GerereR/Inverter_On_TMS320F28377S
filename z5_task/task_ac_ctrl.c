@@ -262,7 +262,8 @@ static Uint16 DetectGridPeak(void)
     Uint16 peakCrossed = 0U;
 
     /* Phase scheduling is valid only after eCAP and PLL have become valid. */
-    if((gMachineData.ecapFreqCent == 0U) || (gSysFault.bit.pllFault != 0U))
+    if((gMachineData.ecapFreqCent == 0U) ||
+       ((gSysProblem.recoverFault & RECOVER_PLL_FAULT) != 0UL))
     {
         phasePrimed = 0U;
         return FAST_EVENT_NONE;
@@ -323,7 +324,7 @@ static void UpdatePllLock(float pllInput)
         (GridPLL.freqHz <= (GridPLL.minFreqHz + PLL_UNLOCK_FREQ_MARGIN_HZ)) ||
         (GridPLL.freqHz >= (GridPLL.maxFreqHz - PLL_UNLOCK_FREQ_MARGIN_HZ));
 
-    if(gSysFault.bit.pllFault != 0U)
+    if((gSysProblem.recoverFault & RECOVER_PLL_FAULT) != 0UL)
     {
         unlockCounter = 0U;
         if(lockCondition != 0U)
@@ -334,7 +335,7 @@ static void UpdatePllLock(float pllInput)
             }
             if(lockCounter >= PLL_LOCK_CONFIRM_SAMPLES)
             {
-                gSysFault.bit.pllFault = 0U;
+                gSysProblem.recoverFault &= ~RECOVER_PLL_FAULT;
                 lockCounter = 0U;
             }
         }
@@ -354,7 +355,7 @@ static void UpdatePllLock(float pllInput)
             }
             if(unlockCounter >= PLL_UNLOCK_CONFIRM_SAMPLES)
             {
-                gSysFault.bit.pllFault = 1U;
+                gSysProblem.recoverFault |= RECOVER_PLL_FAULT;
                 unlockCounter = 0U;
             }
         }

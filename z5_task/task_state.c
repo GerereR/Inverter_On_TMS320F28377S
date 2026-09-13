@@ -210,12 +210,12 @@ static Uint16 State_IsReady_AC(void)
 
 static Uint16 State_HasRecoverFault(void)
 {
-    return (gSysFault.word.recoverable != 0U) ? 1U : 0U;
+    return (gSysProblem.recoverFault != 0UL) ? 1U : 0U;
 }
 
 static Uint16 State_HasPermanentFault(void)
 {
-    return (gSysFault.word.permanent != 0U) ? 1U : 0U;
+    return (gSysProblem.permanentFault != 0UL) ? 1U : 0U;
 }
 
 /* Reset only startup/control runtime values. Measurement history and active
@@ -418,7 +418,7 @@ static void State_RunNormal(void)
     /* 过零看门狗：快速掉网计数超阈值 → 电网丢失，进 FAULT（会全断输出） */
     if (gGridData.noGridCount > GRID_LOST_COUNT_THRESHOLD)
     {
-        gSysFault.bit.noUtility = 1U;
+        gSysProblem.recoverFault |= RECOVER_NO_UTILITY;
         State_Enter(SYS_STATE_FAULT);
         return;
     }

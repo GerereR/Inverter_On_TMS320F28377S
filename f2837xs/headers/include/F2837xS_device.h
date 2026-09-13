@@ -278,6 +278,8 @@ typedef long double                             float64;
 typedef struct { Uint32 low32; Uint32 high32; } Uint64;
 typedef struct { int32  low32; int32  high32; } int64;
 #else // __TMS320C28XX__
+//之所以没有把unsigned char重定义为int8,是因为在C2000架构里,一个byte是16位,一个word就是一个byte
+//所以任何unsigned char都是Uint16, 因为char = int
 typedef int                                     int16;
 typedef long                                    int32;
 typedef long long                               int64;

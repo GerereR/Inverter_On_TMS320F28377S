@@ -26,19 +26,19 @@
 static volatile Uint16 EEPROM_SavePending = 0U;
 static volatile Uint16 EEPROM_LastStatus = I2C_STATUS_OK;
 
-static Uint16 EEPROM_Crc16(const unsigned char *data, Uint16 length);
+static Uint16 EEPROM_Crc16(const Uint16 *data, Uint16 length);
 
-static void EEPROM_PutUint16(unsigned char *data, Uint16 *index, Uint16 value);
-static void EEPROM_PutUint32(unsigned char *data, Uint16 *index, Uint32 value);
+static void EEPROM_PutUint16(Uint16 *data, Uint16 *index, Uint16 value);
+static void EEPROM_PutUint32(Uint16 *data, Uint16 *index, Uint32 value);
 
-static Uint16 EEPROM_GetUint16(const unsigned char *data, Uint16 *index);
-static Uint32 EEPROM_GetUint32(const unsigned char *data, Uint16 *index);
+static Uint16 EEPROM_GetUint16(const Uint16 *data, Uint16 *index);
+static Uint32 EEPROM_GetUint32(const Uint16 *data, Uint16 *index);
 
-static void EEPROM_PutFloat(unsigned char *data, Uint16 *index, float value);
-static float EEPROM_GetFloat(const unsigned char *data, Uint16 *index);
+static void EEPROM_PutFloat(Uint16 *data, Uint16 *index, float value);
+static float EEPROM_GetFloat(const Uint16 *data, Uint16 *index);
 
-static Uint16 EEPROM_ReadBytes(Uint16 address, unsigned char *data, Uint16 length);
-static Uint16 EEPROM_WriteBytes(Uint16 address, const unsigned char *data, Uint16 length);
+static Uint16 EEPROM_ReadBytes(Uint16 address, Uint16 *data, Uint16 length);
+static Uint16 EEPROM_WriteBytes(Uint16 address, const Uint16 *data, Uint16 length);
 
 static Uint16 EEPROM_WaitWriteCycle(void);
 static Uint16 EEPROM_SaveCalibration(void);
@@ -47,7 +47,7 @@ static Uint16 EEPROM_LoadCalibration(void);
 
 
 
-static Uint16 EEPROM_Crc16(const unsigned char *data, Uint16 length)
+static Uint16 EEPROM_Crc16(const Uint16 *data, Uint16 length)
 {
     Uint16 crc = 0xFFFFU;
     Uint16 index;
@@ -67,28 +67,28 @@ static Uint16 EEPROM_Crc16(const unsigned char *data, Uint16 length)
     return crc;
 }
 
-static void EEPROM_PutUint16(unsigned char *data, Uint16 *index, Uint16 value)
+static void EEPROM_PutUint16(Uint16 *data, Uint16 *index, Uint16 value)
 {
-    data[(*index)++] = (unsigned char)(value & 0x00FFU);
-    data[(*index)++] = (unsigned char)(value >> 8U);
+    data[(*index)++] = (Uint16)(value & 0x00FFU);
+    data[(*index)++] = (Uint16)(value >> 8U);
 }
 
-static void EEPROM_PutUint32(unsigned char *data, Uint16 *index, Uint32 value)
+static void EEPROM_PutUint32(Uint16 *data, Uint16 *index, Uint32 value)
 {
-    data[(*index)++] = (unsigned char)(value & 0x000000FFUL);
-    data[(*index)++] = (unsigned char)((value >> 8U) & 0xFFUL);
-    data[(*index)++] = (unsigned char)((value >> 16U) & 0xFFUL);
-    data[(*index)++] = (unsigned char)((value >> 24U) & 0xFFUL);
+    data[(*index)++] = (Uint16)(value & 0x000000FFUL);
+    data[(*index)++] = (Uint16)((value >> 8U) & 0xFFUL);
+    data[(*index)++] = (Uint16)((value >> 16U) & 0xFFUL);
+    data[(*index)++] = (Uint16)((value >> 24U) & 0xFFUL);
 }
 
-static Uint16 EEPROM_GetUint16(const unsigned char *data, Uint16 *index)
+static Uint16 EEPROM_GetUint16(const Uint16 *data, Uint16 *index)
 {
     Uint16 value = (Uint16)data[(*index)++];
     value |= (Uint16)((Uint16)data[(*index)++] << 8U);
     return value;
 }
 
-static Uint32 EEPROM_GetUint32(const unsigned char *data, Uint16 *index)
+static Uint32 EEPROM_GetUint32(const Uint16 *data, Uint16 *index)
 {
     Uint32 value = (Uint32)data[(*index)++];
     value |= (Uint32)data[(*index)++] << 8U;
@@ -97,7 +97,7 @@ static Uint32 EEPROM_GetUint32(const unsigned char *data, Uint16 *index)
     return value;
 }
 
-static void EEPROM_PutFloat(unsigned char *data, Uint16 *index, float value)
+static void EEPROM_PutFloat(Uint16 *data, Uint16 *index, float value)
 {
     union
     {
@@ -109,7 +109,7 @@ static void EEPROM_PutFloat(unsigned char *data, Uint16 *index, float value)
     EEPROM_PutUint32(data, index, encoded.bits);
 }
 
-static float EEPROM_GetFloat(const unsigned char *data, Uint16 *index)
+static float EEPROM_GetFloat(const Uint16 *data, Uint16 *index)
 {
     union
     {
@@ -121,9 +121,9 @@ static float EEPROM_GetFloat(const unsigned char *data, Uint16 *index)
     return encoded.real;
 }
 
-static Uint16 EEPROM_ReadBytes(Uint16 address, unsigned char *data, Uint16 length)
+static Uint16 EEPROM_ReadBytes(Uint16 address, Uint16 *data, Uint16 length)
 {
-    unsigned char addressBytes[2];
+    Uint16 addressBytes[2];
     Uint16 chunk;
     Uint16 status;
 
@@ -136,8 +136,8 @@ static Uint16 EEPROM_ReadBytes(Uint16 address, unsigned char *data, Uint16 lengt
     {
         /* Keep individual reads bounded so the I2C receive FIFO is drained. */
         chunk = (length > 32U) ? 32U : length;
-        addressBytes[0] = (unsigned char)(address >> 8U);
-        addressBytes[1] = (unsigned char)(address & 0x00FFU);
+        addressBytes[0] = (Uint16)(address >> 8U);
+        addressBytes[1] = (Uint16)(address & 0x00FFU);
         status = I2C_MasterWriteRead(EEPROM_I2C_ADDR_7BIT,
                                      addressBytes, 2U,
                                      data, chunk,
@@ -153,9 +153,9 @@ static Uint16 EEPROM_ReadBytes(Uint16 address, unsigned char *data, Uint16 lengt
     return I2C_STATUS_OK;
 }
 
-static Uint16 EEPROM_WriteBytes(Uint16 address, const unsigned char *data, Uint16 length)
+static Uint16 EEPROM_WriteBytes(Uint16 address, const Uint16 *data, Uint16 length)
 {
-    unsigned char tx[2U + EEPROM_PAGE_SIZE];
+    Uint16 tx[2U + EEPROM_PAGE_SIZE];
     Uint16 pageOffset;
     Uint16 chunk;
     Uint16 index;
@@ -175,14 +175,14 @@ static Uint16 EEPROM_WriteBytes(Uint16 address, const unsigned char *data, Uint1
             chunk = length;
         }
 
-        tx[0] = (unsigned char)(address >> 8U);
-        tx[1] = (unsigned char)(address & 0x00FFU);
+        tx[0] = (Uint16)(address >> 8U);
+        tx[1] = (Uint16)(address & 0x00FFU);
         for(index = 0U; index < chunk; index++)
         {
             tx[2U + index] = data[index];
         }
 
-        status = I2C_MasterWrite(EEPROM_I2C_ADDR_7BIT,
+        status = I2C_MasterTransfer(EEPROM_I2C_ADDR_7BIT,
                                  tx, (Uint16)(chunk + 2U),
                                  EEPROM_WRITE_TIMEOUT_US);
         if(status != I2C_STATUS_OK)
@@ -209,7 +209,7 @@ static Uint16 EEPROM_WaitWriteCycle(void)
 
     for(elapsed = 0U; elapsed < EEPROM_ACK_TIMEOUT_US; elapsed = (Uint16)(elapsed + EEPROM_ACK_POLL_STEP_US))
     {
-        status = I2C_MasterProbe(EEPROM_I2C_ADDR_7BIT, EEPROM_ACK_POLL_STEP_US);
+        status = I2C_MasterTransfer(EEPROM_I2C_ADDR_7BIT, 0, 0U, EEPROM_ACK_POLL_STEP_US);
         if(status == I2C_STATUS_OK)
         {
             return I2C_STATUS_OK;
@@ -224,7 +224,7 @@ static Uint16 EEPROM_WaitWriteCycle(void)
 
 static Uint16 EEPROM_SaveCalibration(void)
 {
-    unsigned char record[EEPROM_CONFIG_BYTES];
+    Uint16 record[EEPROM_CONFIG_BYTES];
     Uint16 index = 0U;
     Uint16 crc;
     Uint16 interruptState;
@@ -270,7 +270,7 @@ static Uint16 EEPROM_SaveCalibration(void)
 
 static Uint16 EEPROM_LoadCalibration(void)
 {
-    unsigned char record[EEPROM_CONFIG_BYTES];
+    Uint16 record[EEPROM_CONFIG_BYTES];
     Uint16 index;
     Uint16 length;
     Uint16 status;

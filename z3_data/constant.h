@@ -7,12 +7,45 @@
 #define MATH_THREE_HALF_PI_F (1.5f * MATH_PI_F)
 #define MATH_INV_TWO_PI_F   (1.0f / MATH_TWO_PI_F)
 
+/* Device system clock shared by BSP timing peripherals and profiling. */
+#define SYSCLK_FREQ_HZ            200000000UL
+#define SYSCLK_CYCLES_PER_US            200UL
+
 /* Supported inverter model identifiers. */
 #define MODEL_3KW                       1U
 #define MODEL_4KW                       2U
 
+/* Recoverable machine-problem masks. */
+#define RECOVER_PLL_FAULT              (1UL << 0U)
+#define RECOVER_TZ_FAULT               (1UL << 1U)
+#define RECOVER_GRID_OVER_VOLT         (1UL << 2U)
+#define RECOVER_GRID_UNDER_VOLT        (1UL << 3U)
+#define RECOVER_GRID_OVER_FREQ         (1UL << 4U)
+#define RECOVER_GRID_UNDER_FREQ        (1UL << 5U)
+#define RECOVER_PV1_OVER_VOLT          (1UL << 8U)
+#define RECOVER_PV2_OVER_VOLT          (1UL << 9U)
+#define RECOVER_PV1_OVER_CURRENT       (1UL << 10U)
+#define RECOVER_PV2_OVER_CURRENT       (1UL << 11U)
+#define RECOVER_INDUCTOR_OVER_CURRENT  (1UL << 12U)
+#define RECOVER_GRID_DC_CURRENT        (1UL << 13U)
+#define RECOVER_GFCI                   (1UL << 14U)
+#define RECOVER_ISOLATION              (1UL << 15U)
+#define RECOVER_NO_UTILITY             (1UL << 16U)
+
+/* Permanent machine-problem masks. */
+#define PERMANENT_INVERTER_OVER_TEMP   (1UL << 0U)
+#define PERMANENT_BOOST_OVER_TEMP      (1UL << 1U)
+#define PERMANENT_ADC_FAULT            (1UL << 2U)
+#define PERMANENT_EEPROM_FAULT         (1UL << 3U)
+#define PERMANENT_GFCI_DEVICE_FAULT    (1UL << 4U)
+#define PERMANENT_DC_BUS_OVER_VOLT     (1UL << 5U)
+
+/* Warning masks. Warnings record diagnostic conditions without stopping output. */
+#define WARNING_MAIN_LOOP_OVERRUN      (1UL << 0U)
+#define WARNING_SCHEDULER_PENDING_OVERFLOW (1UL << 1U)
+#define WARNING_I2C_PENDING_OVERFLOW   (1UL << 2U)
+
 /* Fault mask used while waiting for the grid PLL to acquire lock. */
-#define SYS_FAULT_PLL_STARTUP_MASK      1ULL
 
 /* 电网安规阈值已迁移到 gGridSafety 数据域（variable.h/.c）。
  * 10min窗口/DCI/GFCI/电网丢失/快速掉网等单文件常量已迁移到各自任务 .c。 */

@@ -10,7 +10,7 @@
  *      和同一运行节奏（峰值触发），拆开反而要约定"谁先跑、读什么"，增加协调成本。
  *
  * 边界纪律（在 task_dc_ctrl.c 内）：
- *   - 监测段只写 gSysFault.bit.*，不碰 gBusCtrlData；
+ *   - 监测段只写 gSysProblem 的问题掩码，不碰 gBusCtrlData；
  *   - 控制段只写 gBusCtrlData.*，不碰故障位。
  *
  * 何时拆出：DC 监测膨胀（母线过/欠压、PV1/PV2 过压、Boost 过温、软启动超时等），

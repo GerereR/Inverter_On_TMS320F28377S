@@ -15,7 +15,7 @@
 #define OLED_FONT_IDX_SYMBOL    63U
 #define OLED_FONT_INDEX_QUESTION   65U   /* '?' = 符号区第 3 个,兜底显示用 */
 
-static const unsigned char OLED_Font5x7[][5] =
+static const Uint16 OLED_Font5x7[][5] =
 {
     /* 空格 */
     {0x00U,0x00U,0x00U,0x00U,0x00U},
@@ -73,14 +73,14 @@ static const unsigned char OLED_Font5x7[][5] =
 #define OLED_CONTROL_DATA        0x40U
 #define OLED_DIRTY_ALL_PAGES     0x00FFU
 
-static unsigned char OLED_FrameBuffer[OLED_WIDTH_COLUMNS * OLED_HEIGHT_PAGES];
+static Uint16 OLED_FrameBuffer[OLED_WIDTH_COLUMNS * OLED_HEIGHT_PAGES];
 static Uint16 OLED_DirtyPages = OLED_DIRTY_ALL_PAGES;
 static Uint16 OLED_RefreshStartPage = 0U;
 static Uint16 OLED_CursorColumn = 0U;
 static Uint16 OLED_CursorPage = 0U;
 
 /* OLED驱动层私有函数声明。任务入口放在前面，具体实现集中放在文件后部。 */
-static Uint16 OLED_WriteCommand(unsigned char command);
+static Uint16 OLED_WriteCommand(Uint16 command);
 static void OLED_MarkPageDirty(Uint16 page);
 static void OLED_Clear(void);
 static Uint16 OLED_Init(void);
@@ -222,8 +222,7 @@ void Task_UI(void)
         return;
     }
 
-    /* Task_Measure和Task_UI同属合作式主循环,测量快照读取期间不会被改写。
-     * pllFault/tzFault由ISR写入,单个16位字段在C28x上可原子读取。 */
+    /* Task_Measure和Task_UI同属合作式主循环,测量快照读取期间不会被改写。 */
     gridVoltageRms = gMachineData.realRms.gridVoltage;
     inductorCurrentRms = gMachineData.realRms.inductorCurrent;
     pv1Voltage = gMachineData.realAvg.pv1Voltage;
@@ -235,8 +234,8 @@ void Task_UI(void)
     inductorCurrentAmp = gBusCtrlData.currentAmpRef;
     boost1Duty = gBusCtrlData.boost1Duty;
     boost2Duty = gBusCtrlData.boost2Duty;
-    pllLocked = (gSysFault.bit.pllFault == 0U) ? 1U : 0U;
-    tzFault = gSysFault.bit.tzFault;
+    pllLocked = ((gSysProblem.recoverFault & RECOVER_PLL_FAULT) == 0UL) ? 1U : 0U;
+    tzFault = (gSysProblem.recoverFault & RECOVER_TZ_FAULT) != 0UL;
 
     /* 两组页面轮换显示, 每组都覆盖相同的页面, 不会残留上一组内容。 */
     if(UI_DisplayScreen == 0U)
@@ -278,14 +277,14 @@ void Task_UI(void)
 
 /* OLED驱动层 =================================================================
  * 完成初始化命令、帧缓冲绘制、脏页管理和I2C上屏。
- * 它依赖通用I2C_MasterWrite，但不再占用i2c.c的底层驱动职责。         */
+ * 它依赖通用I2C_MasterTransfer，但不再占用i2c.c的底层驱动职责。         */
 
-static Uint16 OLED_WriteCommand(unsigned char command)
+static Uint16 OLED_WriteCommand(Uint16 command)
 {
-    unsigned char tx[2];
+    Uint16 tx[2];
     tx[0] = OLED_CONTROL_COMMAND;
     tx[1] = command;
-    return I2C_MasterWrite(OLED_I2C_ADDR_7BIT, tx, 2U, OLED_I2C_TIMEOUT_US);
+    return I2C_MasterTransfer(OLED_I2C_ADDR_7BIT, tx, 2U, OLED_I2C_TIMEOUT_US);
 }
 
 static void OLED_MarkPageDirty(Uint16 page)
@@ -308,7 +307,7 @@ static void OLED_Clear(void)
 
 static Uint16 OLED_Init(void)
 {
-    static const unsigned char initCommands[] =
+    static const Uint16 initCommands[] =
     {
         0xAEU,       /* 关显示，配置期间禁止输出 */
         0xD5U, 0x80U,/* 显示时钟分频比=1，振荡频率=8 */
@@ -441,7 +440,7 @@ static void OLED_WriteLine(Uint16 page, const char *text)
 /* 页寻址模式下，设定一次页和起始列后连续发送128字节。 */
 static Uint16 OLED_RefreshPage(Uint16 page)
 {
-    static unsigned char tx[1U + OLED_WIDTH_COLUMNS];
+    static Uint16 tx[1U + OLED_WIDTH_COLUMNS];
     Uint16 column;
     Uint16 status;
 
@@ -450,7 +449,7 @@ static Uint16 OLED_RefreshPage(Uint16 page)
         return I2C_STATUS_BAD_PARAMETER;
     }
 
-    status = OLED_WriteCommand((unsigned char)(0xB0U | page));
+    status = OLED_WriteCommand((Uint16)(0xB0U | page));
     if(status != I2C_STATUS_OK) { return status; }
 
     status = OLED_WriteCommand(0x00U);
@@ -464,7 +463,7 @@ static Uint16 OLED_RefreshPage(Uint16 page)
     {
         tx[column + 1U] = OLED_FrameBuffer[(page * OLED_WIDTH_COLUMNS) + column];
     }
-    return I2C_MasterWrite(OLED_I2C_ADDR_7BIT,
+    return I2C_MasterTransfer(OLED_I2C_ADDR_7BIT,
                            tx,
                            (Uint16)(1U + OLED_WIDTH_COLUMNS),
                            OLED_I2C_TIMEOUT_US);

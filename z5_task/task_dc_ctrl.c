@@ -305,7 +305,7 @@ static void DC_Ctrl_CheckBus(const DC_CtrlInput *input)
         if (busOvpFilter >= BUS_OV_FILTER_COUNT)
         {
             busOvpFilter = 0U;
-            gSysFault.bit.dcBusOverVolt = 1U;
+            gSysProblem.permanentFault |= PERMANENT_DC_BUS_OVER_VOLT;
         }
     }
     else
@@ -349,7 +349,7 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
         if (pv1OvpFilter >= PV_OV_FILTER_COUNT)
         {
             pv1OvpFilter = 0U;
-            gSysFault.bit.pv1OverVolt = 1U;
+            gSysProblem.recoverFault |= RECOVER_PV1_OVER_VOLT;
         }
     }
     else
@@ -364,7 +364,7 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
         if (pv2OvpFilter >= PV_OV_FILTER_COUNT)
         {
             pv2OvpFilter = 0U;
-            gSysFault.bit.pv2OverVolt = 1U;
+            gSysProblem.recoverFault |= RECOVER_PV2_OVER_VOLT;
         }
     }
     else
@@ -372,7 +372,7 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
         pv2OvpFilter = 0U;
     }
 
-    if (gSysFault.bit.pv1OverVolt != 0U)
+    if ((gSysProblem.recoverFault & RECOVER_PV1_OVER_VOLT) != 0UL)
     {
         if (input->pv1Voltage < PV_OV_RECOVER_V)
         {
@@ -380,7 +380,7 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
             if (pv1OvpBackFilter >= PV_OV_RECOVER_COUNT)
             {
                 pv1OvpBackFilter = 0U;
-                gSysFault.bit.pv1OverVolt = 0U;
+                gSysProblem.recoverFault &= ~RECOVER_PV1_OVER_VOLT;
             }
         }
         else
@@ -389,7 +389,7 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
         }
     }
 
-    if (gSysFault.bit.pv2OverVolt != 0U)
+    if ((gSysProblem.recoverFault & RECOVER_PV2_OVER_VOLT) != 0UL)
     {
         if (input->pv2Voltage < PV_OV_RECOVER_V)
         {
@@ -397,7 +397,7 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
             if (pv2OvpBackFilter >= PV_OV_RECOVER_COUNT)
             {
                 pv2OvpBackFilter = 0U;
-                gSysFault.bit.pv2OverVolt = 0U;
+                gSysProblem.recoverFault &= ~RECOVER_PV2_OVER_VOLT;
             }
         }
         else
@@ -429,8 +429,8 @@ void Task_DC_Ctrl(void)
     /* 存在故障或母线电压无效时，复位并封波。 */
     if
     (
-        (gSysFault.word.recoverable != 0U) ||
-        (gSysFault.word.permanent != 0U) ||
+        (gSysProblem.recoverFault != 0UL) ||
+        (gSysProblem.permanentFault != 0UL) ||
         (input.busVoltage <= 0.0f)
     )
     {

@@ -124,95 +124,13 @@ typedef struct
     Uint16 boostTemperature;
 } ADC_TemperatureRawFrame;
 
-/*
- * Fault bits can be accessed individually or checked as recoverable/permanent
- * groups. Keep each group exactly 32 bits so its word view stays stable.
- */
-typedef union
+/* Machine problems are grouped by handling policy, not compiler bitfields. */
+typedef struct
 {
-    Uint64 all;
-
-    struct
-    {
-        Uint32 recoverable;
-        Uint32 permanent;
-    } word;
-
-    struct
-    {
-        /* Recoverable fault word, bits 0..15. */
-        Uint16 pllFault : 1;
-        Uint16 tzFault : 1;
-        Uint16 gridOverVolt : 1;
-        Uint16 gridUnderVolt : 1;
-        Uint16 gridOverFreq : 1;
-        Uint16 gridUnderFreq : 1;
-        Uint16 reserved6 : 1;
-        Uint16 reserved7 : 1;
-        Uint16 pv1OverVolt : 1;
-        Uint16 pv2OverVolt : 1;
-        Uint16 pv1OverCurrent : 1;
-        Uint16 pv2OverCurrent : 1;
-        Uint16 inductorOverCurrent : 1;
-        Uint16 gridDcCurrentFault : 1;
-        Uint16 gfciFault : 1;
-        Uint16 isolationFault : 1;
-
-        /* Recoverable fault word, bits 16..31. */
-        Uint16 noUtility : 1;
-        Uint16 reserved17 : 1;
-        Uint16 reserved18 : 1;
-        Uint16 reserved19 : 1;
-        Uint16 reserved20 : 1;
-        Uint16 reserved21 : 1;
-        Uint16 reserved22 : 1;
-        Uint16 reserved23 : 1;
-        Uint16 reserved24 : 1;
-        Uint16 reserved25 : 1;
-        Uint16 reserved26 : 1;
-        Uint16 reserved27 : 1;
-        Uint16 reserved28 : 1;
-        Uint16 reserved29 : 1;
-        Uint16 reserved30 : 1;
-        Uint16 reserved31 : 1;
-
-        /* Permanent fault word, bits 32..47. */
-        Uint16 inverterOverTemp : 1;
-        Uint16 boostOverTemp : 1;
-        Uint16 adcFault : 1;
-        Uint16 eepromFault : 1;
-        Uint16 gfciDeviceFault : 1;   /* 原 GFCIDeviceFault：GFCI 自检硬件故障 */
-        Uint16 dcBusOverVolt : 1;     /* 母线过压：permanent，Boost 失控/硬件损坏不可恢复 */
-        Uint16 reserved38 : 1;
-        Uint16 reserved39 : 1;
-        Uint16 reserved40 : 1;
-        Uint16 reserved41 : 1;
-        Uint16 reserved42 : 1;
-        Uint16 reserved43 : 1;
-        Uint16 reserved44 : 1;
-        Uint16 reserved45 : 1;
-        Uint16 reserved46 : 1;
-        Uint16 reserved47 : 1;
-
-        /* Reserved, bits 48..63. */
-        Uint16 reserved48 : 1;
-        Uint16 reserved49 : 1;
-        Uint16 reserved50 : 1;
-        Uint16 reserved51 : 1;
-        Uint16 reserved52 : 1;
-        Uint16 reserved53 : 1;
-        Uint16 reserved54 : 1;
-        Uint16 reserved55 : 1;
-        Uint16 reserved56 : 1;
-        Uint16 reserved57 : 1;
-        Uint16 reserved58 : 1;
-        Uint16 reserved59 : 1;
-        Uint16 reserved60 : 1;
-        Uint16 reserved61 : 1;
-        Uint16 reserved62 : 1;
-        Uint16 reserved63 : 1;
-    } bit;
-} SysFault;
+    Uint32 warning;
+    Uint32 recoverFault;
+    Uint32 permanentFault;
+} SysProblem;
 
 /* State-machine data shared by startup, protection and supervisory tasks. */
 typedef struct
@@ -390,7 +308,7 @@ typedef struct
 } PLL_Data;
 
 extern volatile MachineData gMachineData;
-extern volatile SysFault gSysFault;
+extern volatile SysProblem gSysProblem;
 extern volatile SysData gSysData;
 extern volatile ADC_Calibrate gAdcCal;
 extern volatile AdcOffsetCal gAdcOffsetCal;

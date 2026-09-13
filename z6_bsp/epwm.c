@@ -3,86 +3,137 @@
 #include "variable.h"
 #include "inverter.h"
 
+//周期计数器值,向上计数到2500开始向下计数
 #define EPWM_PERIOD_TICKS          2500U
+//死区时间
 #define EPWM_DEADBAND_TICKS        100U
+//AQ不强制
 #define EPWM_AQ_FORCE_DISABLED      0U
+//AQ强制低
 #define EPWM_AQ_FORCE_LOW           1U
+//AQ强制高
 #define EPWM_AQ_FORCE_HIGH          2U
+//AQ立即强制
 #define EPWM_AQ_FORCE_IMMEDIATE     3U
 
-/* Time-base synchronization modes used by the power-stage channels. */
+//独立,不同步
 #define EPWM_SYNC_INDEPENDENT       0U
+//作为主同步
 #define EPWM_SYNC_MASTER            1U
+//作为副同步
 #define EPWM_SYNC_SLAVE             2U
 
+//蜂鸣器时钟频率,25MHz
 #define BEEP_PWM_CLOCK_HZ           25000000UL
+//蜂鸣器默认频率2KHz
 #define BEEP_DEFAULT_FREQUENCY_HZ   2000U
+//蜂鸣器声音频率范围400Hz~10KHz
 #define BEEP_MIN_FREQUENCY_HZ       400U
 #define BEEP_MAX_FREQUENCY_HZ       10000U
-
+//
 static volatile Uint16 EPWM_TripZoneFaulted = 0U;
 
+//这个函数是为了单独配置功率级的ePWM模块的
 static void EPWM_ConfigPowerStage
 (
+    //待配置ePWM模块
     volatile struct EPWM_REGS *pwm,
+    //设置同步模式
     Uint16 syncMode,
+    //死区使能配置
     Uint16 useDeadband,
+    //TZ使能配置
     Uint16 useTz1,
     Uint16 useTz2,
     Uint16 useTz3
 )
 {
+    //配置时基寄存器
     pwm->TBCTL.all = 0U;
+    //几个ePWM都是上下计数模式
     pwm->TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN;
+    //根据输入参数考虑是否启用同步
     pwm->TBCTL.bit.PHSEN = (syncMode == EPWM_SYNC_SLAVE) ? TB_ENABLE : TB_DISABLE;
+    //如果选择了同步,且配置为主
     if(syncMode == EPWM_SYNC_MASTER)
     {
+        //当CTR=0时,输出一个同步信号
         pwm->TBCTL.bit.SYNCOSEL = TB_CTR_ZERO;
     }
+    //如果选择了同步,且配置为从
     else if(syncMode == EPWM_SYNC_SLAVE)
     {
+        //接收外部的同步信号
         pwm->TBCTL.bit.SYNCOSEL = TB_SYNC_IN;
     }
+    //参数有误就不使能
     else
     {
         pwm->TBCTL.bit.SYNCOSEL = TB_SYNC_DISABLE;
     }
+    //启用周期影子寄存器
     pwm->TBCTL.bit.PRDLD = TB_SHADOW;
+    //ePWM内部时钟不分频
     pwm->TBCTL.bit.HSPCLKDIV = TB_DIV1;
     pwm->TBCTL.bit.CLKDIV = TB_DIV1;
+    //软件调试时停止输出
     pwm->TBCTL.bit.FREE_SOFT = 2U;
+    //周期计数器配置为2500,
     pwm->TBPRD = EPWM_PERIOD_TICKS;
+    //告诉ePWM: "当你接收到同步之后,应该跳转到CTR=0,然后向上计数"
     pwm->TBPHS.all = 0U;
+    //初始化周期计数器
     pwm->TBCTR = 0U;
 
+    //配置比较寄存器
     pwm->CMPCTL.all = 0U;
+    //A,B两路都配置为双缓冲操作,具体装载时间见下
     pwm->CMPCTL.bit.SHDWAMODE = CC_SHADOW;
     pwm->CMPCTL.bit.SHDWBMODE = CC_SHADOW;
+    //A,B两路装载时刻都在CTR=0或CTR=2500时刻装载
     pwm->CMPCTL.bit.LOADAMODE = CC_CTR_ZERO_PRD;
     pwm->CMPCTL.bit.LOADBMODE = CC_CTR_ZERO_PRD;
+    //初始先给个0.5的占空比
     pwm->CMPA.bit.CMPA = EPWM_PERIOD_TICKS / 2U;
 
+    //配置动作限定寄存器,这个寄存器的作用就是处理处理PWM事件,把事件变成PWM波
+    //对于大功率器件,当我发送强制低的信号时,就应该立即执行,不管你当前是什么状态
     pwm->AQSFRC.bit.RLDCSF = EPWM_AQ_FORCE_IMMEDIATE;
+    //配置A路的AQ寄存器
     pwm->AQCTLA.all = 0U;
+    //对于A路,当基波>载波的时候输出高
     pwm->AQCTLA.bit.CAU = AQ_SET;
     pwm->AQCTLA.bit.CAD = AQ_CLEAR;
+    //对于B路,没配置,因为他将会在死区模块被配置为互补
     pwm->AQCTLB.all = 0U;
+
+    //配置死区寄存器
+    //如果有配置死区,暗示我们正在配置INV的开关管
     if(useDeadband != 0U)
     {
-        /* Inverter bridge: B is generated as the delayed complement of A. */
         pwm->DBCTL.all = 0U;
+        //使能死区模块,而且提前关断,延时导通都启用
         pwm->DBCTL.bit.OUT_MODE = DB_FULL_ENABLE;
+        //A路作为唯一的死区输入路,也就是说,延时导通,提前关断都体现在A路
         pwm->DBCTL.bit.IN_MODE = DBA_ALL;
+        //设置为高电平有效,且AB互补
         pwm->DBCTL.bit.POLSEL = DB_ACTV_HIC;
+        //FED和RED的时间,也就是死区时间
         pwm->DBRED.bit.DBRED = EPWM_DEADBAND_TICKS;
         pwm->DBFED.bit.DBFED = EPWM_DEADBAND_TICKS;
+        //其实死区的配置很简单,一句话:
+        //AB两路首先是互补的,但是每一路从低->高的时候都得乖乖等待设定的死区时间,外在表现都是延时导通.
+        //之所以强调"外在"这一个词,是因为配置方法不止这一种
     }
+    //如果没有配置死区,暗示我们正在配置BOOST的开关管
     else
     {
-        /* Dual Boost: A and B are independent outputs on one shared timer. */
+        //清除死区配置
         pwm->DBCTL.all = 0U;
+        //接着回到AQ配置,B路是独立的,但是方向和A路相反:基波>载波输出低
         pwm->AQCTLB.bit.CBU = AQ_CLEAR;
         pwm->AQCTLB.bit.CBD = AQ_SET;
+        //初始占空比也设置为0.5
         pwm->CMPB.bit.CMPB = EPWM_PERIOD_TICKS / 2U;
     }
 
@@ -263,7 +314,7 @@ Uint16 EPWM_TripZoneClear(void)
        (GpioDataRegs.GPCDAT.bit.GPIO64 == 0U))
     {
         EPWM_TripZoneFaulted = 1U;
-        gSysFault.bit.tzFault = 1U;
+        gSysProblem.recoverFault |= RECOVER_TZ_FAULT;
         return 0U;
     }
 
@@ -291,14 +342,14 @@ Uint16 EPWM_TripZoneClear(void)
     EDIS;
 
     EPWM_TripZoneFaulted = 0U;
-    gSysFault.bit.tzFault = 0U;
+    gSysProblem.recoverFault &= ~RECOVER_TZ_FAULT;
     return 1U;
 }
 
 static void EPWM_RecordTrip(volatile struct EPWM_REGS *pwm)
 {
     EPWM_TripZoneFaulted = 1U;
-    gSysFault.bit.tzFault = 1U;
+    gSysProblem.recoverFault |= RECOVER_TZ_FAULT;
     pwm->TZCLR.bit.INT = 1U;
 }
 

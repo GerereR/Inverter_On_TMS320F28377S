@@ -18,6 +18,7 @@
 #define SCI_FRAME_SOF2             0x55U
 
 #define SCI_FRAME_MAX_PAYLOAD      64U//最大响应Payload为64字节
+#define SCI_FRAME_OVERHEAD         8U
 #define SCI_TASK_MAX_RX_BYTES      512U//通讯任务处理字节上限
 
 /* Commands sent by the host computer. */
@@ -57,6 +58,7 @@ static Uint16 SCI_ReceivedCommand = 0U;
 static Uint16 SCI_ReceivedSequence = 0U;
 static Uint16 SCI_ReceivedLength = 0U;
 static Uint16 SCI_ReceivedPayload[SCI_FRAME_MAX_PAYLOAD];
+static Uint16 SCI_TxFrame[SCI_FRAME_MAX_PAYLOAD + SCI_FRAME_OVERHEAD];
 static Uint16 SCI_ReceivedPayloadIndex = 0U;
 static Uint16 SCI_ReceivedCrc = 0U;
 static Uint16 SCI_CalculatedCrc = 0xFFFFU;
@@ -68,7 +70,6 @@ static volatile Uint32 SCI_ProtocolFrameCount = 0UL;
 
 /* Forward declarations keep the public task entry points near the top. */
 static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data);//使用一个新字节更新 CRC16 校验值。
-static void SCI_SendWordLE(Uint16 value);//以小端格式发送一个 16 位数据：
 static void SCI_PutWordLE(Uint16 *payload, Uint16 *index, Uint16 value);//把一个 16 位数据按小端格式写入响应数据数组，并自动移动数组下标。
 static void SCI_PutFloatLE(Uint16 *payload, Uint16 *index, float value);
 
@@ -83,7 +84,6 @@ static void SCI_ParseByte(Uint16 receivedByte);//协议状态机的核心函数
 void Task_Comm_Init(void)
 {
     SCI_ResetParser();
-    SCI_RxDataPending = 0U;
     SCI_ProtocolCrcErrorCount = 0UL;
     SCI_ProtocolFormatErrorCount = 0UL;
     SCI_ProtocolFrameCount = 0UL;
@@ -94,14 +94,11 @@ void Task_Comm(void)
     Uint16 receivedByte;
     Uint16 processedBytes = 0U;
 
-    /* The RX ISR only announces data; protocol work runs at the slow task rate. */
-    if(SCI_RxDataPending == 0U)//检查是否有数据
+    /* The RX ISR buffers bytes; protocol work runs at the slow task rate. */
+    if(SCI_HasRxData() == 0U)//检查是否有数据
     {
         return;
     }
-
-    /* Clear before draining so a new RX interrupt can leave the flag set. */
-    SCI_RxDataPending = 0U;
 
     /* Bound the work per scheduler tick so communication cannot starve control. */
     //本次处理量没有超过限制值,且成功从软件环形缓冲区读出一个字节(多少不重要)
@@ -130,12 +127,6 @@ static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data)
         }
     }
     return crc;
-}
-
-static void SCI_SendWordLE(Uint16 value)
-{
-    SCI_SendByte(value & 0x00FFU);
-    SCI_SendByte((value >> 8U) & 0x00FFU);
 }
 
 //因为SCI是八位的,为得把16位数据拆开
@@ -183,6 +174,7 @@ static void SCI_PutDwordLE(Uint16 *payload, Uint16 *index, Uint32 value)
 static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payload, Uint16 payloadLength)
 {
     Uint16 index;
+    Uint16 frameIndex = 0U;
     Uint16 crc = 0xFFFFU;
     Uint16 responseCommand = command | 0x0080U;
 
@@ -191,25 +183,27 @@ static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payl
         payloadLength = 1U;
     }
 
-    SCI_SendByte(SCI_FRAME_SOF1);
-    SCI_SendByte(SCI_FRAME_SOF2);
+    SCI_TxFrame[frameIndex++] = SCI_FRAME_SOF1;
+    SCI_TxFrame[frameIndex++] = SCI_FRAME_SOF2;
 
-    SCI_SendByte(responseCommand);
+    SCI_TxFrame[frameIndex++] = responseCommand;
     crc = SCI_Crc16Update(crc, responseCommand);
-    SCI_SendByte(sequence);
+    SCI_TxFrame[frameIndex++] = sequence;
     crc = SCI_Crc16Update(crc, sequence);
-    SCI_SendByte(payloadLength & 0x00FFU);
+    SCI_TxFrame[frameIndex++] = payloadLength & 0x00FFU;
     crc = SCI_Crc16Update(crc, payloadLength & 0x00FFU);
-    SCI_SendByte((payloadLength >> 8U) & 0x00FFU);
+    SCI_TxFrame[frameIndex++] = (payloadLength >> 8U) & 0x00FFU;
     crc = SCI_Crc16Update(crc, (payloadLength >> 8U) & 0x00FFU);
 
     for(index = 0U; index < payloadLength; index++)
     {
-        SCI_SendByte(payload[index]);
+        SCI_TxFrame[frameIndex++] = payload[index];
         crc = SCI_Crc16Update(crc, payload[index]);
     }
 
-    SCI_SendWordLE(crc);
+    SCI_TxFrame[frameIndex++] = crc & 0x00FFU;
+    SCI_TxFrame[frameIndex++] = (crc >> 8U) & 0x00FFU;
+    (void)SCI_TrySend(SCI_TxFrame, frameIndex);
 }
 
 //执行上位机的命令
@@ -275,7 +269,7 @@ static void SCI_HandleCommand(void)
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.ecapFreqCent);
             SCI_PutWordLE(responsePayload, &responseIndex, gMachineData.pllFreqCent);
             responsePayload[responseIndex] =
-                (gSysFault.bit.pllFault == 0U) ? 1U : 0U;
+                ((gSysProblem.recoverFault & RECOVER_PLL_FAULT) == 0UL) ? 1U : 0U;
             responseIndex++;
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
@@ -291,10 +285,11 @@ static void SCI_HandleCommand(void)
             SCI_PutWordLE(responsePayload, &responseIndex, (Uint16)gSysData.state);
             SCI_PutWordLE(responsePayload, &responseIndex, gMpptData.inputMode);
             SCI_PutWordLE(responsePayload, &responseIndex,
-                          (gSysFault.bit.pllFault == 0U) ? 1U : 0U);
-            SCI_PutWordLE(responsePayload, &responseIndex, gSysFault.bit.tzFault);
-            SCI_PutDwordLE(responsePayload, &responseIndex, gSysFault.word.recoverable);
-            SCI_PutDwordLE(responsePayload, &responseIndex, gSysFault.word.permanent);
+                          ((gSysProblem.recoverFault & RECOVER_PLL_FAULT) == 0UL) ? 1U : 0U);
+            SCI_PutWordLE(responsePayload, &responseIndex,
+                          (gSysProblem.recoverFault & RECOVER_TZ_FAULT) != 0UL);
+            SCI_PutDwordLE(responsePayload, &responseIndex, gSysProblem.recoverFault);
+            SCI_PutDwordLE(responsePayload, &responseIndex, gSysProblem.permanentFault);
             SCI_PutDwordLE(responsePayload, &responseIndex, gMachineData.measureSeq);
             responseLength = responseIndex;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
@@ -303,7 +298,7 @@ static void SCI_HandleCommand(void)
 
         case SCI_CMD_READ_FAULT_STATUS:
             responseLength = 2U;
-            responsePayload[1] = gSysFault.bit.tzFault;
+            responsePayload[1] = (gSysProblem.recoverFault & RECOVER_TZ_FAULT) != 0UL;
             SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
             break;
 

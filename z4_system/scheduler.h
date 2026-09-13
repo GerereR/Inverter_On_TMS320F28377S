@@ -2,26 +2,32 @@
 #define SCHEDULER_H_
 
 #include "F28x_Project.h"
+#include "constant.h"
 
 #ifndef SCHEDULER_PROFILE_ENABLE
     #define SCHEDULER_PROFILE_ENABLE  1U
 #endif
 
-#define SCHEDULER_PROFILE_CYCLES_PER_US  200UL
+//这里的timer2不分频
+#define SCHEDULER_PROFILE_CYCLES_PER_US  SYSCLK_CYCLES_PER_US
 
-/* Cooperative periodic tasks and grid-synchronous events. */
-#define TASK_STATE_FLAG       0x0001U
-#define TASK_MEASURE_FLAG     0x0002U
-#define TASK_AC_MONITOR_FLAG  0x0004U
-#define TASK_MPPT_FLAG        0x0008U
-#define TASK_COMM_FLAG        0x0020U
-#define TASK_UI_FLAG          0x0040U
-#define TASK_EEPROM_FLAG      0x0080U
-#define TASK_DC_CTRL_FLAG     0x0100U
-#define TASK_REACTIVE_FLAG    0x0200U
-#define TASK_POWER_FLAG       0x0400U
+/* A scheduled batch should finish within one 1 ms scheduler tick. */
+#define SCHEDULER_MAIN_LOOP_WARNING_US      1000UL
+#define SCHEDULER_MAIN_LOOP_WARNING_CYCLES  (SCHEDULER_MAIN_LOOP_WARNING_US * SCHEDULER_PROFILE_CYCLES_PER_US)
 
-/* Periods derived from the common 1 ms scheduler tick. */
+//每个标志位占据的字节是不一样的
+#define TASK_STATE_FLAG       (1UL << 0U)
+#define TASK_MEASURE_FLAG     (1UL << 1U)
+#define TASK_AC_MONITOR_FLAG  (1UL << 2U)
+#define TASK_MPPT_FLAG        (1UL << 3U)
+#define TASK_COMM_FLAG        (1UL << 4U)
+#define TASK_UI_FLAG          (1UL << 5U)
+#define TASK_EEPROM_FLAG      (1UL << 6U)
+#define TASK_DC_CTRL_FLAG     (1UL << 7U)
+#define TASK_REACTIVE_FLAG    (1UL << 8U)
+#define TASK_POWER_FLAG       (1UL << 9U)
+
+//每个任务的触发事件是不一样的
 #define TASK_MEASURE_PERIOD_MS  3U
 #define TASK_STATE_PERIOD_MS    5U
 #define TASK_MPPT_PERIOD_MS     750U
@@ -54,7 +60,6 @@ typedef struct
     Uint32 batchMaxCycles;
 } SchedulerProbe;
 
-/* Scheduler owns the writable object; other modules receive a read-only view. */
 extern const volatile SchedulerProbe * const gSchedulerProbe;
 
 void Scheduler_Init(void);

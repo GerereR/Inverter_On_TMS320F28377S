@@ -4,7 +4,6 @@
 #include "scheduler.h"
 
 // ECAP计数器直接使用200 MHz系统时钟。
-#define ECAP_CLOCK_HZ  200000000.0f
 #define ECAP_CYCLE_FREQ_MIN_HZ  45.0f
 #define ECAP_CYCLE_FREQ_MAX_HZ  70.0f
 
@@ -61,7 +60,7 @@ __interrupt void ECAP1_BSP_ISR(void)
         ECAP_PeriodTicks = periodTicks;
         if(periodTicks != 0UL)
         {
-            ECAP_FreqHz = ECAP_CLOCK_HZ / (float)periodTicks;
+            ECAP_FreqHz = (float)SYSCLK_FREQ_HZ / (float)periodTicks;
             /* Ignore noise edges that cannot represent a valid grid cycle. */
             if((ECAP_FreqHz >= ECAP_CYCLE_FREQ_MIN_HZ) &&
                (ECAP_FreqHz <= ECAP_CYCLE_FREQ_MAX_HZ))
