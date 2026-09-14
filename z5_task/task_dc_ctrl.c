@@ -380,7 +380,7 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
             if (pv1OvpBackFilter >= PV_OV_RECOVER_COUNT)
             {
                 pv1OvpBackFilter = 0U;
-                gSysProblem.recoverFault &= ~RECOVER_PV1_OVER_VOLT;
+                gSysProblem.recoverFault &=~ RECOVER_PV1_OVER_VOLT;
             }
         }
         else
@@ -397,7 +397,7 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
             if (pv2OvpBackFilter >= PV_OV_RECOVER_COUNT)
             {
                 pv2OvpBackFilter = 0U;
-                gSysProblem.recoverFault &= ~RECOVER_PV2_OVER_VOLT;
+                gSysProblem.recoverFault &=~ RECOVER_PV2_OVER_VOLT;
             }
         }
         else

@@ -30,8 +30,6 @@
 //蜂鸣器声音频率范围400Hz~10KHz
 #define BEEP_MIN_FREQUENCY_HZ       400U
 #define BEEP_MAX_FREQUENCY_HZ       10000U
-//
-static volatile Uint16 EPWM_TripZoneFaulted = 0U;
 
 //这个函数是为了单独配置功率级的ePWM模块的
 static void EPWM_ConfigPowerStage
@@ -136,20 +134,24 @@ static void EPWM_ConfigPowerStage
         //初始占空比也设置为0.5
         pwm->CMPB.bit.CMPB = EPWM_PERIOD_TICKS / 2U;
     }
-
+    //TZ 配置
     pwm->TZSEL.all = 0U;
+    //选择使能TZ通道
     pwm->TZSEL.bit.OSHT1 = useTz1;
     pwm->TZSEL.bit.OSHT2 = useTz2;
     pwm->TZSEL.bit.OSHT3 = useTz3;
+    //当触发了TZ之后,两路PWN都强制低,注意:这是硬件自动触发的,无条件的
     pwm->TZCTL.bit.TZA = TZ_FORCE_LO;
     pwm->TZCTL.bit.TZB = TZ_FORCE_LO;
-    pwm->TZEINT.bit.OST = ((useTz1 != 0U) || (useTz2 != 0U) ||
-                           (useTz3 != 0U)) ? 1U : 0U;
+    //启用中断
+    pwm->TZEINT.bit.OST = ((useTz1 != 0U) || (useTz2 != 0U) || (useTz3 != 0U)) ? 1U : 0U;
+    //清除所有可能的中断标志
     pwm->TZCLR.bit.OST = 1U;
     pwm->TZOSTCLR.bit.OST1 = 1U;
     pwm->TZOSTCLR.bit.OST2 = 1U;
     pwm->TZOSTCLR.bit.OST3 = 1U;
     pwm->TZCLR.bit.INT = 1U;
+    //初始化时 A、B 都强制为低，保证上电时功率管是关断的
     pwm->AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_LOW;
     pwm->AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_LOW;
 }
@@ -157,19 +159,18 @@ static void EPWM_ConfigPowerStage
 void EPWM_Config(void)
 {
     EALLOW;
-
-    /* Freeze all ePWM time bases while configuring the power stage. */
+    //冻结所有时间基
     CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 0U;
+    //系统时钟二分频进入EPWM,结合之前的配置,就可以知道(2MHz / 2) / (2 * 2500) = 20KHz
     ClkCfgRegs.PERCLKDIVSEL.bit.EPWMCLKDIV = 1U;
+    //从配置参数可以知道:
+    //ePWM1 & ePWM2是逆变器PWM, 其中ePWN1作为主同步信号, 都开启了死区功能, 两个模块共用TZ3
+    EPWM_ConfigPowerStage(&EPwm1Regs, EPWM_SYNC_MASTER,      1U, 0U, 0U, 1U); 
+    EPWM_ConfigPowerStage(&EPwm2Regs, EPWM_SYNC_SLAVE,       1U, 0U, 0U, 1U);
+    //ePWM3是BOOSt的PWM, 模块使用TZ1
+    EPWM_ConfigPowerStage(&EPwm3Regs, EPWM_SYNC_INDEPENDENT, 0U, 1U, 0U, 0U); 
 
-    /* Functional mapping: old EPWM2/3 -> inverter EPWM1/2; old EPWM4 ->
-     * dual-Boost EPWM3; old EPWM6 remains a TZ2/ZVT support module. */
-    EPWM_ConfigPowerStage(&EPwm1Regs, EPWM_SYNC_MASTER,      1U, 0U, 0U, 1U); /* old EPWM2, TZ3 */
-    EPWM_ConfigPowerStage(&EPwm2Regs, EPWM_SYNC_SLAVE,       1U, 0U, 0U, 1U); /* old EPWM3, TZ3 */
-    EPWM_ConfigPowerStage(&EPwm3Regs, EPWM_SYNC_INDEPENDENT, 0U, 1U, 0U, 0U); /* old EPWM4, dual Boost */
-
-    /* Old EPWM6 was not a power PWM. Keep EPWM4 as a TZ2 monitor/reserved
-     * ZVT carrier so its dedicated interrupt remains available. */
+    //EPWM4是未使用的,不必关心
     EPwm4Regs.TBCTL.all = 0U;
     EPwm4Regs.TZSEL.all = 0U;
     EPwm4Regs.TZSEL.bit.OSHT2 = 1U;
@@ -179,20 +180,21 @@ void EPWM_Config(void)
     EPwm4Regs.TZCLR.bit.OST = 1U;
     EPwm4Regs.TZCLR.bit.INT = 1U;
 
-    /* TZ3 is shared by EPWM1/2. EPWM1 owns the single CPU interrupt so the
-     * same physical trip is not reported twice and EPWM2 cannot leave a
-     * pending, unserviced TZ interrupt flag. */
+    //ePWM2不启用TZ中断, 也就是说只有ePWM1接收TZ3中断
     EPwm2Regs.TZEINT.bit.OST = 0U;
     EPwm2Regs.TZCLR.bit.INT = 1U;
-
-    /* EPWM1 is the master ADC trigger at CTR=ZERO. */
+    //失能PWM2A触发ADC
     EPwm1Regs.ETSEL.bit.SOCAEN = 0U;
+    //CTR到达0的时候通知ADC采集数据
     EPwm1Regs.ETSEL.bit.SOCASEL = ET_CTR_ZERO;
+    //每次到达设定CTR都通知ADC
     EPwm1Regs.ETPS.bit.SOCAPRD = ET_1ST;
+    //清除残留事件
     EPwm1Regs.ETCLR.bit.SOCA = 1U;
+    //使能PWM2A触发ADC!
     EPwm1Regs.ETSEL.bit.SOCAEN = 1U;
 
-    /* One ISR per physical protection group. TZ3 is shared by EPWM1/2. */
+    //注册中断表
     PieVectTable.EPWM1_TZ_INT = &EPWM1_TZ_BSP_ISR;
     PieVectTable.EPWM3_TZ_INT = &EPWM3_TZ_BSP_ISR;
     PieVectTable.EPWM4_TZ_INT = &EPWM4_TZ_BSP_ISR;
@@ -201,64 +203,62 @@ void EPWM_Config(void)
     PieCtrlRegs.PIEIER2.bit.INTx4 = 1U;
     IER |= M_INT2;
 
-    /* EPWM5A drives the passive buzzer on GPIO8 and starts silent. */
+    //以下是蜂鸣器ePWM配置
     EPwm5Regs.TBCTL.all = 0U;
+    //向上计数,启用影子寄存器
     EPwm5Regs.TBCTL.bit.CTRMODE = TB_COUNT_UP;
     EPwm5Regs.TBCTL.bit.PRDLD = TB_SHADOW;
+    //四分频,也就是100Mhz / (4+0) = 25Mhz
     EPwm5Regs.TBCTL.bit.HSPCLKDIV = TB_DIV4;
     EPwm5Regs.TBCTL.bit.CLKDIV = TB_DIV1;
+    //初始频率配置为2KHz
     EPwm5Regs.TBPRD = (Uint16)(BEEP_PWM_CLOCK_HZ / BEEP_DEFAULT_FREQUENCY_HZ - 1UL);
     EPwm5Regs.CMPCTL.all = 0U;
+    //CTR=0时影子寄存器装配到里面
     EPwm5Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;
     EPwm5Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;
+    //初始占空比就定为0.5
     EPwm5Regs.CMPA.bit.CMPA = EPwm5Regs.TBPRD / 2U;
     EPwm5Regs.AQCTLA.all = 0U;
+    //基波>载波高电平
     EPwm5Regs.AQCTLA.bit.ZRO = AQ_SET;
     EPwm5Regs.AQCTLA.bit.CAU = AQ_CLEAR;
+    //软件置位立即生效
     EPwm5Regs.AQSFRC.bit.RLDCSF = EPWM_AQ_FORCE_IMMEDIATE;
+    //初始强制低
     EPwm5Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_LOW;
 
     EDIS;
 }
 
+//设置蜂鸣器频率
 void BEEP_SetFreq(Uint16 freqHz)
 {
     Uint32 periodTicks;
-
-    if(freqHz < BEEP_MIN_FREQUENCY_HZ)
-    {
-        freqHz = BEEP_MIN_FREQUENCY_HZ;
-    }
-    else if(freqHz > BEEP_MAX_FREQUENCY_HZ)
-    {
-        freqHz = BEEP_MAX_FREQUENCY_HZ;
-    }
-
+    //限幅 400Hz~10kHz
+    if      (freqHz < BEEP_MIN_FREQUENCY_HZ) { freqHz = BEEP_MIN_FREQUENCY_HZ; }
+    else if (freqHz > BEEP_MAX_FREQUENCY_HZ) { freqHz = BEEP_MAX_FREQUENCY_HZ; }
+    //频率转换为周期计数器值
     periodTicks = BEEP_PWM_CLOCK_HZ / (Uint32)freqHz;
-    if(periodTicks > 0UL)
-    {
-        periodTicks--;
-    }
-    if(periodTicks > 65535UL)
-    {
-        periodTicks = 65535UL;
-    }
-
+    if(periodTicks > 0UL)       { periodTicks--; }
+    if(periodTicks > 65535UL)   { periodTicks = 65535UL; }
+    //装配
     EALLOW;
     EPwm5Regs.TBPRD = (Uint16)periodTicks;
     EPwm5Regs.CMPA.bit.CMPA = (Uint16)(periodTicks / 2UL);
     EDIS;
 }
 
+//释放时间基同步，所有 ePWM 开始跑。功率输出仍被软件强制低
+//函数里只有一句代码,主要是和ePWM_Config第一句相呼应,等所有的BSP都配置好了就开始启动ePWM
 void EPWM_Start(void)
 {
     EALLOW;
     CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1U;
-    /* Keep the power outputs clamped. The running time base still supplies
-     * EPWM1 SOCA to the ADC while the state machine performs CHECK. */
     EDIS;
 }
 
+//四个模块 A、B 全部软件强制低，功率管全关。
 void EPWM_Disable(void)
 {
     EALLOW;
@@ -273,15 +273,14 @@ void EPWM_Disable(void)
     EDIS;
 }
 
+//先确认没有硬件故障，再解除软件强制
 Uint16 EPWM_Enable(void)
 {
-    /* A low TZ input is an active hardware trip. Never release the software
-     * clamps until all three physical protection inputs are inactive. */
+    //判断错误,清除故障
     if(EPWM_TripZoneClear() == 0U)
     {
         return 0U;
     }
-
     EALLOW;
     EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
     EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
@@ -295,6 +294,7 @@ Uint16 EPWM_Enable(void)
     return 1U;
 }
 
+//软件强制触发一次 TZ，让所有功率输出立刻关断。
 void EPWM_TripZoneForce(void)
 {
     EALLOW;
@@ -307,101 +307,111 @@ void EPWM_TripZoneForce(void)
 
 Uint16 EPWM_TripZoneClear(void)
 {
-    /* GPIO62/63/64 are the active-low TZ1/TZ2/TZ3 inputs. Clearing a
-     * one-shot latch while any input is low would only hide an active fault. */
+    //GPIO62/63/64 分别是 TZ1/TZ2/TZ3 的物理引脚
+    //只要任一路还是低，就不允许清故障
     if((GpioDataRegs.GPBDAT.bit.GPIO62 == 0U) ||
        (GpioDataRegs.GPBDAT.bit.GPIO63 == 0U) ||
        (GpioDataRegs.GPCDAT.bit.GPIO64 == 0U))
     {
-        EPWM_TripZoneFaulted = 1U;
+        //通知系统出现过流故障
         gSysProblem.recoverFault |= RECOVER_TZ_FAULT;
         return 0U;
     }
 
     EALLOW;
+    //清除单次触发障锁存标志位 
     EPwm1Regs.TZCLR.bit.OST = 1U;
+    EPwm2Regs.TZCLR.bit.OST = 1U;
+    EPwm3Regs.TZCLR.bit.OST = 1U;
+    EPwm4Regs.TZCLR.bit.OST = 1U;
+
+    //清除单次触发源标志位
     EPwm1Regs.TZOSTCLR.bit.OST1 = 1U;
     EPwm1Regs.TZOSTCLR.bit.OST2 = 1U;
     EPwm1Regs.TZOSTCLR.bit.OST3 = 1U;
-    EPwm1Regs.TZCLR.bit.INT = 1U;
-    EPwm2Regs.TZCLR.bit.OST = 1U;
     EPwm2Regs.TZOSTCLR.bit.OST1 = 1U;
     EPwm2Regs.TZOSTCLR.bit.OST2 = 1U;
     EPwm2Regs.TZOSTCLR.bit.OST3 = 1U;
-    EPwm2Regs.TZCLR.bit.INT = 1U;
-    EPwm3Regs.TZCLR.bit.OST = 1U;
     EPwm3Regs.TZOSTCLR.bit.OST1 = 1U;
     EPwm3Regs.TZOSTCLR.bit.OST2 = 1U;
-    EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;
-    EPwm3Regs.TZCLR.bit.INT = 1U;
-    EPwm4Regs.TZCLR.bit.OST = 1U;
+    EPwm3Regs.TZOSTCLR.bit.OST3 = 1U;    
     EPwm4Regs.TZOSTCLR.bit.OST1 = 1U;
     EPwm4Regs.TZOSTCLR.bit.OST2 = 1U;
-    EPwm4Regs.TZOSTCLR.bit.OST3 = 1U;
+    EPwm4Regs.TZOSTCLR.bit.OST3 = 1U;   
+
+    //清除中断标志
+    EPwm1Regs.TZCLR.bit.INT = 1U;
+    EPwm2Regs.TZCLR.bit.INT = 1U; 
+    EPwm3Regs.TZCLR.bit.INT = 1U;
     EPwm4Regs.TZCLR.bit.INT = 1U;
     EDIS;
 
-    EPWM_TripZoneFaulted = 0U;
-    gSysProblem.recoverFault &= ~RECOVER_TZ_FAULT;
+    //清除错误标志位
+    gSysProblem.recoverFault &=~ RECOVER_TZ_FAULT;
     return 1U;
 }
-
+//记录故障标志，清中断标志
 static void EPWM_RecordTrip(volatile struct EPWM_REGS *pwm)
 {
-    EPWM_TripZoneFaulted = 1U;
     gSysProblem.recoverFault |= RECOVER_TZ_FAULT;
     pwm->TZCLR.bit.INT = 1U;
 }
 
+//EPWM1和EPWM2绑定了TZ3,他代表电感电流过流
 __interrupt void EPWM1_TZ_BSP_ISR(void)
 {
     EPWM_RecordTrip(&EPwm1Regs);
+    //清除PIE,说明中断处理完毕
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP2;
 }
-
+//EPWM3绑定了TZ1,他代表PV过流故障
 __interrupt void EPWM3_TZ_BSP_ISR(void)
 {
     EPWM_RecordTrip(&EPwm3Regs);
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP2;
 }
-
+//未使用
 __interrupt void EPWM4_TZ_BSP_ISR(void)
 {
     EPWM_RecordTrip(&EPwm4Regs);
-    /* EPWM4 is the old EPWM6-style TZ2 monitor. Its ISR must disable the
-     * real Boost outputs on EPWM3 because EPWM4 itself has no power PWM. */
     EPWM_Disable();
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP2;
 }
 
+/*单极性调制策略,输入的是占空比,暂时不涉及到高级的控制
+死区固定,未来肯定会遇到过零点畸变的问题,到时候再改 */
 void EPWM_SetInverterMode(float modulation)
 {
     Uint16 compareValue;
-
+    //限幅
     modulation = Inverter_Clamp(modulation, -1.0f, 1.0f);
-    
+    //取绝对值,然后转换为CMP值
     compareValue = (Uint16)(((modulation >= 0.0f) ? modulation : -modulation) * (float)EPWM_PERIOD_TICKS);
+    //先一股脑给两个桥臂占空比,回头再精细控制
+    //为什么CMPA可以直接等于|modulation|,你可以思考一下😋
     EPwm1Regs.CMPA.bit.CMPA = compareValue;
     EPwm2Regs.CMPA.bit.CMPA = compareValue;
-
-    /* Match the legacy unipolar full-bridge strategy. The inactive leg is
-     * fixed high while the other leg is modulated with its complementary
-     * dead-band output. Both legs use the same fixed state at zero, producing
-     * zero differential bridge voltage. */
+    //如果占空比大于零,也就是想让桥臂1控制,桥臂2置高
     if(modulation > 0.0f)
-    {
+    {  
+        //EPWM2A强制高,意味着桥臂2保持高电平
         EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_HIGH;
+        //剩下的自由调制
         EPwm2Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
         EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
         EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
     }
+    //如果占空比小于零,也就是想让桥臂2控制,桥臂1置高
     else if(modulation < 0.0f)
     {
+        //EPWM1强制高,意味着桥臂1保持高电平
         EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_HIGH;
+        //剩下的自由调制
         EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
         EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_DISABLED;
         EPwm2Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
     }
+    //两路都置高,差分电压为0
     else
     {
         EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_HIGH;
@@ -411,18 +421,18 @@ void EPWM_SetInverterMode(float modulation)
     }
 }
 
+//分别输入两路BOOST的占空比
 void EPWM_SetBoostDuty(float boost1Duty, float boost2Duty)
 {
     Uint16 boost1Compare;
     Uint16 boost2Compare;
-
+    //限幅
     boost1Duty = Inverter_Clamp(boost1Duty, 0.0f, 0.98f);
     boost2Duty = Inverter_Clamp(boost2Duty, 0.0f, 0.98f);
-
-    /* Match the old EPWM4 formulas for its two independent Boost outputs. */
+    //结合EPWM3的配置,实际上是交错式BOOST,而A路和正常逻辑相反
     boost1Compare = (Uint16)((1.0f - boost1Duty) * (float)EPWM_PERIOD_TICKS);
     boost2Compare = (Uint16)(boost2Duty * (float)EPWM_PERIOD_TICKS);
-    
+    //更新CMP
     EPwm3Regs.CMPA.bit.CMPA = boost1Compare;
     EPwm3Regs.CMPB.bit.CMPB = boost2Compare;
 }

@@ -335,7 +335,7 @@ static void UpdatePllLock(float pllInput)
             }
             if(lockCounter >= PLL_LOCK_CONFIRM_SAMPLES)
             {
-                gSysProblem.recoverFault &= ~RECOVER_PLL_FAULT;
+                gSysProblem.recoverFault &=~ RECOVER_PLL_FAULT;
                 lockCounter = 0U;
             }
         }

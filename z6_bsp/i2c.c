@@ -68,7 +68,17 @@ static void I2C_ResetTxFifo(void)
 }
 
 //出错统一收尾：请求STOP、清空FIFO并清除锁存状态。
-static Uint16 I2C_FinishWithError(Uint16 status)
+static void I2C_ReportFrameDrop(Uint16 status, Uint16 frameActive)
+{
+    /* A zero-length transfer is the EEPROM ACK-poll operation; its NACK and
+     * timeout are expected while the write cycle is still in progress. */
+    if((frameActive != 0U) && (status != I2C_STATUS_OK))
+    {
+        gSysProblem.warning |= WARNING_I2C_FRAME_DROPPED;
+    }
+}
+
+static Uint16 I2C_FinishWithError(Uint16 status, Uint16 frameActive)
 {
     //告诉IIC模块:你发送完成后不要有其他动作,发送一个STOP就行,把总线释放了
     I2caRegs.I2CMDR.bit.STP = 1U;
@@ -76,11 +86,12 @@ static Uint16 I2C_FinishWithError(Uint16 status)
     I2C_ResetTxFifo();
     //清除锁存寄存器
     I2C_ClearStatusFlags();
+    I2C_ReportFrameDrop(status, frameActive);
     return status;
 }
 
 //每次轮询同时检查总线错误和软件超时。 
-static Uint16 I2C_WaitPoll(Uint32 *waitLoops)
+static Uint16 I2C_WaitPoll(Uint32 *waitLoops, Uint16 frameActive)
 {
     //先获取传输过程当中的错误
     Uint16 status = I2C_GetErrorStatus();
@@ -88,12 +99,12 @@ static Uint16 I2C_WaitPoll(Uint32 *waitLoops)
     if(status != I2C_STATUS_OK)
     {
         //如实返回OK,然后收尾
-        return I2C_FinishWithError(status);
+        return I2C_FinishWithError(status, frameActive);
     }
     if(--(*waitLoops) == 0UL)
     {
         //如实返回超时问题,然后收尾
-        return I2C_FinishWithError(I2C_STATUS_TIMEOUT);
+        return I2C_FinishWithError(I2C_STATUS_TIMEOUT, frameActive);
     }
     return I2C_STATUS_OK;
 }
@@ -143,14 +154,14 @@ void I2C_Config(void)
     //释放TxFIFO复位
     I2caRegs.I2CFFTX.bit.TXFFRST = 1U;
     //使能TxFIFO
-    I2caRegs.I2CFFTX.bit.TI2CFFEN = 1U;
+    I2caRegs.I2CFFTX.bit.I2CFFEN = 1U;
 
     //配置RxFIFO
     I2caRegs.I2CFFRX.all = 0x0000;
     //清除中断标志位
-    I2caRegs.I2CFFTX.bit.RXFFINTCLR = 1U;
+    I2caRegs.I2CFFRX.bit.RXFFINTCLR = 1U;
     //RxFIFO复位
-    I2caRegs.I2CFFTX.bit.RXFFRST = 1U;
+    I2caRegs.I2CFFRX.bit.RXFFRST = 1U;
 
     //也就是说也不用FIFO中断,慢速任务,一个个发就行
 
@@ -206,6 +217,7 @@ Uint16 I2C_MasterTransfer
     {
         if(waitLoops == 0UL)
         {
+            I2C_ReportFrameDrop(I2C_STATUS_BUS_BUSY, (length != 0U) ? 1U : 0U);
             return I2C_STATUS_BUS_BUSY;
         }
         waitLoops--;
@@ -257,7 +269,7 @@ Uint16 I2C_MasterTransfer
         while(I2caRegs.I2CFFTX.bit.TXFFST > I2C_TX_FIFO_REFILL_LEVEL)
         {
             //检查这几次传输有没有问题
-            status = I2C_WaitPoll(&waitLoops);
+            status = I2C_WaitPoll(&waitLoops, (length != 0U) ? 1U : 0U);
             if(status != I2C_STATUS_OK)
             {
                 return status;
@@ -268,7 +280,7 @@ Uint16 I2C_MasterTransfer
         if(status != I2C_STATUS_OK)
         {
             //有错误就收尾
-            return I2C_FinishWithError(status);
+            return I2C_FinishWithError(status, (length != 0U) ? 1U : 0U);
         }
 
         //统计当前FIFO使用情况
@@ -299,7 +311,7 @@ Uint16 I2C_MasterTransfer
     )
     //以上条件都满足,说明这一帧彻底发送成功
     {
-        status = I2C_WaitPoll(&waitLoops);
+        status = I2C_WaitPoll(&waitLoops, (length != 0U) ? 1U : 0U);
         if(status != I2C_STATUS_OK)
         {
             return status;
@@ -310,7 +322,7 @@ Uint16 I2C_MasterTransfer
     if(status != I2C_STATUS_OK)
     {
         //错误自有错误的收尾方法
-        return I2C_FinishWithError(status);
+        return I2C_FinishWithError(status, (length != 0U) ? 1U : 0U);
     }
     //清除标志位,收尾
     I2C_ClearStatusFlags();
@@ -348,6 +360,7 @@ Uint16 I2C_MasterRead
     {
         if(waitLoops == 0UL)
         {
+            I2C_ReportFrameDrop(I2C_STATUS_BUS_BUSY, 1U);
             return I2C_STATUS_BUS_BUSY;
         }
         waitLoops--;
@@ -387,7 +400,7 @@ Uint16 I2C_MasterRead
         while((I2caRegs.I2CFFRX.bit.RXFFST == 0U) && (I2caRegs.I2CSTR.bit.RRDY == 0U))
         {
             //期间也不断检查超时错误和其他错误
-            status = I2C_WaitPoll(&waitLoops);
+            status = I2C_WaitPoll(&waitLoops, 1U);
             if(status != I2C_STATUS_OK)
             {
                 return status;
@@ -400,7 +413,7 @@ Uint16 I2C_MasterRead
     waitLoops = I2C_WaitLoopsFromUs(timeoutUs);
     while(I2caRegs.I2CSTR.bit.BB != 0U)
     {
-        status = I2C_WaitPoll(&waitLoops);
+        status = I2C_WaitPoll(&waitLoops, 1U);
         if(status != I2C_STATUS_OK)
         {
             return status;
@@ -409,6 +422,7 @@ Uint16 I2C_MasterRead
     //收尾
     status = I2C_GetErrorStatus();
     I2C_ClearStatusFlags();
+    I2C_ReportFrameDrop(status, 1U);
     return status;
 }
 
@@ -457,6 +471,7 @@ Uint16 I2C_MasterWriteRead
     {
         if(waitLoops == 0UL)
         {
+            I2C_ReportFrameDrop(I2C_STATUS_BUS_BUSY, 1U);
             return I2C_STATUS_BUS_BUSY;
         }
         waitLoops--;
@@ -494,7 +509,7 @@ Uint16 I2C_MasterWriteRead
     //ARDY变高表示从机已应答地址，且Tx FIFO 已准备好接收新命令
     while(I2caRegs.I2CSTR.bit.ARDY == 0U)
     {
-        status = I2C_WaitPoll(&waitLoops);
+        status = I2C_WaitPoll(&waitLoops, 1U);
         if(status != I2C_STATUS_OK)
         {
             return status;
@@ -527,7 +542,7 @@ Uint16 I2C_MasterWriteRead
         //一直等,等到有数据,且IIC表示"可以接收数据"
         while((I2caRegs.I2CFFRX.bit.RXFFST == 0U) && (I2caRegs.I2CSTR.bit.RRDY == 0U))
         {
-            status = I2C_WaitPoll(&waitLoops);
+            status = I2C_WaitPoll(&waitLoops, 1U);
             if(status != I2C_STATUS_OK)
             {
                 return status;
@@ -541,7 +556,7 @@ Uint16 I2C_MasterWriteRead
     waitLoops = I2C_WaitLoopsFromUs(timeoutUs);
     while(I2caRegs.I2CSTR.bit.BB != 0U)
     {
-        status = I2C_WaitPoll(&waitLoops);
+        status = I2C_WaitPoll(&waitLoops, 1U);
         if(status != I2C_STATUS_OK)
         {
             return status;
@@ -551,5 +566,6 @@ Uint16 I2C_MasterWriteRead
     status = I2C_GetErrorStatus();
     //收尾
     I2C_ClearStatusFlags();
+    I2C_ReportFrameDrop(status, 1U);
     return status;
 }

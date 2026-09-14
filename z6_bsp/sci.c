@@ -165,6 +165,7 @@ Uint16 SCI_TrySend(const Uint16 *data, Uint16 length)
     if(length > freeSlots)
     {
         SCI_TxDroppedFrameCount++;
+        gSysProblem.warning |= WARNING_SCI_FRAME_DROPPED;
         return 0U;
     }
 
@@ -288,7 +289,16 @@ static __interrupt void SCIB_BSP_RX_ISR(void)
         else
         {
             SCI_RxOverflowCount++;
+            gSysProblem.warning |= WARNING_SCI_FRAME_DROPPED;
         }
+    }
+
+    //当 SCI 接收 FIFO 已满，并且又收到了新的数据字时，RXFFOVF 会被硬件置 1
+    //这是硬件级的溢出检测
+    if(ScibRegs.SCIFFRX.bit.RXFFOVF != 0U)
+    {
+        SCI_RxOverflowCount++;
+        gSysProblem.warning |= WARNING_SCI_FRAME_DROPPED;
     }
 
     //清除中断溢出标志

@@ -136,7 +136,7 @@ static void DCI_Protect(void)
             if (dciBackFilter >= 250U)
             {
                 dciBackFilter = 0U;
-                gSysProblem.recoverFault &= ~RECOVER_GRID_DC_CURRENT;
+                gSysProblem.recoverFault &=~ RECOVER_GRID_DC_CURRENT;
             }
         }
         else
@@ -578,7 +578,7 @@ static void Gfci_Protect(void)
             if (gGfciData.backFilter >= GFCI_BACK_FILTER)
             {
                 gGfciData.backFilter = 0U;
-                gSysProblem.recoverFault &= ~RECOVER_GFCI;
+                gSysProblem.recoverFault &=~ RECOVER_GFCI;
             }
         }
         else
@@ -591,7 +591,7 @@ static void Gfci_Protect(void)
 void Task_AC_Monitor(void)
 {
     /* 过零正常 → 清电网丢失故障位（丢失检测由状态机的过零看门狗完成） */
-    gSysProblem.recoverFault &= ~RECOVER_NO_UTILITY;
+    gSysProblem.recoverFault &=~ RECOVER_NO_UTILITY;
 
     /* 10 分钟平均电压窗更新 */
     GridVolt_10minWindow();

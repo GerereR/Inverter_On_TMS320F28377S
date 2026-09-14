@@ -1,5 +1,36 @@
 # GPIO 配置掩码说明文档
 
+# Current GPIO configuration (source of truth: gpio.c)
+
+The active implementation configures each pin explicitly. The old register-mask
+tables below are retained as historical reference and are not used at runtime.
+
+| GPIO | Function | Reset/runtime initial state |
+| :--- | :--- | :--- |
+| 0..7 | ePWM1..4 A/B power outputs | Low; ePWM software force-low keeps gates off |
+| 8 | ePWM5A buzzer | Low; buzzer off |
+| 10 | Grid relay 4 (active low) | High; relay off |
+| 11 | Grid relay all-off control | Low; all-off asserted |
+| 18 | SPS_SD_L | High; inactive (assumes active-low input) |
+| 19 | GFCI_Check_L | High; GFCI check off |
+| 20 | Chock_Temp_SW_L | High; inactive (assumes active-low input) |
+| 21 | DSP_State_L | Low; DSP state low |
+| 31, 34 | LED1, LED2 (common anode) | High; LEDs off |
+| 42, 43 | I2CA SDA/SCL | Peripheral inputs with pull-ups; no GPIO output latch |
+| 53 | FAN_PWM_L | High; fan output released |
+| 54, 55 | SCIB TX/RX | TX peripheral output, RX input with pull-up |
+| 61 | Grid zero-cross input | Input; external bias required |
+| 62..64 | PV1/PV2/grid trip inputs | Inputs; external bias required |
+| 67 | EEPROM WC (low = write enable) | Low; current EEPROM writer expects write enabled |
+| 76..85 | OVP/fan/switch/key inputs | Inputs with internal pull-ups; idle high |
+| 88 | BST_OFF_L | Low; boost off |
+| 89 | INV_OFF_L | Low; inverter off |
+| 90..94 | Grid/isolation relays (active low) | High; relays off |
+
+GPIO61..64 do not have a software-defined initial output level. Their safe idle
+level depends on the board's external pull-up/pull-down circuitry; the current
+configuration deliberately leaves the internal pull-ups disabled.
+
 ---
 
 ## 一、GPIOA 端口（GPIO0~31）
@@ -35,11 +66,11 @@
 | 寄存器 | 操作 | 掩码 | 说明 |
 | :--- | :--- | :--- | :--- |
 | **GPAPUD** | \|= | `0x803C0DFF`<br>`1000 0000 0011 1100 0000 1101 1111 1111` | 禁用上拉：位31/21~18/11~10/8~0 |
-| **GPAGMUX1** | &= ~ | `0x00000DFF`<br>`0000 0000 0000 0000 0000 1101 1111 1111` | 清GMUX：位11~10/8~0 |
-| **GPAMUX1** | &= ~ | `0x00000DFF`<br>`0000 0000 0000 0000 0000 1101 1111 1111` | 清MUX：位11~10/8~0 |
+| **GPAGMUX1** | &=~  | `0x00000DFF`<br>`0000 0000 0000 0000 0000 1101 1111 1111` | 清GMUX：位11~10/8~0 |
+| **GPAMUX1** | &=~  | `0x00000DFF`<br>`0000 0000 0000 0000 0000 1101 1111 1111` | 清MUX：位11~10/8~0 |
 | **GPAMUX1** | \|= | `0x000001FF`<br>`0000 0000 0000 0000 0000 0001 1111 1111` | 设MUX=1：位8~0（GPIO0~8设为EPWM功能） |
-| **GPAGMUX2** | &= ~ | `0x803C0000`<br>`1000 0000 0011 1100 0000 0000 0000 0000` | 清GMUX：位31/21~18 |
-| **GPAMUX2** | &= ~ | `0x803C0000`<br>`1000 0000 0011 1100 0000 0000 0000 0000` | 清MUX：位31/21~18 |
+| **GPAGMUX2** | &=~  | `0x803C0000`<br>`1000 0000 0011 1100 0000 0000 0000 0000` | 清GMUX：位31/21~18 |
+| **GPAMUX2** | &=~  | `0x803C0000`<br>`1000 0000 0011 1100 0000 0000 0000 0000` | 清MUX：位31/21~18 |
 | **GPADIR** | \|= | `0x803C0DFF`<br>`1000 0000 0011 1100 0000 1101 1111 1111` | 设输出：位31/21~18/11~10/8~0 |
 | **GPASET** | = | `0x803C0DFF`<br>`1000 0000 0011 1100 0000 1101 1111 1111` | 初始置高：位31/21~18/11~10/8~0 |
 
@@ -70,19 +101,19 @@
 
 | 寄存器 | 操作 | 掩码 | 说明 |
 | :--- | :--- | :--- | :--- |
-| **GPBPUD** | &= ~ | `0x00C00C00`<br>`0000 0000 1100 0000 0000 1100 0000 0000` | 使能上拉：位23/22/11/10（GPIO55/54/43/42） |
+| **GPBPUD** | &=~  | `0x00C00C00`<br>`0000 0000 1100 0000 0000 1100 0000 0000` | 使能上拉：位23/22/11/10（GPIO55/54/43/42） |
 | **GPBPUD** | \|= | `0xE0200004`<br>`1110 0000 0010 0000 0000 0000 0000 0100` | 禁用上拉：位31/30/29/21/2（GPIO63/62/61/53/34） |
 | **GPBQSEL1** | \|= | `0x00000C00`<br>`0000 0000 0000 0000 0000 1100 0000 0000` | QSEL=3：位11/10（GPIO43/42） |
 | **GPBQSEL2** | \|= | `0x0000E0C0`<br>`0000 0000 0000 0000 1110 0000 1100 0000` | QSEL=3：位15/14/13/7/6（GPIO61/62/63/54/55） |
-| **GPBGMUX1** | &= ~ | `0x00000C04`<br>`0000 0000 0000 0000 0000 1100 0000 0100` | 清GMUX：位11/10/2（GPIO43/42/34） |
-| **GPBMUX1** | &= ~ | `0x00F00030`<br>`0000 0000 1111 0000 0000 0000 0011 0000` | 清MUX：位23~20/5~4（GPIO43/42/34） |
-| **GPBGMUX2** | &= ~ | `0xE0E00000`<br>`1110 0000 1110 0000 0000 0000 0000 0000` | 清GMUX：位31~29/23~21（GPIO63~61/55~53） |
-| **GPBMUX2** | &= ~ | `0xFC00FC00`<br>`1111 1100 0000 0000 1111 1100 0000 0000` | 清MUX：位31~26/15~10（GPIO63~61/55~53） |
+| **GPBGMUX1** | &=~  | `0x00000C04`<br>`0000 0000 0000 0000 0000 1100 0000 0100` | 清GMUX：位11/10/2（GPIO43/42/34） |
+| **GPBMUX1** | &=~  | `0x00F00030`<br>`0000 0000 1111 0000 0000 0000 0011 0000` | 清MUX：位23~20/5~4（GPIO43/42/34） |
+| **GPBGMUX2** | &=~  | `0xE0E00000`<br>`1110 0000 1110 0000 0000 0000 0000 0000` | 清GMUX：位31~29/23~21（GPIO63~61/55~53） |
+| **GPBMUX2** | &=~  | `0xFC00FC00`<br>`1111 1100 0000 0000 1111 1100 0000 0000` | 清MUX：位31~26/15~10（GPIO63~61/55~53） |
 | **GPBGMUX1** | \|= | `0x00000C00`<br>`0000 0000 0000 0000 0000 1100 0000 0000` | GMUX=1：位11/10（GPIO43/42） |
 | **GPBMUX1** | \|= | `0x00A00000`<br>`0000 0000 1010 0000 0000 0000 0000 0000` | MUX=2：位23/21（GPIO43/42） |
 | **GPBGMUX2** | \|= | `0x00C00000`<br>`0000 0000 1100 0000 0000 0000 0000 0000` | GMUX=1：位23/22（GPIO55/54） |
 | **GPBMUX2** | \|= | `0x0000A000`<br>`0000 0000 0000 0000 1010 0000 0000 0000` | MUX=2：位15/13（GPIO55/54） |
-| **GPBDIR** | &= ~ | `0xE0800000`<br>`1110 0000 1000 0000 0000 0000 0000 0000` | 设输入：位31/30/29/23（GPIO63/62/61/55） |
+| **GPBDIR** | &=~  | `0xE0800000`<br>`1110 0000 1000 0000 0000 0000 0000 0000` | 设输入：位31/30/29/23（GPIO63/62/61/55） |
 | **GPBDIR** | \|= | `0x00600004`<br>`0000 0000 0110 0000 0000 0000 0000 0100` | 设输出：位22/21/2（GPIO54/53/34） |
 | **GPBSET** | = | `0x00200004`<br>`0000 0000 0010 0000 0000 0000 0000 0100` | 初始置高：位21/2（GPIO53/34） |
 
@@ -122,15 +153,15 @@
 
 | 寄存器 | 操作 | 掩码 | 说明 |
 | :--- | :--- | :--- | :--- |
-| **GPCPUD** | &= ~ | `0x003FF000`<br>`0000 0000 0011 1111 1111 0000 0000 0000` | 使能上拉：位21~12（GPIO85~76） |
+| **GPCPUD** | &=~  | `0x003FF000`<br>`0000 0000 0011 1111 1111 0000 0000 0000` | 使能上拉：位21~12（GPIO85~76） |
 | **GPCPUD** | \|= | `0x7F000009`<br>`0111 1111 0000 0000 0000 0000 0000 1001` | 禁用上拉：位30~24/3/0（GPIO94~88/67/64） |
 | **GPCQSEL1** | \|= | `0x0000F001`<br>`0000 0000 0000 0000 1111 0000 0000 0001` | QSEL=3：位15~12/0（GPIO79~76/64） |
 | **GPCQSEL2** | \|= | `0x0000002F`<br>`0000 0000 0000 0000 0000 0000 0010 1111` | QSEL=3：位5/3~0（GPIO85/83~80） |
-| **GPCGMUX1** | &= ~ | `0x0000F009`<br>`0000 0000 0000 0000 1111 0000 0000 1001` | 清GMUX：位15~12/3/0（GPIO79~76/67/64） |
-| **GPCMUX1** | &= ~ | `0xFF0000C3`<br>`1111 1111 0000 0000 0000 0000 1100 0011` | 清MUX：位31~24/7~6/1~0（GPIO79~76/67/64） |
-| **GPCGMUX2** | &= ~ | `0x00007F3F`<br>`0000 0000 0000 0000 0111 1111 0011 1111` | 清GMUX：位14~8/5~0（GPIO94~88/85~80） |
-| **GPCMUX2** | &= ~ | `0x3FFFFFFF`<br>`0011 1111 1111 1111 1111 1111 1111 1111` | 清MUX：位29~16/11~0（GPIO94~88/85~80） |
-| **GPCDIR** | &= ~ | `0x003FF001`<br>`0000 0000 0011 1111 1111 0000 0000 0001` | 设输入：位21~12/0（GPIO85~76/64） |
+| **GPCGMUX1** | &=~  | `0x0000F009`<br>`0000 0000 0000 0000 1111 0000 0000 1001` | 清GMUX：位15~12/3/0（GPIO79~76/67/64） |
+| **GPCMUX1** | &=~  | `0xFF0000C3`<br>`1111 1111 0000 0000 0000 0000 1100 0011` | 清MUX：位31~24/7~6/1~0（GPIO79~76/67/64） |
+| **GPCGMUX2** | &=~  | `0x00007F3F`<br>`0000 0000 0000 0000 0111 1111 0011 1111` | 清GMUX：位14~8/5~0（GPIO94~88/85~80） |
+| **GPCMUX2** | &=~  | `0x3FFFFFFF`<br>`0011 1111 1111 1111 1111 1111 1111 1111` | 清MUX：位29~16/11~0（GPIO94~88/85~80） |
+| **GPCDIR** | &=~  | `0x003FF001`<br>`0000 0000 0011 1111 1111 0000 0000 0001` | 设输入：位21~12/0（GPIO85~76/64） |
 | **GPCDIR** | \|= | `0x7F000008`<br>`0111 1111 0000 0000 0000 0000 0000 1000` | 设输出：位30~24/3（GPIO94~88/67） |
 | **GPCSET** | = | `0x7F000000`<br>`0111 1111 0000 0000 0000 0000 0000 0000` | 初始置高：位30~24（GPIO94~88） |
 | **GPCCLEAR** | = | `0x00000008`<br>`0000 0000 0000 0000 0000 0000 0000 1000` | 初始置低：位3（GPIO67，EEPROM写使能） |

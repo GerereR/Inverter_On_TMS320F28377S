@@ -148,12 +148,12 @@ void GPIO_SetupPinMux(Uint16 pin, Uint16 cpu, Uint16 peripheral)
     //advance we can't hardcode a bitfield reference, so there's some tricky
     //bit twiddling here.
     //
-    *mux &= ~(0x3UL << (2*pin16));
-    *gmux &= ~(0x3UL << (2*pin16));
+    *mux &=~ (0x3UL << (2*pin16));
+    *gmux &=~ (0x3UL << (2*pin16));
     *gmux |= (Uint32)((peripheral >> 2) & 0x3UL) << (2*pin16);
     *mux |= (Uint32)(peripheral & 0x3UL) << (2*pin16);
 
-    *csel &= ~(0x3L << (4*pin8));
+    *csel &=~ (0x3L << (4*pin8));
     *csel |= (Uint32)(cpu & 0x3L) << (4*pin8);
 
     //
@@ -224,7 +224,7 @@ void GPIO_SetupPinOptions(Uint16 pin, Uint16 output, Uint16 flags)
     //
     //Set the data direction
     //
-    *dir &= ~pinMask;
+    *dir &=~ pinMask;
     if (output == 1)
     {
         //
@@ -241,7 +241,7 @@ void GPIO_SetupPinOptions(Uint16 pin, Uint16 output, Uint16 flags)
         }
         else
         {
-            *odr &= ~pinMask;
+            *odr &=~ pinMask;
         }
 
         //
@@ -249,7 +249,7 @@ void GPIO_SetupPinOptions(Uint16 pin, Uint16 output, Uint16 flags)
         //
         if (flags & (GPIO_OPENDRAIN | GPIO_PULLUP))
         {
-            *pud &= ~pinMask;
+            *pud &=~ pinMask;
         }
         else
         {
@@ -261,14 +261,14 @@ void GPIO_SetupPinOptions(Uint16 pin, Uint16 output, Uint16 flags)
         //
         //Input, with optional pull-up, qualification, and polarity inversion
         //
-        *dir &= ~pinMask;
+        *dir &=~ pinMask;
 
         //
         //Enable pull-up if necessary
         //
         if (flags & GPIO_PULLUP)
         {
-            *pud &= ~pinMask;
+            *pud &=~ pinMask;
         }
         else
         {
@@ -284,7 +284,7 @@ void GPIO_SetupPinOptions(Uint16 pin, Uint16 output, Uint16 flags)
         }
         else
         {
-            *inv &= ~pinMask;
+            *inv &=~ pinMask;
         }
     }
 
@@ -294,7 +294,7 @@ void GPIO_SetupPinOptions(Uint16 pin, Uint16 output, Uint16 flags)
     //all the time.
     //
     qual = (flags & GPIO_ASYNC) / GPIO_QUAL3;
-    *qsel &= ~(0x3L << (2 * pin16));
+    *qsel &=~ (0x3L << (2 * pin16));
     if (qual != 0x0)
     {
         *qsel |= qual << (2 * pin16);
@@ -347,7 +347,7 @@ void GPIO_SetupLock(Uint16 pin, Uint16 flags)
         //
         //Unlock the pin
         //
-        *lock &= ~pinMask;
+        *lock &=~ pinMask;
     }
     EDIS;
 }
