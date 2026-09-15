@@ -96,33 +96,28 @@ typedef struct
     Uint16 inverterVoltage;
 } ADC_FastRawFrame;
 
-/* ADCB RESULT0 and RESULT1 form one synchronized PV-current frame. */
-typedef struct
-{
-    Uint16 pv1Current;
-    Uint16 pv2Current;
-} ADC_PvCurrentRawFrame;
-
-/* ADCD RESULT0 and RESULT1 form one synchronized PV-voltage frame. */
+/* ADCD RESULT0 through RESULT3 form one synchronized PV frame. */
 typedef struct
 {
     Uint16 pv1Voltage;
+    Uint16 pv1Current;
     Uint16 pv2Voltage;
-} ADC_PvVoltageRawFrame;
+    Uint16 pv2Current;
+} ADC_PvRawFrame;
 
-/* ADCD RESULT2 and RESULT3 form one slow isolation-monitoring frame. */
+/* ADCB RESULT0 and RESULT1 form one slow isolation-monitoring frame. */
 typedef struct
 {
     Uint16 pv1Isolation;
     Uint16 pv2Isolation;
-} ADC_IsolationRawFrame;
+} ADC_IsoRawFrame;
 
 /* ADCC RESULT0 and RESULT1 form one slow temperature frame. */
 typedef struct
 {
     Uint16 inverterTemperature;
     Uint16 boostTemperature;
-} ADC_TemperatureRawFrame;
+} ADC_TempRawFrame;
 
 /* Machine problems are grouped by handling policy, not compiler bitfields. */
 typedef struct

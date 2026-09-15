@@ -4,77 +4,61 @@
 #include "scheduler.h"
 #include "task.h"
 
-/*
- * Configure the four F28377S ADCs for 12-bit single-ended conversion.
- *
- * The C2000Ware AdcSetMode() helper does two separate jobs: it writes the
- * mode bits and loads the device's OTP calibration. Keep both parts here so
- * this BSP does not depend on that helper while retaining factory accuracy.
- * The caller must hold EALLOW while this function runs.
- */
-static void ADC_SetMode(void)
+//四个ADC模块配置函数
+
+void ADC_Config(void)
 {
     Uint16 offsetTrim;
 
-    /* Load per-module INL calibration when the device provides it. */
-    if(*((Uint16 *)CalAdcaINL) != 0xFFFFU)
-    {
-        (*CalAdcaINL)();
-    }
-    if(*((Uint16 *)CalAdcbINL) != 0xFFFFU)
-    {
-        (*CalAdcbINL)();
-    }
-    if(*((Uint16 *)CalAdccINL) != 0xFFFFU)
-    {
-        (*CalAdccINL)();
-    }
-    if(*((Uint16 *)CalAdcdINL) != 0xFFFFU)
-    {
-        (*CalAdcdINL)();
-    }
+    EALLOW;
 
-    /* The OTP offset table uses four entries per ADC; single-ended 12-bit is
-     * the first mode entry for each module: ADCA=0, ADCB=4, ADCC=8, ADCD=12. */
+    //四个 ADC 模块使用相同的 ADC 时钟预分频：PRESCALE=6
+    AdcaRegs.ADCCTL2.bit.PRESCALE = 6U;
+    AdcbRegs.ADCCTL2.bit.PRESCALE = 6U;
+    AdccRegs.ADCCTL2.bit.PRESCALE = 6U;
+    AdcdRegs.ADCCTL2.bit.PRESCALE = 6U;
+
+    //ADC OTP 线性度校准
+    //如果OTP内部有这个函数, 就执行CalAdcxINL
+    if(*((Uint16 *)CalAdcaINL) != 0xFFFFU) { (*CalAdcaINL)(); }
+    if(*((Uint16 *)CalAdcbINL) != 0xFFFFU) { (*CalAdcbINL)(); }
+    if(*((Uint16 *)CalAdccINL) != 0xFFFFU) { (*CalAdccINL)(); }
+    if(*((Uint16 *)CalAdcdINL) != 0xFFFFU) { (*CalAdcdINL)(); }
+
+    //ADC OTP 零漂校准, 这里的零漂和之后的零漂是两回事儿
+    //如果OTP内部有这个函数, 就执行GetAdcOffsetTrimOTP
+    //然后把数值赋给对应的ADC偏移微调寄存器
     if(*((Uint16 *)GetAdcOffsetTrimOTP) != 0xFFFFU)
     {
+        //读取 ADCA 偏移微调值，参数 0b0000 选择 ADCA
         offsetTrim = (*GetAdcOffsetTrimOTP)(0U);
-        if(offsetTrim != 0U)
-        {
-            AdcaRegs.ADCOFFTRIM.all = offsetTrim;
-        }
-
+        if(offsetTrim != 0U) { AdcaRegs.ADCOFFTRIM.all = offsetTrim; }
+        //读取 ADCB 偏移微调值，参数 0b0100 选择 ADCB
         offsetTrim = (*GetAdcOffsetTrimOTP)(4U);
-        if(offsetTrim != 0U)
-        {
-            AdcbRegs.ADCOFFTRIM.all = offsetTrim;
-        }
-
+        if(offsetTrim != 0U) { AdcbRegs.ADCOFFTRIM.all = offsetTrim; }
+        //读取 ADCC 偏移微调值，参数 0b1000 选择 ADCC
         offsetTrim = (*GetAdcOffsetTrimOTP)(8U);
-        if(offsetTrim != 0U)
-        {
-            AdccRegs.ADCOFFTRIM.all = offsetTrim;
-        }
-
+        if(offsetTrim != 0U) { AdccRegs.ADCOFFTRIM.all = offsetTrim; }
+        //读取 ADCD 偏移微调值，参数 0b1100 选择 ADCD
         offsetTrim = (*GetAdcOffsetTrimOTP)(12U);
-        if(offsetTrim != 0U)
-        {
-            AdcdRegs.ADCOFFTRIM.all = offsetTrim;
-        }
+        if(offsetTrim != 0U) {  AdcdRegs.ADCOFFTRIM.all = offsetTrim; }
     }
 
-    /* RESOLUTION=0 selects 12-bit; SIGNALMODE=0 selects single-ended. */
+    //四个ADC模块都设置为12bit
     AdcaRegs.ADCCTL2.bit.RESOLUTION = 0U;
-    AdcaRegs.ADCCTL2.bit.SIGNALMODE = 0U;
     AdcbRegs.ADCCTL2.bit.RESOLUTION = 0U;
-    AdcbRegs.ADCCTL2.bit.SIGNALMODE = 0U;
     AdccRegs.ADCCTL2.bit.RESOLUTION = 0U;
-    AdccRegs.ADCCTL2.bit.SIGNALMODE = 0U;
     AdcdRegs.ADCCTL2.bit.RESOLUTION = 0U;
+
+    //四个ADC模块都设置为单端输入
+    AdcaRegs.ADCCTL2.bit.SIGNALMODE = 0U;
+    AdcbRegs.ADCCTL2.bit.SIGNALMODE = 0U;
+    AdccRegs.ADCCTL2.bit.SIGNALMODE = 0U;
     AdcdRegs.ADCCTL2.bit.SIGNALMODE = 0U;
 
-    /* F2837xS 12-bit linearity trim workaround: retain the upper half of
-     * each trim register as required by the device reference implementation. */
+    //对于12bit ADC OTP 中会烧写完整的16位INL校准值 
+    //但是实际用到的只有ADCINLTRIM1、2、4、5的高16位
+    //不清除的话会导致不可预知的线性度问题
     AdcaRegs.ADCINLTRIM1 &= 0xFFFF0000UL;
     AdcaRegs.ADCINLTRIM2 &= 0xFFFF0000UL;
     AdcaRegs.ADCINLTRIM4 &= 0xFFFF0000UL;
@@ -91,26 +75,14 @@ static void ADC_SetMode(void)
     AdcdRegs.ADCINLTRIM2 &= 0xFFFF0000UL;
     AdcdRegs.ADCINLTRIM4 &= 0xFFFF0000UL;
     AdcdRegs.ADCINLTRIM5 &= 0xFFFF0000UL;
-}
 
-//四个ADC模块配置函数
-void ADC_Config(void)
-{
-    EALLOW;
-
-    //四个 ADC 模块使用相同的 ADC 时钟预分频：PRESCALE=6
-    AdcaRegs.ADCCTL2.bit.PRESCALE = 6U;
-    AdcbRegs.ADCCTL2.bit.PRESCALE = 6U;
-    AdccRegs.ADCCTL2.bit.PRESCALE = 6U;
-    AdcdRegs.ADCCTL2.bit.PRESCALE = 6U;
-    //单独配置ADC
-    ADC_SetMode();
-    //ADC自身中断配置,转换完成后中断
+    //四个ADC模块自身中断配置,转换完成后产生中断
     AdcaRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
     AdcbRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
     AdccRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
     AdcdRegs.ADCCTL1.bit.INTPULSEPOS = 1U;
-    //ADC上电
+
+    //四个ADC模块上电
     AdcaRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
     AdcbRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
     AdccRegs.ADCCTL1.bit.ADCPWDNZ = 1U;
@@ -146,45 +118,43 @@ void ADC_Config(void)
     AdcaRegs.ADCSOC5CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
     AdcaRegs.ADCSOC5CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
 
-    /*ADCB配置, 采样窗口均为14, 以下均由EPWM1 SOCA 触发*/
-    // ADCB SOC0: 通道 2, 对应 I_PV1_Fin
+    /*ADCB配置, 采样窗口均为14, 以下均由Timer1触发, 100Hz*/
+    // ADCB SOC0: 通道2, 对应ISO_PV1_Fin
     AdcbRegs.ADCSOC0CTL.bit.CHSEL = 2U;
     AdcbRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcbRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
-    // ADCB SOC1: 通道 3, 对应 I_PV2_Fin
+    AdcbRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
+    // ADCB SOC0: 通道3, 对应ISO_PV2_Fin
     AdcbRegs.ADCSOC1CTL.bit.CHSEL = 3U;
     AdcbRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcbRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
+    AdcbRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
 
-    /*ADCC配置, 采样窗口均为14, 以下均由Timer1 100Hz触发*/
-    // ADCC SOC0: 通道 4, 对应 TEMP_INV_Fin
+    /*ADCC配置, 采样窗口均为14, 以下均由Timer1触发, 100Hz*/
+    // ADCC SOC0: 通道4, 对应TEMP_INV_Fin
     AdccRegs.ADCSOC0CTL.bit.CHSEL = 4U;
     AdccRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
     AdccRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
-    // ADCC SOC1: 通道 3, 对应 TEMP_BST_Fin
+    // ADCC SOC1: 通道3, 对应TEMP_BST_Fin
     AdccRegs.ADCSOC1CTL.bit.CHSEL = 3U;
     AdccRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
     AdccRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
 
-    /*ADCD配置, 采样窗口均为14, 有的是EPWM触发, 有的是*Timer1触发*/
-    // ADCD SOC0: 通道 4, 对应 V_PV1_Fin
-    AdcdRegs.ADCSOC0CTL.bit.CHSEL = 4U;
+    /*ADCD配置, 采样窗口均为14, 以下均由EPWM1 SOCA 触发*/
+    // ADCD SOC0: 通道0, 对应V_PV1_Fin
+    AdcdRegs.ADCSOC0CTL.bit.CHSEL = 0U;
     AdcdRegs.ADCSOC0CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
     AdcdRegs.ADCSOC0CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
-    // ADCD SOC1: 通道 3, 对应 V_PV2_Fin
-    AdcdRegs.ADCSOC1CTL.bit.CHSEL = 3U;
+    // ADCD SOC1: 通道1, 对应I_PV1_Fin
+    AdcdRegs.ADCSOC1CTL.bit.CHSEL = 1U;
     AdcdRegs.ADCSOC1CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
     AdcdRegs.ADCSOC1CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
-    // ADCD SOC2: 通道 1, 对应 ISO_PV1_Fin
-    AdcdRegs.ADCSOC2CTL.bit.CHSEL = 1U;
+    // ADCD SOC2: 通道2, 对应V_PV2_Fin
+    AdcdRegs.ADCSOC2CTL.bit.CHSEL = 2U;
     AdcdRegs.ADCSOC2CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcdRegs.ADCSOC2CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
-    // ADCD SOC3: 通道 2, 对应 ISO_PV2_Fin
-    AdcdRegs.ADCSOC3CTL.bit.CHSEL = 2U;
+    AdcdRegs.ADCSOC2CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
+    // ADCD SOC3: 通道3, 对应I_PV2_Fin
+    AdcdRegs.ADCSOC3CTL.bit.CHSEL = 3U;
     AdcdRegs.ADCSOC3CTL.bit.ACQPS = ADC_ACQUISITION_WINDOW;
-    AdcdRegs.ADCSOC3CTL.bit.TRIGSEL = ADC_TRIGGER_CPU_TIMER1;
-    //如果ePWM触发和Timer1同时触发,那就优先SCO0和SOC1
-    AdcdRegs.ADCSOCPRICTL.bit.SOCPRIORITY = 2U;
+    AdcdRegs.ADCSOC3CTL.bit.TRIGSEL = ADC_TRIGGER_EPWM1_SOCA;
 
 
     /*ADCA 中断配置*/
@@ -201,32 +171,30 @@ void ADC_Config(void)
     //使能中断
     AdcaRegs.ADCINTSEL1N2.bit.INT2E = 1U;
 
-    /* ADCB中断配置 */
-    //SOC1完成后触发ADCB2中断, 给DMA采集用, 连续模式
-    AdcbRegs.ADCINTSEL1N2.bit.INT2SEL = 1U;
-    AdcbRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;
-    AdcbRegs.ADCINTSEL1N2.bit.INT2E = 1U;
+    /*ADCB 中断配置, SOC1 完成后只触发 ADCB1 中断, 给DMA用*/
+    AdcbRegs.ADCINTSEL1N2.bit.INT1SEL = 1U;
+    AdcbRegs.ADCINTSEL1N2.bit.INT1CONT = 1U;
+    AdcbRegs.ADCINTSEL1N2.bit.INT1E = 1U;
+    AdcbRegs.ADCINTSEL1N2.bit.INT2E = 0U;
 
-    /* ADCC中断配置 */
-    //SOC1完成后触发ADCC2中断, 给DMA采集用, 连续模式
-    AdccRegs.ADCINTSEL1N2.bit.INT2SEL = 1U;
-    AdccRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;
-    AdccRegs.ADCINTSEL1N2.bit.INT2E = 1U;
+    /*ADCC 中断配置, SOC1 完成后只触发 ADCC1 中断, 给DMA用*/
+    AdccRegs.ADCINTSEL1N2.bit.INT1SEL = 1U;
+    AdccRegs.ADCINTSEL1N2.bit.INT1CONT = 1U;
+    AdccRegs.ADCINTSEL1N2.bit.INT1E = 1U;
+    AdccRegs.ADCINTSEL1N2.bit.INT2E = 0U;
 
-    /* ADCD中断配置 */
-    //SOC1完成后触发ADCD1中断, 给DMA采集用, 连续模式
-    AdcdRegs.ADCINTSEL1N2.bit.INT1SEL = 1U;
+    /*ADCD 中断配置, SOC3 完成后只触发 ADCD1 中断, 给DMA用*/
+    AdcdRegs.ADCINTSEL1N2.bit.INT1SEL = 3U;
     AdcdRegs.ADCINTSEL1N2.bit.INT1CONT = 1U;
     AdcdRegs.ADCINTSEL1N2.bit.INT1E = 1U;
-    //SOC3完成后触发ADCD2中断, 给DMA采集用, 连续模式
-    AdcdRegs.ADCINTSEL1N2.bit.INT2SEL = 3U;
-    AdcdRegs.ADCINTSEL1N2.bit.INT2CONT = 1U;
-    AdcdRegs.ADCINTSEL1N2.bit.INT2E = 1U;
-
+    AdcdRegs.ADCINTSEL1N2.bit.INT2E = 0U;
+    
     //清除所有ADC的中断标志位
     AdcaRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;
     AdcaRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
+    AdcbRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;
     AdcbRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
+    AdccRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;
     AdccRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
     AdcdRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;
     AdcdRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
@@ -234,7 +202,9 @@ void ADC_Config(void)
     //清除所有ADC的中断溢出标志位
     AdcaRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;
     AdcaRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;
+    AdcbRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;
     AdcbRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;
+    AdccRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;
     AdccRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;
     AdcdRegs.ADCINTOVFCLR.bit.ADCINT1 = 1U;
     AdcdRegs.ADCINTOVFCLR.bit.ADCINT2 = 1U;
@@ -255,13 +225,13 @@ __interrupt void ADCA1_CPU_ISR(void)
     AC_CtrlRawInput rawInput;
     //其实它的任务很简单,就是统计当前"我采了多少次电流环数据"
     DMA_NotifyFastFrameEoc();
-    //实际上,电流环只要这三个的数据
+    //电流环只要这三个的数据, 分别是电感电流, 电网电压, 母线电压
     rawInput.inductorCurrent = AdcaResultRegs.ADCRESULT0;
     rawInput.gridVoltage = AdcaResultRegs.ADCRESULT1;
     rawInput.dcBusVoltage = AdcaResultRegs.ADCRESULT3;
     //实际上,电流环任务是"假任务"它由ADC中断直接调度,不接受调度器调度
     ctrlEvents = Task_AC_Ctrl(&rawInput);
-    //通知调度器电网到达峰值
+    //如果电流环检测到峰值事件, 通知调度器
     if((ctrlEvents & FAST_EVENT_GRID_PEAK) != 0U)
     {
         //直接通知调度器可以进行峰值任务,也就是限幅任务

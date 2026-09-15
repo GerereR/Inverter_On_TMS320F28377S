@@ -128,14 +128,12 @@ SECTIONS
    /* DMA ping-pong buffers use dedicated GS RAM blocks. */
    adcFastDmaBuffer0        : > RAMGS2       PAGE = 1
    adcFastDmaBuffer1        : > RAMGS3       PAGE = 1
-   adcPvCurrentDmaBuffer0   : > RAMGS4       PAGE = 1
-   adcPvCurrentDmaBuffer1   : > RAMGS4       PAGE = 1
-   adcPvVoltageDmaBuffer0   : > RAMGS5       PAGE = 1
-   adcPvVoltageDmaBuffer1   : > RAMGS5       PAGE = 1
-   adcIsolationDmaBuffer0   : > RAMGS6       PAGE = 1
-   adcIsolationDmaBuffer1   : > RAMGS6       PAGE = 1
-   adcTemperatureDmaBuffer0 : > RAMGS7       PAGE = 1
-   adcTemperatureDmaBuffer1 : > RAMGS7       PAGE = 1
+   adcPvDmaBuffer0          : > RAMGS4       PAGE = 1
+   adcPvDmaBuffer1          : > RAMGS4       PAGE = 1
+   adcIsoDmaBuffer0   : > RAMGS6       PAGE = 1
+   adcIsoDmaBuffer1   : > RAMGS6       PAGE = 1
+   adcTempDmaBuffer0 : > RAMGS7       PAGE = 1
+   adcTempDmaBuffer1 : > RAMGS7       PAGE = 1
 
    /* Initalized sections go in Flash */
    .econst             : >> FLASHF | FLASHG | FLASHH      PAGE = 0, ALIGN(4)

@@ -1465,7 +1465,7 @@
          <input_file_ref idref="fl-20"/>
       </object_component>
       <object_component id="oc-1a9">
-         <name>adcIsolationDmaBuffer0</name>
+         <name>adcIsoDmaBuffer0</name>
          <uninitialized>true</uninitialized>
          <readwrite>true</readwrite>
          <run_address>0x12000</run_address>
@@ -1474,7 +1474,7 @@
          <input_file_ref idref="fl-20"/>
       </object_component>
       <object_component id="oc-1aa">
-         <name>adcIsolationDmaBuffer1</name>
+         <name>adcIsoDmaBuffer1</name>
          <uninitialized>true</uninitialized>
          <readwrite>true</readwrite>
          <run_address>0x12020</run_address>
@@ -1483,7 +1483,7 @@
          <input_file_ref idref="fl-20"/>
       </object_component>
       <object_component id="oc-1ab">
-         <name>adcTemperatureDmaBuffer0</name>
+         <name>adcTempDmaBuffer0</name>
          <uninitialized>true</uninitialized>
          <readwrite>true</readwrite>
          <run_address>0x13000</run_address>
@@ -1492,7 +1492,7 @@
          <input_file_ref idref="fl-20"/>
       </object_component>
       <object_component id="oc-1ac">
-         <name>adcTemperatureDmaBuffer1</name>
+         <name>adcTempDmaBuffer1</name>
          <uninitialized>true</uninitialized>
          <readwrite>true</readwrite>
          <run_address>0x13020</run_address>
@@ -4677,7 +4677,7 @@
          </contents>
       </logical_group>
       <logical_group id="lg-10" display="no" color="cyan">
-         <name>adcIsolationDmaBuffer0</name>
+         <name>adcIsoDmaBuffer0</name>
          <run_address>0x12000</run_address>
          <size>0x20</size>
          <contents>
@@ -4685,7 +4685,7 @@
          </contents>
       </logical_group>
       <logical_group id="lg-11" display="no" color="cyan">
-         <name>adcIsolationDmaBuffer1</name>
+         <name>adcIsoDmaBuffer1</name>
          <run_address>0x12020</run_address>
          <size>0x20</size>
          <contents>
@@ -4693,7 +4693,7 @@
          </contents>
       </logical_group>
       <logical_group id="lg-12" display="no" color="cyan">
-         <name>adcTemperatureDmaBuffer0</name>
+         <name>adcTempDmaBuffer0</name>
          <run_address>0x13000</run_address>
          <size>0x20</size>
          <contents>
@@ -4701,7 +4701,7 @@
          </contents>
       </logical_group>
       <logical_group id="lg-13" display="no" color="cyan">
-         <name>adcTemperatureDmaBuffer1</name>
+         <name>adcTempDmaBuffer1</name>
          <run_address>0x13020</run_address>
          <size>0x20</size>
          <contents>
@@ -10733,22 +10733,22 @@
          <object_component_ref idref="oc-237"/>
       </symbol>
       <symbol id="sm-89c">
-         <name>_ADC_IsolationRawBuffer0</name>
+         <name>_ADC_IsoRawBuffer0</name>
          <value>0x12000</value>
          <object_component_ref idref="oc-1a9"/>
       </symbol>
       <symbol id="sm-89d">
-         <name>_ADC_IsolationRawBuffer1</name>
+         <name>_ADC_IsoRawBuffer1</name>
          <value>0x12020</value>
          <object_component_ref idref="oc-1aa"/>
       </symbol>
       <symbol id="sm-89e">
-         <name>_ADC_TemperatureRawBuffer1</name>
+         <name>_ADC_TempRawBuffer1</name>
          <value>0x13020</value>
          <object_component_ref idref="oc-1ac"/>
       </symbol>
       <symbol id="sm-89f">
-         <name>_ADC_TemperatureRawBuffer0</name>
+         <name>_ADC_TempRawBuffer0</name>
          <value>0x13000</value>
          <object_component_ref idref="oc-1ab"/>
       </symbol>

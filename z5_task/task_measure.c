@@ -125,7 +125,6 @@ static Uint16 Measure_TrySchedule
 )
 {
     static Uint16 validMask = 0U;
-    static Uint16 pvUpdateMask = 0U;
     Uint16 updatedMask;
 
     /* 消费 DMA 已完成的块（AVG/RMS 累加已在 DMA 里算好）。 */
@@ -143,12 +142,7 @@ static Uint16 Measure_TrySchedule
     }
 
     /* PV 配对：PV 电流块 + 电压块可能分属不同 tick，凑成一对才算有效。 */
-    pvUpdateMask |= (updatedMask & DMA_UPDATE_PV_ALL);
-    *pvUpdated = ((pvUpdateMask & DMA_UPDATE_PV_ALL) == DMA_UPDATE_PV_ALL) ? 1U : 0U;
-    if (*pvUpdated != 0U)
-    {
-        pvUpdateMask &= (Uint16)(~DMA_UPDATE_PV_ALL);
-    }
+    *pvUpdated = ((updatedMask & DMA_UPDATE_PV) != 0U) ? 1U : 0U;
 
     return updatedMask;
 }

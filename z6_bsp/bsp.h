@@ -11,20 +11,20 @@
 //其实快环的这些数据早在电流环那块就被用了,那些快环数据当场读取当场处理了,
 //但是再怎么说逆变器还是需要告诉别人当前电压电流大小的,所以就以非常慢的速度更新了,
 //而PV电压电流等数据是需要参与到未来的控制的,所以才160个大小,快环反而400个大小
-#define ADC_ACQUISITION_WINDOW     14U
-#define ADC_FAST_SAMPLE_FREQ_HZ    20000.0f
-#define ADC_FAST_BLOCK_MAX_BURSTS 450U
-#define ADC_PV_BLOCK_BURSTS       160U
-#define ADC_SLOW_BLOCK_BURSTS      16U
+#define ADC_ACQUISITION_WINDOW      14U
+#define ADC_FAST_SAMPLE_FREQ_HZ     20000.0f
+#define ADC_FAST_BLOCK_MAX_BURSTS   450U
+#define ADC_PV_BLOCK_BURSTS         160U    /* 8 ms at 20 kHz */
+#define ADC_ISO_BLOCK_BURSTS        10U     /* 100 ms at 100 Hz */
+#define ADC_TEMP_BLOCK_BURSTS       20U     /* 200 ms at 100 Hz */
 
 /* DMA block groups reported to Task_Measure after buffer processing. */
 #define DMA_UPDATE_FAST          0x0001U
-#define DMA_UPDATE_PV_CURRENT    0x0002U
-#define DMA_UPDATE_PV_VOLTAGE    0x0004U
-#define DMA_UPDATE_ISOLATION     0x0008U
-#define DMA_UPDATE_TEMP          0x0010U
-#define DMA_UPDATE_ALL           0x001FU
-#define DMA_UPDATE_PV_ALL        (DMA_UPDATE_PV_CURRENT | DMA_UPDATE_PV_VOLTAGE)
+#define DMA_UPDATE_PV            0x0002U
+#define DMA_UPDATE_ISOLATION     0x0004U
+#define DMA_UPDATE_TEMP          0x0008U
+#define DMA_UPDATE_ALL           (DMA_UPDATE_FAST | DMA_UPDATE_PV | \
+                                  DMA_UPDATE_ISOLATION | DMA_UPDATE_TEMP)
 
 void GPIO_Config(void);
 void CPU_InterruptInit(void);
@@ -157,7 +157,6 @@ __interrupt void DMA_CH1_CPU_ISR(void);
 __interrupt void DMA_CH2_CPU_ISR(void);
 __interrupt void DMA_CH3_CPU_ISR(void);
 __interrupt void DMA_CH4_CPU_ISR(void);
-__interrupt void DMA_CH5_CPU_ISR(void);
 __interrupt void EPWM1_TZ_BSP_ISR(void);
 __interrupt void EPWM3_TZ_BSP_ISR(void);
 __interrupt void EPWM4_TZ_BSP_ISR(void);
