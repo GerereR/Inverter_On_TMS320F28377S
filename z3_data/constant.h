@@ -41,11 +41,11 @@
 #define PERMANENT_DC_BUS_OVER_VOLT     (1UL << 5U)
 
 /* Warning masks. Warnings record diagnostic conditions without stopping output. */
-#define WARNING_MAIN_LOOP_OVERRUN      (1UL << 0U)
-#define WARNING_SCHEDULER_PENDING_OVERFLOW (1UL << 1U)
-#define WARNING_I2C_PENDING_OVERFLOW   (1UL << 2U)
-#define WARNING_SCI_FRAME_DROPPED      (1UL << 3U)
-#define WARNING_I2C_FRAME_DROPPED      (1UL << 4U)
+#define WARNING_MAIN_LOOP_OVERRUN           (1UL << 0U)
+#define WARNING_SCHEDULER_PENDING_OVERFLOW  (1UL << 1U)
+#define WARNING_SCI_FRAME_DROPPED           (1UL << 2U)
+#define WARNING_I2C_PENDING_OVERFLOW        (1UL << 3U)
+#define WARNING_I2C_FRAME_DROPPED           (1UL << 4U)
 
 /* Fault mask used while waiting for the grid PLL to acquire lock. */
 

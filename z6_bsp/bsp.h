@@ -26,15 +26,13 @@
 #define DMA_UPDATE_ALL           0x001FU
 #define DMA_UPDATE_PV_ALL        (DMA_UPDATE_PV_CURRENT | DMA_UPDATE_PV_VOLTAGE)
 
-/* CPU Timer1 supplies the independent 100 Hz slow ADC hardware trigger. */
-#define ADC_SLOW_TRIGGER_COUNTS  2000000UL
-
 void GPIO_Config(void);
 void CPU_InterruptInit(void);
 void CPU_InterruptEnable(void);
 Uint16 CPU_InterruptSaveDisable(void);
 void CPU_InterruptRestore(Uint16 interruptState);
 void Timer0_Init(void);
+void Timer1_Init(void);
 void Timer2_Init(void);
 Uint32 Timer2_GetCount(void);
 

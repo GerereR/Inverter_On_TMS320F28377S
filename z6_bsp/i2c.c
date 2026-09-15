@@ -21,7 +21,6 @@
 //因为I2C对接的是UI任务,对于实时性要求没这么高,就不需要精准计算
 static Uint32 I2C_WaitLoopsFromUs(Uint16 timeoutUs)
 {
-    
     Uint32 loops = (Uint32)timeoutUs * I2C_WAIT_LOOPS_PER_US;
     //保底返回1
     return (loops == 0UL) ? 1UL : loops;
@@ -67,17 +66,17 @@ static void I2C_ResetTxFifo(void)
     I2caRegs.I2CFFTX.bit.TXFFRST = 1U;
 }
 
-//出错统一收尾：请求STOP、清空FIFO并清除锁存状态。
+//上报IIC警告
 static void I2C_ReportFrameDrop(Uint16 status, Uint16 frameActive)
 {
-    /* A zero-length transfer is the EEPROM ACK-poll operation; its NACK and
-     * timeout are expected while the write cycle is still in progress. */
+    //报丢帧警告
     if((frameActive != 0U) && (status != I2C_STATUS_OK))
     {
         gSysProblem.warning |= WARNING_I2C_FRAME_DROPPED;
     }
 }
 
+//出错统一收尾：请求STOP、清空FIFO并清除锁存状态。
 static Uint16 I2C_FinishWithError(Uint16 status, Uint16 frameActive)
 {
     //告诉IIC模块:你发送完成后不要有其他动作,发送一个STOP就行,把总线释放了
@@ -86,6 +85,7 @@ static Uint16 I2C_FinishWithError(Uint16 status, Uint16 frameActive)
     I2C_ResetTxFifo();
     //清除锁存寄存器
     I2C_ClearStatusFlags();
+    //报丢帧警告
     I2C_ReportFrameDrop(status, frameActive);
     return status;
 }

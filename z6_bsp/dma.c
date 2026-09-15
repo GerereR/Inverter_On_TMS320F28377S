@@ -1,7 +1,8 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
-//DMA
+
+//DMA基本思想就是
 //起点(一般是ADC结果寄存器) --- 搬运 ---> 终点(我们指定的Buffer)
 
 #define DMA_FAST_CYCLE_MIN_BURSTS  250U
@@ -19,16 +20,16 @@ typedef struct
 } DMA_BlockState;
 
 
-/* Each ping-pong half has its own linker section so large arrays never overlap. */
-//单独为这些buffer定义段的地硬件址
-#pragma DATA_SECTION(ADC_FastRawBuffer0, "adcFastDmaBuffer0")
-#pragma DATA_SECTION(ADC_FastRawBuffer1, "adcFastDmaBuffer1")
-#pragma DATA_SECTION(ADC_PvCurrentRawBuffer0, "adcPvCurrentDmaBuffer0")
-#pragma DATA_SECTION(ADC_PvCurrentRawBuffer1, "adcPvCurrentDmaBuffer1")
-#pragma DATA_SECTION(ADC_PvVoltageRawBuffer0, "adcPvVoltageDmaBuffer0")
-#pragma DATA_SECTION(ADC_PvVoltageRawBuffer1, "adcPvVoltageDmaBuffer1")
-#pragma DATA_SECTION(ADC_IsolationRawBuffer0, "adcIsolationDmaBuffer0")
-#pragma DATA_SECTION(ADC_IsolationRawBuffer1, "adcIsolationDmaBuffer1")
+//单独为这些buffer定义段的地硬件址, 不要放在.ebss
+//具体段可在CMD文件找到
+#pragma DATA_SECTION(ADC_FastRawBuffer0,        "adcFastDmaBuffer0")
+#pragma DATA_SECTION(ADC_FastRawBuffer1,        "adcFastDmaBuffer1")
+#pragma DATA_SECTION(ADC_PvCurrentRawBuffer0,   "adcPvCurrentDmaBuffer0")
+#pragma DATA_SECTION(ADC_PvCurrentRawBuffer1,   "adcPvCurrentDmaBuffer1")
+#pragma DATA_SECTION(ADC_PvVoltageRawBuffer0,   "adcPvVoltageDmaBuffer0")
+#pragma DATA_SECTION(ADC_PvVoltageRawBuffer1,   "adcPvVoltageDmaBuffer1")
+#pragma DATA_SECTION(ADC_IsolationRawBuffer0,   "adcIsolationDmaBuffer0")
+#pragma DATA_SECTION(ADC_IsolationRawBuffer1,   "adcIsolationDmaBuffer1")
 #pragma DATA_SECTION(ADC_TemperatureRawBuffer0, "adcTemperatureDmaBuffer0")
 #pragma DATA_SECTION(ADC_TemperatureRawBuffer1, "adcTemperatureDmaBuffer1")
 

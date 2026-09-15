@@ -8,11 +8,11 @@
 //ecap识别上限
 #define ECAP_CYCLE_FREQ_MAX_HZ  70.0f
 
-//
+//当前捕获值
 static volatile Uint32 ECAP_PeriodTicks = 0;
 //ecap算出来的频率
 static volatile float ECAP_FreqHz = 0.0f;
-//当前捕获值
+//初次启动ECAP
 static Uint16 ECAP_CapturePrimed = 0;
 
 void ECAP_Config(void)
@@ -73,7 +73,7 @@ __interrupt void ECAP1_BSP_ISR(void)
     if(ECAP_CapturePrimed == 0U)
     {
         ECAP_CapturePrimed = 1U;
-        /* The first edge discards startup data and starts an aligned block. */
+        //它由 eCAP 的过零检测触发，在过零点把"当前这一周期"的数据从缓冲里切出来
         DMA_GridCycleBoundary();
     }
     else
@@ -82,13 +82,17 @@ __interrupt void ECAP1_BSP_ISR(void)
         ECAP_PeriodTicks = periodTicks;
         if(periodTicks != 0UL)
         {
+            //periodTicks每50ns加一, 所以计算方法为20MHz/CNT
             ECAP_FreqHz = (float)SYSCLK_FREQ_HZ / (float)periodTicks;
-            /* Ignore noise edges that cannot represent a valid grid cycle. */
+            //当频率合理
             if((ECAP_FreqHz >= ECAP_CYCLE_FREQ_MIN_HZ) &&
                (ECAP_FreqHz <= ECAP_CYCLE_FREQ_MAX_HZ))
             {
+                //记下eCAP频率
                 gMachineData.ecapFreqCent = (Uint16)(ECAP_FreqHz * 100.0f);
+                //通知DMA截断,具体参见dma.c
                 DMA_GridCycleBoundary();
+                //通知过零任务
                 Scheduler_NotifyGridZeroCross();
             }
             else

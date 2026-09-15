@@ -28,6 +28,7 @@ void Inverter_Init(void)
     GPIO_Config();
     Inverter_ForceHardwareSafe();
     ADC_Config();
+    Timer1_Init();
     DMA_Config();
     ECAP_Config();
     SCI_Config();

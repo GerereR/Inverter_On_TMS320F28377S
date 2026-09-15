@@ -26,8 +26,7 @@ void GPIO_Config(void)
 {
     EALLOW;
 
-    /*
-     * GPA pin map:
+    /* GPA pin map:
      *   GPIO0/1  ePWM1A/B  Dri_INV_B1_L/Dri_INV_B2_L
      *   GPIO2/3  ePWM2A/B  Dri_INV_C1_L/Dri_INV_C2_L
      *   GPIO4/5  ePWM3A/B  Dri_BST1_L/Dri_BST2_L
@@ -39,10 +38,7 @@ void GPIO_Config(void)
      *   GPIO19   GPIO OUT  GFCI_Check_L (low = check on)
      *   GPIO20   GPIO OUT  Chock_Temp_SW_L
      *   GPIO21   GPIO OUT  DSP_State_L
-     *   GPIO31   GPIO OUT  LED1 (low = LED on)
-     */
-
-    /* Put all outputs in GPIO mode while their safe latch values are loaded. */
+     *   GPIO31   GPIO OUT  LED1 (low = LED on) */
     GpioCtrlRegs.GPAGMUX1.bit.GPIO0 = 0U;
     GpioCtrlRegs.GPAGMUX1.bit.GPIO1 = 0U;
     GpioCtrlRegs.GPAGMUX1.bit.GPIO2 = 0U;
@@ -83,6 +79,7 @@ void GPIO_Config(void)
     GpioCtrlRegs.GPBMUX1.bit.GPIO34 = 0U;
     GpioCtrlRegs.GPBGMUX2.bit.GPIO53 = 0U;
     GpioCtrlRegs.GPBMUX2.bit.GPIO53 = 0U;
+
     /* GPC pin map: GPIO64 grid over-current trip, GPIO67 EEPROM WC,
      * GPIO76 OVP_BUS_Fin, GPIO77 FAN_State_L, GPIO78 POWER_SW3,
      * GPIO79/81/83/85 Key4/3/2/1_L, GPIO80/82 POWER_SW2/1,
@@ -106,7 +103,6 @@ void GPIO_Config(void)
     GpioCtrlRegs.GPCMUX2.bit.GPIO93 = 0U;
     GpioCtrlRegs.GPCMUX2.bit.GPIO94 = 0U;
 
-    /* Output pins use push-pull drive with internal pull-ups disabled. */
     GpioCtrlRegs.GPAPUD.bit.GPIO0 = 1U;
     GpioCtrlRegs.GPAPUD.bit.GPIO1 = 1U;
     GpioCtrlRegs.GPAPUD.bit.GPIO2 = 1U;
