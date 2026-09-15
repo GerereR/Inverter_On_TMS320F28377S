@@ -231,7 +231,7 @@ __interrupt void ADCA1_CPU_ISR(void)
     rawInput.dcBusVoltage = AdcaResultRegs.ADCRESULT3;
     //实际上,电流环任务是"假任务"它由ADC中断直接调度,不接受调度器调度
     ctrlEvents = Task_AC_Ctrl(&rawInput);
-    //如果电流环检测到峰值事件, 通知调度器
+    //如果电流环检测到峰值事件, 通知调度器电网到达峰值
     if((ctrlEvents & FAST_EVENT_GRID_PEAK) != 0U)
     {
         //直接通知调度器可以进行峰值任务,也就是限幅任务

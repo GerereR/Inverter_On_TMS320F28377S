@@ -1,17 +1,5 @@
-1.还有一个可以加warning的点,就是SCI通讯丢帧
-4.我把MasterWrite和MasterProbe函数合二为一了,
-2.还可以加一个IIC丢帧警告
-3.    while(I2caRegs.I2CSTR.bit.BB != 0U)
-    {
-        if(waitLoops == 0UL)
-        {
-            return I2C_STATUS_BUS_BUSY;
-        }
-        waitLoops--;
-    }
-    是不是可以优化一下,总不能真的干等吧
-    有没有优化的空间
-
-5.我把所有的unsigned char 换成了Uint16
-
-6.你再核实一下gpio的配置,看是否正确
+1. 我想加一个DMA丢包警告
+2. DMA状态结构体里面的sequence和doneBlockCount我觉得都没必要存在, 所以我删掉了
+4. 我把DMA_HaltFastBlock(void)内联进了DMA_GridCycleBoundary
+5. 我把DMA_RestartFastBlock内联进了DMA_GridCycleBoundary
+3. 添加DMA快环冻结失败警告

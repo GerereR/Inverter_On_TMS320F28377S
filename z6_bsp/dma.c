@@ -7,7 +7,7 @@
 //由于快环比较特殊, 它的数据会受到电网频率的影响, 所以它的burst长度不固定
 //但是再不固定, 你至少要有250个burst, 也就是12.5ms
 #define DMA_FAST_CYCLE_MIN_BURSTS  250U
-//当然也不能超过50ms
+//DMA快环冻结超时时间
 #define DMA_FAST_HALT_WAIT_LIMIT   1000U
 
 //DMA状态只供本文件的ISR和后台处理函数使用
@@ -21,10 +21,6 @@ typedef struct
     Uint16 ready;
     //前台还没处理完，又有新 block 完成，导致覆盖
     Uint16 overrun;
-    //完成的 block 流水号，用于检测丢块
-    Uint32 sequence;
-    //完成的 block 总数，心跳监控
-    Uint32 doneBlockCount;
 } DMA_BlockState;
 
 //存放四个DMA当前状态
@@ -226,18 +222,16 @@ void DMA_Config(void)
     EDIS;
 }
 
+//DMA 完成一个 block 后，更新状态结构体，通知前台
 static void DMA_RecordCompletion(volatile DMA_BlockState *state, Uint16 doneBuffer, Uint16 doneBursts)
 {
-    /* A still-set ready flag means the foreground did not consume the prior block. */
-    if(state->ready != 0U)//DMA数据丢包计数
-    {
-        state->overrun++;
-    }
-
-    state->doneBuffer = doneBuffer;//记录刚刚是哪一个buffer传输完成了
-    state->doneBursts = doneBursts;
-    state->sequence++;//流水号,主要看有没有掉包,这个比丢包严重,因为丢包好歹CPU知道有这回事,但是掉包CPU根本没发觉
-    state->doneBlockCount++;//相当于心跳监控
+    // 如果上一次完成的 block 还没被前台取走, DMA数据丢包计数更新
+    if(state->ready != 0U) { state->overrun++; }
+    //记录刚刚是哪一个buffer传输完成了
+    state->doneBuffer = doneBuffer;
+    // 记录这个 block 里实际有多少个 burst, 实际上这个还是针对快环开发的
+    state->doneBursts = doneBursts; 
+    // 标记有新的完成块等待前台处理
     state->ready = 1U;
 }
 
@@ -247,7 +241,6 @@ static void DMA_StartNextBlock(volatile struct CH_REGS *channel, volatile Uint16
     //切换新的终点地址
     channel->DST_BEG_ADDR_SHADOW = (Uint32)destination;
     channel->DST_ADDR_SHADOW = (Uint32)destination;
-
     // 清除外设中断挂起标志，避免旧触发残留
     channel->CONTROL.bit.PERINTCLR = 1U;
     // 清除错误标志
@@ -258,41 +251,7 @@ static void DMA_StartNextBlock(volatile struct CH_REGS *channel, volatile Uint16
     channel->CONTROL.bit.RUN = 1U;
 }
 
-/* Stop after the current six-word burst so the completed prefix is stable. */
-static Uint16 DMA_HaltFastBlock(void)
-{
-    Uint16 waitCount = DMA_FAST_HALT_WAIT_LIMIT;
-
-    DmaRegs.CH1.CONTROL.bit.HALT = 1U;
-    while((DmaRegs.CH1.CONTROL.bit.RUNSTS != 0U) && (waitCount > 0U))
-    {
-        waitCount--;
-    }
-
-    return (DmaRegs.CH1.CONTROL.bit.RUNSTS == 0U) ? 1U : 0U;
-}
-
-/* An early boundary needs a channel reset so transfer count returns to zero. */
-static void DMA_RestartFastBlock(volatile Uint16 *destination)
-{
-    DmaRegs.CH1.CONTROL.bit.SOFTRESET = 1U;
-    __asm(" NOP");
-
-    DMA_Config_CHx
-    (
-        &DmaRegs.CH1,
-        1U,
-        (volatile Uint16 *)&AdcaResultRegs.ADCRESULT0,
-        destination,
-        6U,
-        ADC_FAST_BLOCK_MAX_BURSTS
-    );
-    DmaRegs.CH1.CONTROL.bit.HALT = 0U;
-    DmaRegs.CH1.CONTROL.bit.RUN = 1U;
-}
-
-/* Count one ADCA EOC5 event. DMA CH1 moves the corresponding six-result frame
- * independently; this notification only tracks the current cycle length. */
+//在ADC中断函数处被触发, 只是告诉DMA当前快环帧+1
 void DMA_NotifyFastFrameEoc(void)
 {
     if(ADC_FastDmaFrameCount < ADC_FAST_BLOCK_MAX_BURSTS)
@@ -301,32 +260,61 @@ void DMA_NotifyFastFrameEoc(void)
     }
 }
 
-/* Freeze the current grid-cycle prefix and immediately start the other half. */
+//这个函数在ecap被调用
+//主要进行电网周期边界处理
 void DMA_GridCycleBoundary(void)
 {
+    // 本周期实际帧数
     Uint16 doneBursts = ADC_FastDmaFrameCount;
-    Uint16 haltedCleanly = DMA_HaltFastBlock();
-
-    if((ADC_FastDmaCyclePrimed != 0U) &&
-       (haltedCleanly != 0U) &&
-       (doneBursts >= DMA_FAST_CYCLE_MIN_BURSTS) &&
-       (doneBursts <= ADC_FAST_BLOCK_MAX_BURSTS))
+    //设置超时
+    Uint16 waitCount = DMA_FAST_HALT_WAIT_LIMIT;
+    //冻结DMA CH1, 但是到时候这个会在最后解冻
+    DmaRegs.CH1.CONTROL.bit.HALT = 1U;
+    //一直等,等到超时或者真正暂停了
+    while((DmaRegs.CH1.CONTROL.bit.RUNSTS != 0U) && (waitCount > 0U))
     {
-        DMA_RecordCompletion(&ADC_FastDmaState,
-                             ADC_FastDmaActiveBuffer,
-                             doneBursts);
+        waitCount--;
     }
-
-    ADC_FastDmaActiveBuffer ^= 1U;
-    ADC_FastDmaFrameCount = 0U;
-    ADC_FastDmaCyclePrimed = 1U;
-
-    DMA_RestartFastBlock
+    //快环鉴定一次数据传输是否成功比较严苛, 其他CH都是直接记录的, 只有当
+    if
     (
+        //不是第一次记录完整的周期
+        (ADC_FastDmaCyclePrimed != 0U) &&
+        //真正冻结了CH1
+        (DmaRegs.CH1.CONTROL.bit.RUNSTS == 0U) &&
+        //传输时间小于12.5ms
+        (doneBursts >= DMA_FAST_CYCLE_MIN_BURSTS) &&
+        //或者传输时间超过22.5ms(实际上超过了早就进中断了)
+        (doneBursts <= ADC_FAST_BLOCK_MAX_BURSTS)
+    )
+    {
+        //才真正记录一次传输成功
+        DMA_RecordCompletion(&ADC_FastDmaState, ADC_FastDmaActiveBuffer, doneBursts);
+    }
+    //切buffer
+    ADC_FastDmaActiveBuffer ^= 1U;
+    // 当前周期帧数清零
+    ADC_FastDmaFrameCount = 0U;
+    // 标记已预热
+    ADC_FastDmaCyclePrimed = 1U;
+    // 软复位 CH1，把传输计数等归零
+    DmaRegs.CH1.CONTROL.bit.SOFTRESET = 1U;
+    __asm(" NOP");
+    //重新配置DMA CH1 这和其他CH不同, 它们都用DMA_StartNextBlock
+    //究其原因,快环是动态帧数,如果只用 DMA_StartNextBlock，
+    //DMA 会接着上次的剩余计数继续搬，而不是从新 block 的开头开始
+    DMA_Config_CHx
+    (
+        &DmaRegs.CH1, 1U, 6U, ADC_FAST_BLOCK_MAX_BURSTS,
+        (volatile Uint16 *)&AdcaResultRegs.ADCRESULT0,
         (ADC_FastDmaActiveBuffer == 0U) ?
         (volatile Uint16 *)ADC_FastRawBuffer0 :
         (volatile Uint16 *)ADC_FastRawBuffer1
     );
+    //解冻CH1
+    DmaRegs.CH1.CONTROL.bit.HALT = 0U;
+    //启动CH1
+    DmaRegs.CH1.CONTROL.bit.RUN = 1U;
 }
 
 /*进入了DMA中断,就说明当前的buffer满了, 准确来说是block到达对应数量了*/
@@ -354,12 +342,14 @@ __interrupt void DMA_CH1_CPU_ISR(void)
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP7;
 }
 
+//DMA CH2 中断函数, 剩下的就是正常中断了
 __interrupt void DMA_CH2_CPU_ISR(void)
 {
-    DMA_RecordCompletion(&ADC_PvDmaState,
-                         ADC_PvDmaActiveBuffer,
-                         ADC_PV_BLOCK_BURSTS);
+    // 记录一次block完成
+    DMA_RecordCompletion(&ADC_PvDmaState, ADC_PvDmaActiveBuffer, ADC_PV_BLOCK_BURSTS);
+    //切换buffer
     ADC_PvDmaActiveBuffer ^= 1U;
+    //换挡
     DMA_StartNextBlock
     (
         &DmaRegs.CH2,
@@ -371,12 +361,14 @@ __interrupt void DMA_CH2_CPU_ISR(void)
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP7;
 }
 
+//DMA CH3 中断函数
 __interrupt void DMA_CH3_CPU_ISR(void)
 {
-    DMA_RecordCompletion(&ADC_IsoDmaState,
-                         ADC_IsoDmaActiveBuffer,
-                         ADC_ISO_BLOCK_BURSTS);
+    // 记录一次block完成
+    DMA_RecordCompletion(&ADC_IsoDmaState, ADC_IsoDmaActiveBuffer, ADC_ISO_BLOCK_BURSTS);
+    //切换buffer
     ADC_IsoDmaActiveBuffer ^= 1U;
+    //换挡
     DMA_StartNextBlock
     (
         &DmaRegs.CH3,
@@ -388,12 +380,14 @@ __interrupt void DMA_CH3_CPU_ISR(void)
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP7;
 }
 
+//DMA CH4 中断函数
 __interrupt void DMA_CH4_CPU_ISR(void)
 {
-    DMA_RecordCompletion(&ADC_TempDmaState,
-                         ADC_TempDmaActiveBuffer,
-                         ADC_TEMP_BLOCK_BURSTS);
+    // 记录一次block完成
+    DMA_RecordCompletion(&ADC_TempDmaState, ADC_TempDmaActiveBuffer, ADC_TEMP_BLOCK_BURSTS);
+    //切换buffer
     ADC_TempDmaActiveBuffer ^= 1U;
+    //换挡
     DMA_StartNextBlock
     (
         &DmaRegs.CH4,
@@ -407,12 +401,7 @@ __interrupt void DMA_CH4_CPU_ISR(void)
 
 
 
-
-//以下是数据传输的函数=========================================================================================================================
-
-static Uint16 DMA_ClaimBuffer(volatile DMA_BlockState *state,
-                              Uint16 *doneBuffer,
-                              Uint16 *doneBursts)//确认数据,更新状态
+static Uint16 DMA_ClaimBuffer(volatile DMA_BlockState *state, Uint16 *doneBuffer, Uint16 *doneBursts)//确认数据,更新状态
 {
     Uint16 blockReady;
 
@@ -436,24 +425,31 @@ static Uint16 DMA_ClaimBuffer(volatile DMA_BlockState *state,
 
 Uint16 DMA_ProcessBlocks
 (
+    //同时输出码值平均值和码值均方值
     ADC_UintData *rawAvg,
     ADC_FloatData *rawMeanSq,
+    //输出有功功率原始量
     float *gridVoltCurrentMeanRaw,
+    //各个信号的运放调理值
     const ADC_Calibrate *cal
 )
 {
+    //冻结后的, 刚完成的是哪个 buffer?
     Uint16 bufferIndex;
+    //冻结后的, 本 block 实际有多少帧?
     Uint16 fastBlockBursts;
+
+    //
     Uint16 sampleIndex;
     Uint16 updated = 0U;
 
+    //临时累加器
     Uint32 sum0;
     Uint32 sum1;
     Uint32 sum2;
     Uint32 sum3;
     Uint32 sum4;
     Uint32 sum5;
-
     float squareSum0;
     float squareSum1;
     float squareSum2;
