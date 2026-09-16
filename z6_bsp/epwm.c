@@ -1,12 +1,12 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
-#include "inverter.h"
+#include "invert.h"
 
 //周期计数器值,向上计数到2500开始向下计数
-#define EPWM_PERIOD_TICKS          2500U
+#define EPWM_PERIOD_TICK          2500U
 //死区时间
-#define EPWM_DEADBAND_TICKS        100U
+#define EPWM_DEADBAND_TICK        100U
 //AQ不强制
 #define EPWM_AQ_FORCE_DISABLED      0U
 //AQ强制低
@@ -26,10 +26,10 @@
 //蜂鸣器时钟频率,25MHz
 #define BEEP_PWM_CLOCK_HZ           25000000UL
 //蜂鸣器默认频率2KHz
-#define BEEP_DEFAULT_FREQUENCY_HZ   2000U
+#define BEEP_DEFAULT_FREQ_HZ   2000U
 //蜂鸣器声音频率范围400Hz~10KHz
-#define BEEP_MIN_FREQUENCY_HZ       400U
-#define BEEP_MAX_FREQUENCY_HZ       10000U
+#define BEEP_MIN_FREQ_HZ       400U
+#define BEEP_MAX_FREQ_HZ       10000U
 
 //这个函数是为了单独配置功率级的ePWM模块的
 static void EPWM_ConfigPowerStage
@@ -77,7 +77,7 @@ static void EPWM_ConfigPowerStage
     //软件调试时停止输出
     pwm->TBCTL.bit.FREE_SOFT = 2U;
     //周期计数器配置为2500,
-    pwm->TBPRD = EPWM_PERIOD_TICKS;
+    pwm->TBPRD = EPWM_PERIOD_TICK;
     //告诉ePWM: "当你接收到同步之后,应该跳转到CTR=0,然后向上计数"
     pwm->TBPHS.all = 0U;
     //初始化周期计数器
@@ -92,7 +92,7 @@ static void EPWM_ConfigPowerStage
     pwm->CMPCTL.bit.LOADAMODE = CC_CTR_ZERO_PRD;
     pwm->CMPCTL.bit.LOADBMODE = CC_CTR_ZERO_PRD;
     //初始先给个0.5的占空比
-    pwm->CMPA.bit.CMPA = EPWM_PERIOD_TICKS / 2U;
+    pwm->CMPA.bit.CMPA = EPWM_PERIOD_TICK / 2U;
 
     //配置动作限定寄存器,这个寄存器的作用就是处理处理PWM事件,把事件变成PWM波
     //对于大功率器件,当我发送强制低的信号时,就应该立即执行,不管你当前是什么状态
@@ -117,8 +117,8 @@ static void EPWM_ConfigPowerStage
         //设置为高电平有效,且AB互补
         pwm->DBCTL.bit.POLSEL = DB_ACTV_HIC;
         //FED和RED的时间,也就是死区时间
-        pwm->DBRED.bit.DBRED = EPWM_DEADBAND_TICKS;
-        pwm->DBFED.bit.DBFED = EPWM_DEADBAND_TICKS;
+        pwm->DBRED.bit.DBRED = EPWM_DEADBAND_TICK;
+        pwm->DBFED.bit.DBFED = EPWM_DEADBAND_TICK;
         //其实死区的配置很简单,一句话:
         //AB两路首先是互补的,但是每一路从低->高的时候都得乖乖等待设定的死区时间,外在表现都是延时导通.
         //之所以强调"外在"这一个词,是因为配置方法不止这一种
@@ -132,7 +132,7 @@ static void EPWM_ConfigPowerStage
         pwm->AQCTLB.bit.CBU = AQ_CLEAR;
         pwm->AQCTLB.bit.CBD = AQ_SET;
         //初始占空比也设置为0.5
-        pwm->CMPB.bit.CMPB = EPWM_PERIOD_TICKS / 2U;
+        pwm->CMPB.bit.CMPB = EPWM_PERIOD_TICK / 2U;
     }
     //TZ 配置
     pwm->TZSEL.all = 0U;
@@ -212,7 +212,7 @@ void EPWM_Config(void)
     EPwm5Regs.TBCTL.bit.HSPCLKDIV = TB_DIV4;
     EPwm5Regs.TBCTL.bit.CLKDIV = TB_DIV1;
     //初始频率配置为2KHz
-    EPwm5Regs.TBPRD = (Uint16)(BEEP_PWM_CLOCK_HZ / BEEP_DEFAULT_FREQUENCY_HZ - 1UL);
+    EPwm5Regs.TBPRD = (Uint16)(BEEP_PWM_CLOCK_HZ / BEEP_DEFAULT_FREQ_HZ - 1UL);
     EPwm5Regs.CMPCTL.all = 0U;
     //CTR=0时影子寄存器装配到里面
     EPwm5Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;
@@ -234,18 +234,18 @@ void EPWM_Config(void)
 //设置蜂鸣器频率
 void BEEP_SetFreq(Uint16 freqHz)
 {
-    Uint32 periodTicks;
+    Uint32 periodTick;
     //限幅 400Hz~10kHz
-    if      (freqHz < BEEP_MIN_FREQUENCY_HZ) { freqHz = BEEP_MIN_FREQUENCY_HZ; }
-    else if (freqHz > BEEP_MAX_FREQUENCY_HZ) { freqHz = BEEP_MAX_FREQUENCY_HZ; }
+    if      (freqHz < BEEP_MIN_FREQ_HZ) { freqHz = BEEP_MIN_FREQ_HZ; }
+    else if (freqHz > BEEP_MAX_FREQ_HZ) { freqHz = BEEP_MAX_FREQ_HZ; }
     //频率转换为周期计数器值
-    periodTicks = BEEP_PWM_CLOCK_HZ / (Uint32)freqHz;
-    if(periodTicks > 0UL)       { periodTicks--; }
-    if(periodTicks > 65535UL)   { periodTicks = 65535UL; }
+    periodTick = BEEP_PWM_CLOCK_HZ / (Uint32)freqHz;
+    if(periodTick > 0UL)       { periodTick--; }
+    if(periodTick > 65535UL)   { periodTick = 65535UL; }
     //装配
     EALLOW;
-    EPwm5Regs.TBPRD = (Uint16)periodTicks;
-    EPwm5Regs.CMPA.bit.CMPA = (Uint16)(periodTicks / 2UL);
+    EPwm5Regs.TBPRD = (Uint16)periodTick;
+    EPwm5Regs.CMPA.bit.CMPA = (Uint16)(periodTick / 2UL);
     EDIS;
 }
 
@@ -314,7 +314,7 @@ Uint16 EPWM_TripZoneClear(void)
        (GpioDataRegs.GPCDAT.bit.GPIO64 == 0U))
     {
         //通知系统出现过流故障
-        gSysProblem.recoverFault |= RECOVER_TZ_FAULT;
+        gSysProblem.recovFault |= RECOV_TZ_FAULT;
         return 0U;
     }
 
@@ -347,13 +347,13 @@ Uint16 EPWM_TripZoneClear(void)
     EDIS;
 
     //清除错误标志位
-    gSysProblem.recoverFault &=~ RECOVER_TZ_FAULT;
+    gSysProblem.recovFault &=~ RECOV_TZ_FAULT;
     return 1U;
 }
 //记录故障标志，清中断标志
 static void EPWM_RecordTrip(volatile struct EPWM_REGS *pwm)
 {
-    gSysProblem.recoverFault |= RECOVER_TZ_FAULT;
+    gSysProblem.recovFault |= RECOV_TZ_FAULT;
     pwm->TZCLR.bit.INT = 1U;
 }
 
@@ -380,19 +380,19 @@ __interrupt void EPWM4_TZ_BSP_ISR(void)
 
 /*单极性调制策略,输入的是占空比,暂时不涉及到高级的控制
 死区固定,未来肯定会遇到过零点畸变的问题,到时候再改 */
-void EPWM_SetInverterMode(float modulation)
+void EPWM_SetInvertMode(float modulate)
 {
     Uint16 compareValue;
     //限幅
-    modulation = Inverter_Clamp(modulation, -1.0f, 1.0f);
+    modulate = Invert_Clamp(modulate, -1.0f, 1.0f);
     //取绝对值,然后转换为CMP值
-    compareValue = (Uint16)(((modulation >= 0.0f) ? modulation : -modulation) * (float)EPWM_PERIOD_TICKS);
+    compareValue = (Uint16)(((modulate >= 0.0f) ? modulate : -modulate) * (float)EPWM_PERIOD_TICK);
     //先一股脑给两个桥臂占空比,回头再精细控制
-    //为什么CMPA可以直接等于|modulation|,你可以思考一下😋
+    //为什么CMPA可以直接等于|modulate|,你可以思考一下😋
     EPwm1Regs.CMPA.bit.CMPA = compareValue;
     EPwm2Regs.CMPA.bit.CMPA = compareValue;
     //如果占空比大于零,也就是想让桥臂1控制,桥臂2置高
-    if(modulation > 0.0f)
+    if(modulate > 0.0f)
     {  
         //EPWM2A强制高,意味着桥臂2保持高电平
         EPwm2Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_HIGH;
@@ -402,7 +402,7 @@ void EPWM_SetInverterMode(float modulation)
         EPwm1Regs.AQCSFRC.bit.CSFB = EPWM_AQ_FORCE_DISABLED;
     }
     //如果占空比小于零,也就是想让桥臂2控制,桥臂1置高
-    else if(modulation < 0.0f)
+    else if(modulate < 0.0f)
     {
         //EPWM1强制高,意味着桥臂1保持高电平
         EPwm1Regs.AQCSFRC.bit.CSFA = EPWM_AQ_FORCE_HIGH;
@@ -427,11 +427,11 @@ void EPWM_SetBoostDuty(float boost1Duty, float boost2Duty)
     Uint16 boost1Compare;
     Uint16 boost2Compare;
     //限幅
-    boost1Duty = Inverter_Clamp(boost1Duty, 0.0f, 0.98f);
-    boost2Duty = Inverter_Clamp(boost2Duty, 0.0f, 0.98f);
+    boost1Duty = Invert_Clamp(boost1Duty, 0.0f, 0.98f);
+    boost2Duty = Invert_Clamp(boost2Duty, 0.0f, 0.98f);
     //结合EPWM3的配置,实际上是交错式BOOST,而A路和正常逻辑相反
-    boost1Compare = (Uint16)((1.0f - boost1Duty) * (float)EPWM_PERIOD_TICKS);
-    boost2Compare = (Uint16)(boost2Duty * (float)EPWM_PERIOD_TICKS);
+    boost1Compare = (Uint16)((1.0f - boost1Duty) * (float)EPWM_PERIOD_TICK);
+    boost2Compare = (Uint16)(boost2Duty * (float)EPWM_PERIOD_TICK);
     //更新CMP
     EPwm3Regs.CMPA.bit.CMPA = boost1Compare;
     EPwm3Regs.CMPB.bit.CMPB = boost2Compare;

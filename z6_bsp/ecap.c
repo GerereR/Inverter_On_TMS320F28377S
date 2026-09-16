@@ -1,7 +1,7 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
-#include "scheduler.h"
+#include "sched.h"
 
 //ecap识别下限
 #define ECAP_CYCLE_FREQ_MIN_HZ  45.0f
@@ -9,7 +9,7 @@
 #define ECAP_CYCLE_FREQ_MAX_HZ  70.0f
 
 //当前捕获值
-static volatile Uint32 ECAP_PeriodTicks = 0;
+static volatile Uint32 ECAP_PeriodTick = 0;
 //ecap算出来的频率
 static volatile float ECAP_FreqHz = 0.0f;
 //初次启动ECAP
@@ -67,23 +67,23 @@ void ECAP_Config(void)
 
 __interrupt void ECAP1_BSP_ISR(void)
 {
-    Uint32 periodTicks = ECap1Regs.CAP1;
+    Uint32 periodTick = ECap1Regs.CAP1;
 
     // 第一个下降沿只建立计时参考，不能代表完整输入周期。
     if(ECAP_CapturePrimed == 0U)
     {
         ECAP_CapturePrimed = 1U;
         //它由 eCAP 的过零检测触发，在过零点把"当前这一周期"的数据从缓冲里切出来
-        DMA_GridCycleBoundary();
+        DMA_GridCycleBound();
     }
     else
     {
         // 后续每个下降沿对应一个完整周期，保存周期计数并计算频率。
-        ECAP_PeriodTicks = periodTicks;
-        if(periodTicks != 0UL)
+        ECAP_PeriodTick = periodTick;
+        if(periodTick != 0UL)
         {
-            //periodTicks每50ns加一, 所以计算方法为20MHz/CNT
-            ECAP_FreqHz = (float)SYSCLK_FREQ_HZ / (float)periodTicks;
+            //periodTick每50ns加一, 所以计算方法为20MHz/CNT
+            ECAP_FreqHz = (float)SYSCLK_FREQ_HZ / (float)periodTick;
             //当频率合理
             if((ECAP_FreqHz >= ECAP_CYCLE_FREQ_MIN_HZ) &&
                (ECAP_FreqHz <= ECAP_CYCLE_FREQ_MAX_HZ))
@@ -91,9 +91,9 @@ __interrupt void ECAP1_BSP_ISR(void)
                 //记下eCAP频率
                 gMachineData.ecapFreqCent = (Uint16)(ECAP_FreqHz * 100.0f);
                 //通知DMA截断,具体参见dma.c
-                DMA_GridCycleBoundary();
+                DMA_GridCycleBound();
                 //通知过零任务
-                Scheduler_NotifyGridZeroCross();
+                Sched_NoteGridZCross();
             }
             else
             {

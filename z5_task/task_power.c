@@ -3,8 +3,8 @@
 #include "task.h"
 #include "constant.h"
 #include "variable.h"
-#include "inverter.h"
-#include "scheduler.h"
+#include "invert.h"
+#include "sched.h"
 
 /* --- 功率限幅常量（原 powercalc.c / power_mgr.c，按机型配置，当前为默认值） ---
  * 单位：功率 W、温度 ℃、电压 V、频率 Hz；电流上限归一化 0..1。
@@ -31,7 +31,7 @@
  * 本工程 Task_Power 10ms 一次，等效增益 = 7500*(500/10) = 375000。 */
 #define POWER_INT_GAIN_W                 375000.0f
 
-/* 功率任务私有状态（不暴露给外部，外部只读 gPowerLimitData 里的结果）。 */
+/* 功率任务私有状态（不暴露给外部，外部只读 gPowerLimData 里的结果）。 */
 typedef struct
 {
     Uint16 overloadTimerMs;    /* 过载持续计时 */
@@ -45,21 +45,21 @@ static PowerState Power_State = {0};
 /* 功率任务的输入快照（慢任务串行，快照保证任务内一致）。 */
 typedef struct
 {
-    float boostTemperature;
-    float pv1Voltage;
-    float pv2Voltage;
+    float boostTemp;
+    float pv1Volt;
+    float pv2Volt;
     float gridActivePower;
     float gridFreqHz;
-    float currentAmpMax;
+    float currAmpMax;
     float phaseShiftPu;
 } PowerInput;
 
 void Task_Power_Init(void)
 {
     /* 电流上限默认满：电流由母线环 + 功率环自动产生。
-     * currentAmpMax 供 SCI 手动降载（未来实现），现在默认不限制。 */
-    gPowerLimitData.currentAmpMax = BUS_CURRENT_AMP_MAX_NORM;
-    gPowerLimitData.currentAmpLimit = BUS_CURRENT_AMP_MAX_NORM;
+     * currAmpMax 供 SCI 手动降载（未来实现），现在默认不限制。 */
+    gPowerLimData.currAmpMax = BUS_CURR_AMP_MAX_NORM;
+    gPowerLimData.currAmpLim = BUS_CURR_AMP_MAX_NORM;
     Power_State.overloadTimerMs = 0U;
     Power_State.overloadActive = 0U;
     Power_State.overloadBackMs = 0U;
@@ -95,54 +95,54 @@ static float Power_ReactiveDerate(float phaseShiftPu)
  *==========================================================================*/
 static void Power_Compute(const PowerInput *input)
 {
-    float thermalLimit;
-    float pvLimit;
-    float overloadLimit;
-    float freqLimit;
-    float reactiveLimit;
+    float thermalLim;
+    float pvLim;
+    float overloadLim;
+    float freqLim;
+    float reactiveLim;
     float targetPower;
     float ampMax;
 
     /* 1. 温度降额（带迟滞）：超阈值持续 POWER_TEMP_DERATE_DELAY_MS 才降额 */
-    if (input->boostTemperature > POWER_TEMP_DERATE_START_C)
+    if (input->boostTemp > POWER_TEMP_DERATE_START_C)
     {
         Power_State.tempDerateTimerMs += TASK_POWER_PERIOD_MS;
         if (Power_State.tempDerateTimerMs >= POWER_TEMP_DERATE_DELAY_MS)
         {
-            thermalLimit =  POWER_OVERLOAD_W - 
-                            POWER_TEMP_DERATE_RATE_W_PER_C * (input->boostTemperature - POWER_TEMP_DERATE_START_C);
+            thermalLim =  POWER_OVERLOAD_W - 
+                            POWER_TEMP_DERATE_RATE_W_PER_C * (input->boostTemp - POWER_TEMP_DERATE_START_C);
         }
         else
         {
-            thermalLimit = POWER_OVERLOAD_W;   /* 迟滞期内不降额 */
+            thermalLim = POWER_OVERLOAD_W;   /* 迟滞期内不降额 */
         }
     }
     else
     {
         Power_State.tempDerateTimerMs = 0U;
-        thermalLimit = POWER_OVERLOAD_W;
+        thermalLim = POWER_OVERLOAD_W;
     }
 
     /* 2. PV 过压降额（双路独立，取 min） */
-    pvLimit = POWER_OVERLOAD_W;
-    if (input->pv1Voltage > POWER_PV_DERATE_START_V)
+    pvLim = POWER_OVERLOAD_W;
+    if (input->pv1Volt > POWER_PV_DERATE_START_V)
     {
-        float pv1Limit = POWER_OVERLOAD_W -
+        float pv1Lim = POWER_OVERLOAD_W -
                          POWER_PV_DERATE_SLOPE_W_PER_V *
-                         (input->pv1Voltage - POWER_PV_DERATE_START_V);
-        if (pv1Limit < pvLimit) 
+                         (input->pv1Volt - POWER_PV_DERATE_START_V);
+        if (pv1Lim < pvLim) 
         { 
-            pvLimit = pv1Limit; 
+            pvLim = pv1Lim; 
         }
     }
-    if (input->pv2Voltage > POWER_PV_DERATE_START_V)
+    if (input->pv2Volt > POWER_PV_DERATE_START_V)
     {
-        float pv2Limit = POWER_OVERLOAD_W -
+        float pv2Lim = POWER_OVERLOAD_W -
                          POWER_PV_DERATE_SLOPE_W_PER_V *
-                         (input->pv2Voltage - POWER_PV_DERATE_START_V);
-        if (pv2Limit < pvLimit) 
+                         (input->pv2Volt - POWER_PV_DERATE_START_V);
+        if (pv2Lim < pvLim) 
         { 
-            pvLimit = pv2Limit; 
+            pvLim = pv2Lim; 
         }
     }
 
@@ -171,28 +171,28 @@ static void Power_Compute(const PowerInput *input)
             }
         }
     }
-    overloadLimit = (Power_State.overloadActive != 0U) ? POWER_RATED_W : POWER_OVERLOAD_W;
+    overloadLim = (Power_State.overloadActive != 0U) ? POWER_RATED_W : POWER_OVERLOAD_W;
 
     /* 4. 频率降额（接口预留，当前不降额） */
-    freqLimit = Power_FreqDerate(input->gridFreqHz);
+    freqLim = Power_FreqDerate(input->gridFreqHz);
 
     /* 5. 无功调度上限（按当前相移折算视在功率） */
-    reactiveLimit = Power_ReactiveDerate(input->phaseShiftPu);
+    reactiveLim = Power_ReactiveDerate(input->phaseShiftPu);
 
     /* 6. 各路取 min 得目标功率 */
     targetPower = POWER_OVERLOAD_W;
-    targetPower = (thermalLimit  < targetPower) ? thermalLimit  : targetPower;
-    targetPower = (pvLimit       < targetPower) ? pvLimit       : targetPower;
-    targetPower = (overloadLimit < targetPower) ? overloadLimit : targetPower;
-    targetPower = (freqLimit     < targetPower) ? freqLimit     : targetPower;
-    targetPower = (reactiveLimit < targetPower) ? reactiveLimit : targetPower;
+    targetPower = (thermalLim  < targetPower) ? thermalLim  : targetPower;
+    targetPower = (pvLim       < targetPower) ? pvLim       : targetPower;
+    targetPower = (overloadLim < targetPower) ? overloadLim : targetPower;
+    targetPower = (freqLim     < targetPower) ? freqLim     : targetPower;
+    targetPower = (reactiveLim < targetPower) ? reactiveLim : targetPower;
 
     /* 7. 功率环（纯积分器）：功率误差 → 电流限幅 */
-    gPowerLimitData.currentAmpLimit += (targetPower - input->gridActivePower) / POWER_INT_GAIN_W;
+    gPowerLimData.currAmpLim += (targetPower - input->gridActivePower) / POWER_INT_GAIN_W;
 
-    /* 8. 最终 clamp：上限 = SCI 手动上限 currentAmpMax */
-    ampMax = Inverter_Clamp(input->currentAmpMax, BUS_CURRENT_AMP_MIN_NORM, BUS_CURRENT_AMP_MAX_NORM);
-    gPowerLimitData.currentAmpLimit = Inverter_Clamp(gPowerLimitData.currentAmpLimit, BUS_CURRENT_AMP_MIN_NORM, ampMax);
+    /* 8. 最终 clamp：上限 = SCI 手动上限 currAmpMax */
+    ampMax = Invert_Clamp(input->currAmpMax, BUS_CURR_AMP_MIN_NORM, BUS_CURR_AMP_MAX_NORM);
+    gPowerLimData.currAmpLim = Invert_Clamp(gPowerLimData.currAmpLim, BUS_CURR_AMP_MIN_NORM, ampMax);
 }
 
 /* 任务入口：先调度（判断是否该干活），再功能（限幅计算）。 */
@@ -200,18 +200,18 @@ void Task_Power(void)
 {
     PowerInput input;
 
-    input.boostTemperature = gMachineData.realAvg.boostTemperature;
-    input.pv1Voltage = gMachineData.realAvg.pv1Voltage;
-    input.pv2Voltage = gMachineData.realAvg.pv2Voltage;
+    input.boostTemp = gMachineData.realAvg.boostTemp;
+    input.pv1Volt = gMachineData.realAvg.pv1Volt;
+    input.pv2Volt = gMachineData.realAvg.pv2Volt;
     input.gridActivePower = gMachineData.powerData.gridActivePower;
     input.gridFreqHz = (float)gMachineData.ecapFreqCent * 0.01f;
-    input.currentAmpMax = gPowerLimitData.currentAmpMax;
+    input.currAmpMax = gPowerLimData.currAmpMax;
     input.phaseShiftPu = gReactiveData.phaseShiftPu;
 
     /* 调度层：仅并网态限功率；脱离并网复位限流和私有状态。 */
     if (gSysData.state != SYS_STATE_NORMAL)
     {
-        gPowerLimitData.currentAmpLimit = 0.0f;
+        gPowerLimData.currAmpLim = 0.0f;
         Power_State.overloadTimerMs = 0U;
         Power_State.overloadActive = 0U;
         Power_State.overloadBackMs = 0U;

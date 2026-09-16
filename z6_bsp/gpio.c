@@ -2,23 +2,23 @@
 #include "bsp.h"
 
 //四个KEY
-#define GPIO_KEY_COUNT             4U
+#define GPIO_KEY_CNT             4U
 //消抖门限:4次state任务都是低电平
 #define GPIO_KEY_DEBOUNCE_SAMPLES  4U 
 
-static Uint16 GPIO_ReadKeyPressed(Uint16 keyNumber);
+static Uint16 GPIO_ReadKeyPressed(Uint16 keyNum);
 static void GPIO_KeyDebounceInit(void);
 
 //每个按键的稳定状态,初始化的时候记录一次,自适应
-static Uint16 GPIO_KeyStablePressed[GPIO_KEY_COUNT] = {0U, 0U, 0U, 0U};
+static Uint16 GPIO_KeyStablePressed[GPIO_KEY_CNT] = {0U, 0U, 0U, 0U};
 //记录上一次四个按键的状态
-static Uint16 GPIO_KeyLastPressed[GPIO_KEY_COUNT] = {0U, 0U, 0U, 0U};
+static Uint16 GPIO_KeyLastPressed[GPIO_KEY_CNT] = {0U, 0U, 0U, 0U};
 //每个按键的连续性计数,这样可以做到 单个/多个 和 单次/连续 按键检测
-static Uint16 GPIO_KeyDebounceCount[GPIO_KEY_COUNT] = {0U, 0U, 0U, 0U};
+static Uint16 GPIO_KeyDebounceCnt[GPIO_KEY_CNT] = {0U, 0U, 0U, 0U};
 // 待处理事件累计寄存器
-static Uint16 GPIO_KeyPendingEvents = 0U;
+static Uint16 GPIO_KeyPendEvents = 0U;
 /* 按键事件位掩码表，索引对应 KEY_NUMBER_x。 */
-static const Uint16 GPIO_KeyEventMasks[GPIO_KEY_COUNT] = {KEY_EVENT_1, KEY_EVENT_2, KEY_EVENT_3, KEY_EVENT_4};
+static const Uint16 GPIO_KeyEventMasks[GPIO_KEY_CNT] = {KEY_EVENT_1, KEY_EVENT_2, KEY_EVENT_3, KEY_EVENT_4};
 
 //采用直接寄存器操作
 #if 1
@@ -74,18 +74,18 @@ void GPIO_Config(void)
 
     /* GPB pin map: GPIO34 LED2, GPIO42/43 I2CA SDA/SCL,
      * GPIO53 FAN_PWM_L, GPIO54/55 SCIB TX/RX, GPIO61 grid zero-cross,
-     * GPIO62/63 PV1/PV2 over-current trip inputs. */
+     * GPIO62/63 PV1/PV2 over-curr trip inputs. */
     GpioCtrlRegs.GPBGMUX1.bit.GPIO34 = 0U;
     GpioCtrlRegs.GPBMUX1.bit.GPIO34 = 0U;
     GpioCtrlRegs.GPBGMUX2.bit.GPIO53 = 0U;
     GpioCtrlRegs.GPBMUX2.bit.GPIO53 = 0U;
 
-    /* GPC pin map: GPIO64 grid over-current trip, GPIO67 EEPROM WC,
+    /* GPC pin map: GPIO64 grid over-curr trip, GPIO67 EEPROM WC,
      * GPIO76 OVP_BUS_Fin, GPIO77 FAN_State_L, GPIO78 POWER_SW3,
      * GPIO79/81/83/85 Key4/3/2/1_L, GPIO80/82 POWER_SW2/1,
      * GPIO88 BST_OFF_L, GPIO89 INV_OFF_L,
      * GPIO90/92/94 grid relays 1/2/3,
-     * GPIO91/93 isolation relays 1/2. */
+     * GPIO91/93 INSUL relays 1/2. */
     GpioCtrlRegs.GPCGMUX1.bit.GPIO67 = 0U;
     GpioCtrlRegs.GPCMUX1.bit.GPIO67 = 0U;
     GpioCtrlRegs.GPCGMUX2.bit.GPIO88 = 0U;
@@ -133,7 +133,7 @@ void GPIO_Config(void)
     /* Safe output latches:
      *   PWM/gate outputs low; relay outputs high (released);
      *   GPIO11 low (all-off asserted); LEDs high (off);
-     *   GPIO67 low (EEPROM WC write-enabled by current board design). */
+     *   GPIO67 low (EEPROM WC write-enabled by curr board design). */
     GpioDataRegs.GPACLEAR.bit.GPIO0 = 1U;
     GpioDataRegs.GPACLEAR.bit.GPIO1 = 1U;
     GpioDataRegs.GPACLEAR.bit.GPIO2 = 1U;
@@ -235,8 +235,8 @@ void GPIO_Config(void)
     GpioCtrlRegs.GPCDIR.bit.GPIO83 = 0U;
     GpioCtrlRegs.GPCDIR.bit.GPIO85 = 0U;
 
-    /* GPIO61..64: grid zero-cross and hardware over-current trip inputs.
-     * No software output level exists; external board bias determines idle state. */
+    /* GPIO61..64: grid zero-cross and hardware over-curr trip inputs.
+     * No software output LV exists; external board bias determines idle state. */
     GpioCtrlRegs.GPBPUD.bit.GPIO61 = 1U;
     GpioCtrlRegs.GPBPUD.bit.GPIO62 = 1U;
     GpioCtrlRegs.GPBPUD.bit.GPIO63 = 1U;
@@ -469,7 +469,7 @@ void GPIO_Config(void)
     /* ============================================================
      * 五、输入捕获（ECAP）
      * ------------------------------------------------------------
-     * GPIO61 → XBAR-ECAP → ZCT_Grid_Fin（电网过零检测）
+     * GPIO61 → XBAR-ECAP → ZCrossT_Grid_Fin（电网过零检测）
      * 复用索引：0（通用 GPIO，通过 X-BAR 路由）
      * ============================================================ */
     GPIO_SetupPinMux(61, GPIO_MUX_CPU1, 0);
@@ -516,10 +516,10 @@ void GPIO_Config(void)
 #endif
 
 //很简单的读电平函数
-static Uint16 GPIO_ReadKeyPressed(Uint16 keyNumber)
+static Uint16 GPIO_ReadKeyPressed(Uint16 keyNum)
 {
     Uint16 isPressed = 0U;
-    switch(keyNumber)
+    switch(keyNum)
     {
         case KEY_NUMBER_1: isPressed = (GpioDataRegs.GPCDAT.bit.GPIO85 == 0U) ? 1U : 0U; break;
         case KEY_NUMBER_2: isPressed = (GpioDataRegs.GPCDAT.bit.GPIO83 == 0U) ? 1U : 0U; break;
@@ -534,72 +534,72 @@ static Uint16 GPIO_ReadKeyPressed(Uint16 keyNumber)
 
 static void GPIO_KeyDebounceInit(void)
 {
-    Uint16 keyIndex;
+    Uint16 keyIdx;
     Uint16 pressed;
     //初始化四个按键
-    for(keyIndex = 0U; keyIndex < GPIO_KEY_COUNT; keyIndex++)
+    for(keyIdx = 0U; keyIdx < GPIO_KEY_CNT; keyIdx++)
     {
-        pressed = GPIO_ReadKeyPressed((Uint16)(keyIndex + 1U));
+        pressed = GPIO_ReadKeyPressed((Uint16)(keyIdx + 1U));
         //稳定状态 = 当前值
-        GPIO_KeyStablePressed[keyIndex] = pressed;
+        GPIO_KeyStablePressed[keyIdx] = pressed;
         //上次值 = 当前值
-        GPIO_KeyLastPressed[keyIndex] = pressed;
+        GPIO_KeyLastPressed[keyIdx] = pressed;
         //清零计数
-        GPIO_KeyDebounceCount[keyIndex] = 0U;
+        GPIO_KeyDebounceCnt[keyIdx] = 0U;
     }
-    GPIO_KeyPendingEvents = 0U;
+    GPIO_KeyPendEvents = 0U;
 }
 
 //正式的按键检测
 Uint16 GPIO_GetKeyEvents(void)
 {
-    Uint16 keyIndex;
+    Uint16 keyIdx;
     Uint16 pressed;
     //按键检测结果
     Uint16 eventMask = 0U;
     //依次读取四个按键状态
-    for(keyIndex = 0U; keyIndex < GPIO_KEY_COUNT; keyIndex++)
+    for(keyIdx = 0U; keyIdx < GPIO_KEY_CNT; keyIdx++)
     {
         //读取此时按键状态, 会呈持续返回0 or 1
-        pressed = GPIO_ReadKeyPressed((Uint16)(keyIndex + 1U));
+        pressed = GPIO_ReadKeyPressed((Uint16)(keyIdx + 1U));
         //如果按键此时保持稳定状态
-        if(pressed == GPIO_KeyStablePressed[keyIndex])
+        if(pressed == GPIO_KeyStablePressed[keyIdx])
         {
             //清除计数
-            GPIO_KeyDebounceCount[keyIndex] = 0U;
+            GPIO_KeyDebounceCnt[keyIdx] = 0U;
             //更新上一次按键数据
-            GPIO_KeyLastPressed[keyIndex] = pressed;
+            GPIO_KeyLastPressed[keyIdx] = pressed;
         }
         //如果按键此时保持上一次状态,就值得注意了
-        else if(pressed == GPIO_KeyLastPressed[keyIndex])
+        else if(pressed == GPIO_KeyLastPressed[keyIdx])
         {
             //保持时间不够的话,接着计数
-            if(GPIO_KeyDebounceCount[keyIndex] < GPIO_KEY_DEBOUNCE_SAMPLES)
+            if(GPIO_KeyDebounceCnt[keyIdx] < GPIO_KEY_DEBOUNCE_SAMPLES)
             {
-                GPIO_KeyDebounceCount[keyIndex]++;
+                GPIO_KeyDebounceCnt[keyIdx]++;
             }
             //如果20ms内连续检测到按键
-            if(GPIO_KeyDebounceCount[keyIndex] >= GPIO_KEY_DEBOUNCE_SAMPLES)
+            if(GPIO_KeyDebounceCnt[keyIdx] >= GPIO_KEY_DEBOUNCE_SAMPLES)
             {
-                GPIO_KeyStablePressed[keyIndex] = pressed;
-                GPIO_KeyDebounceCount[keyIndex] = 0U;
+                GPIO_KeyStablePressed[keyIdx] = pressed;
+                GPIO_KeyDebounceCnt[keyIdx] = 0U;
                 //记录已经按下且稳定的key
                 if(pressed != 0U)
                 {
-                    eventMask |= GPIO_KeyEventMasks[keyIndex];
+                    eventMask |= GPIO_KeyEventMasks[keyIdx];
                 }
             }
         }
         //这一个情况适用于突然检测到按键
         else
         {
-            GPIO_KeyLastPressed[keyIndex] = pressed;
-            GPIO_KeyDebounceCount[keyIndex] = 1U;
+            GPIO_KeyLastPressed[keyIdx] = pressed;
+            GPIO_KeyDebounceCnt[keyIdx] = 1U;
         }
     }
     //返回最终的按键结果
-    GPIO_KeyPendingEvents |= eventMask;
-    eventMask = GPIO_KeyPendingEvents;
-    GPIO_KeyPendingEvents = 0U;
+    GPIO_KeyPendEvents |= eventMask;
+    eventMask = GPIO_KeyPendEvents;
+    GPIO_KeyPendEvents = 0U;
     return eventMask;
 }

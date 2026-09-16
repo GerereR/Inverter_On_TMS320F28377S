@@ -9,78 +9,78 @@
 
 /* Device system clock shared by BSP timing peripherals and profiling. */
 #define SYSCLK_FREQ_HZ            200000000UL
-#define SYSCLK_CYCLES_PER_US            200UL
+#define SYSCLK_CYCLE_PER_US            200UL
 
 /* Supported inverter model identifiers. */
 #define MODEL_3KW                       1U
 #define MODEL_4KW                       2U
 
 /* Recoverable machine-problem masks. */
-#define RECOVER_PLL_FAULT              (1UL << 0U)
-#define RECOVER_TZ_FAULT               (1UL << 1U)
-#define RECOVER_GRID_OVER_VOLT         (1UL << 2U)
-#define RECOVER_GRID_UNDER_VOLT        (1UL << 3U)
-#define RECOVER_GRID_OVER_FREQ         (1UL << 4U)
-#define RECOVER_GRID_UNDER_FREQ        (1UL << 5U)
-#define RECOVER_PV1_OVER_VOLT          (1UL << 8U)
-#define RECOVER_PV2_OVER_VOLT          (1UL << 9U)
-#define RECOVER_PV1_OVER_CURRENT       (1UL << 10U)
-#define RECOVER_PV2_OVER_CURRENT       (1UL << 11U)
-#define RECOVER_INDUCTOR_OVER_CURRENT  (1UL << 12U)
-#define RECOVER_GRID_DC_CURRENT        (1UL << 13U)
-#define RECOVER_GFCI                   (1UL << 14U)
-#define RECOVER_ISOLATION              (1UL << 15U)
-#define RECOVER_NO_UTILITY             (1UL << 16U)
+#define RECOV_PLL_FAULT              (1UL << 0U)
+#define RECOV_TZ_FAULT               (1UL << 1U)
+#define RECOV_GRID_OVER_VOLT         (1UL << 2U)
+#define RECOV_GRID_UNDER_VOLT        (1UL << 3U)
+#define RECOV_GRID_OVER_FREQ         (1UL << 4U)
+#define RECOV_GRID_UNDER_FREQ        (1UL << 5U)
+#define RECOV_PV1_OVER_VOLT          (1UL << 8U)
+#define RECOV_PV2_OVER_VOLT          (1UL << 9U)
+#define RECOV_PV1_OVER_CURR       (1UL << 10U)
+#define RECOV_PV2_OVER_CURR       (1UL << 11U)
+#define RECOV_INDUCT_OVER_CURR  (1UL << 12U)
+#define RECOV_GRID_DC_CURR        (1UL << 13U)
+#define RECOV_GFCI                   (1UL << 14U)
+#define RECOV_INSUL              (1UL << 15U)
+#define RECOV_NO_UTILITY             (1UL << 16U)
 
 /* Permanent machine-problem masks. */
-#define PERMANENT_INVERTER_OVER_TEMP   (1UL << 0U)
-#define PERMANENT_BOOST_OVER_TEMP      (1UL << 1U)
-#define PERMANENT_ADC_FAULT            (1UL << 2U)
-#define PERMANENT_EEPROM_FAULT         (1UL << 3U)
-#define PERMANENT_GFCI_DEVICE_FAULT    (1UL << 4U)
-#define PERMANENT_DC_BUS_OVER_VOLT     (1UL << 5U)
+#define PERMA_INVERT_OVER_TEMP   (1UL << 0U)
+#define PERMA_BOOST_OVER_TEMP      (1UL << 1U)
+#define PERMA_ADC_FAULT            (1UL << 2U)
+#define PERMA_EEPROM_FAULT         (1UL << 3U)
+#define PERMA_GFCI_DEVICE_FAULT    (1UL << 4U)
+#define PERMA_DC_BUS_OVER_VOLT     (1UL << 5U)
 
 /* Warning masks. Warnings record diagnostic conditions without stopping output. */
 #define WARNING_MAIN_LOOP_OVERRUN           (1UL << 0U)
-#define WARNING_SCHEDULER_PENDING_OVERFLOW  (1UL << 1U)
-#define WARNING_SCI_FRAME_DROPPED           (1UL << 2U)
-#define WARNING_I2C_PENDING_OVERFLOW        (1UL << 3U)
-#define WARNING_I2C_FRAME_DROPPED           (1UL << 4U)
+#define WARNING_SCHED_PEND_OVERFLOW  (1UL << 1U)
+#define WARNING_SCI_FRAME_DROP           (1UL << 2U)
+#define WARNING_I2C_PEND_OVERFLOW        (1UL << 3U)
+#define WARNING_I2C_FRAME_DROP           (1UL << 4U)
 
 /* Fault mask used while waiting for the grid PLL to acquire lock. */
 
 /* 电网安规阈值已迁移到 gGridSafety 数据域（variable.h/.c）。
  * 10min窗口/DCI/GFCI/电网丢失/快速掉网等单文件常量已迁移到各自任务 .c。 */
 
-/* Common PV and DC-bus thresholds recovered from the legacy design. */
+/* Common PV and DC-bus thresholds recoved from the legacy design. */
 #define PV_PRESENT_MIN_V               30.0f
 #define PV_START_V                    150.0f
 #define PV_OV_TRIP_V                  550.0f
-#define PV_OV_RECOVER_V               545.0f
+#define PV_OV_RECOV_V               545.0f
 #define MPPT_VOLT_STEP_V                1.0f
 #define MPPT_VOLT_FINE_STEP_V           0.25f
 #define MPPT_FAST_POWER_DELTA_W         19.0f
-#define MPPT_CURRENT_LIMIT_MARGIN_A      0.05f
+#define MPPT_CURR_LIM_MARGIN_A      0.05f
 
 /* Default grid-safety parameters. Units are part of each macro name. */
-#define GRID_VOLT_OVER_LEVEL1_V        242.0f
-#define GRID_VOLT_OVER_LEVEL2_V        264.0f
-#define GRID_VOLT_UNDER_LEVEL1_V       187.0f
-#define GRID_VOLT_UNDER_LEVEL2_V       176.0f
-#define GRID_FREQ_OVER_LEVEL1_HZ        50.5f
-#define GRID_FREQ_OVER_LEVEL2_HZ        51.0f
-#define GRID_FREQ_UNDER_LEVEL1_HZ       49.5f
-#define GRID_FREQ_UNDER_LEVEL2_HZ       49.0f
+#define GRID_VOLT_OVER_LV1_V        242.0f
+#define GRID_VOLT_OVER_LV2_V        264.0f
+#define GRID_VOLT_UNDER_LV1_V       187.0f
+#define GRID_VOLT_UNDER_LV2_V       176.0f
+#define GRID_FREQ_OVER_LV1_HZ        50.5f
+#define GRID_FREQ_OVER_LV2_HZ        51.0f
+#define GRID_FREQ_UNDER_LV1_HZ       49.5f
+#define GRID_FREQ_UNDER_LV2_HZ       49.0f
 #define GRID_VOLT_OVER_10MIN_V         253.0f
 #define GRID_RECONN_MAX_V              242.0f
 #define GRID_RECONN_MIN_V              187.0f
 #define GRID_RECONN_MAX_FREQ_HZ         50.5f
 #define GRID_RECONN_MIN_FREQ_HZ         49.5f
-#define GRID_FAULT_FILTER_COUNT_LEVEL1  3U
-#define GRID_FAULT_FILTER_COUNT_LEVEL2  3U
-#define GRID_FAULT_BACK_FILTER_COUNT  300U
+#define GRID_FAULT_FILTER_CNT_LV1  3U
+#define GRID_FAULT_FILTER_CNT_LV2  3U
+#define GRID_FAULT_BACK_FILTER_CNT  300U
 
-/* PV input modes retained for the future topology detector. The current
+/* PV input modes retained for the future topology detector. The curr
  * hardware uses two independent MPPT channels. */
 #define MPPT_INPUT_NONE                 0U
 #define MPPT_INPUT_PV1_ONLY             1U
@@ -100,8 +100,8 @@
 /* 继电器自检时序/压差判据/检测窗口常量已迁移到 task_state.c。 */
 
 /* 电流幅值限幅范围：母线环(dc)与电流环(ac)共享。 */
-#define BUS_CURRENT_AMP_MIN_NORM         0.0f
-#define BUS_CURRENT_AMP_MAX_NORM         1.0f
+#define BUS_CURR_AMP_MIN_NORM         0.0f
+#define BUS_CURR_AMP_MAX_NORM         1.0f
 
 /* 无功调度模式（ReactiveData.mode）。 */
 #define REACTIVE_MODE_OFF               0U    /* 禁用：纯有功，零相移 */
@@ -124,9 +124,9 @@
 #define MODEL_3KW_RATED_POWER_W      3000.0f
 #define MODEL_3KW_OVERLOAD_POWER_W   3200.0f
 #define MODEL_3KW_HALF_LOAD_W        1500.0f
-#define MODEL_3KW_PV_CUR_LIMIT_A       10.5f
-#define MODEL_3KW_PV_POWER_LIMIT_W   2200.0f
-#define MODEL_3KW_GRID_CUR_LIMIT_A     16.0f
+#define MODEL_3KW_PV_CUR_LIM_A       10.5f
+#define MODEL_3KW_PV_POWER_LIM_W   2200.0f
+#define MODEL_3KW_GRID_CUR_LIM_A     16.0f
 #define MODEL_3KW_MPPT_MIN_V          160.0f
 #define MODEL_3KW_DCI_TRIP_A            0.8f
 #define MODEL_3KW_MPPT_SMALL_DELTA_W    3.0f
@@ -137,9 +137,9 @@
 #define MODEL_4KW_RATED_POWER_W      4000.0f
 #define MODEL_4KW_OVERLOAD_POWER_W   4300.0f
 #define MODEL_4KW_HALF_LOAD_W        2000.0f
-#define MODEL_4KW_PV_CUR_LIMIT_A       13.5f
-#define MODEL_4KW_PV_POWER_LIMIT_W   2750.0f
-#define MODEL_4KW_GRID_CUR_LIMIT_A     22.0f
+#define MODEL_4KW_PV_CUR_LIM_A       13.5f
+#define MODEL_4KW_PV_POWER_LIM_W   2750.0f
+#define MODEL_4KW_GRID_CUR_LIM_A     22.0f
 #define MODEL_4KW_MPPT_MIN_V          165.0f
 #define MODEL_4KW_DCI_TRIP_A            0.8f
 #define MODEL_4KW_MPPT_SMALL_DELTA_W    3.0f
@@ -151,19 +151,19 @@
 #define GRID_RECONN_DELAY_MS          60000UL
 #define GRID_START_DELAY_S              60.0f
 #define OVERLOAD_TRIP_DELAY_S          600.0f
-#define OVERLOAD_RECOVER_DELAY_S      1200.0f
+#define OVERLOAD_RECOV_DELAY_S      1200.0f
 
-/* GFCI 阈值/计数常量已迁移到 task_ac_monitor.c。 */
+/* GFCI 阈值/计数常量已迁移到 task_ac_Guard.c。 */
 
 
-/* High-level machine states are fixed protocol values, not runtime data. */
+/* High-LVlevelachine states are fixed protocol values, not runtime data. */
 typedef enum
 {
     SYS_STATE_WAIT = 0U,
     SYS_STATE_CHECK,
     SYS_STATE_NORMAL,
     SYS_STATE_FAULT,
-    SYS_STATE_PERMANENT
+    SYS_STATE_PERMA
 } SysState;
 
 /* Ordered qualification stages executed while the machine is in CHECK. */
@@ -182,16 +182,16 @@ typedef enum
 #define ADC_BIPOLAR_ZERO               2048.0f
 #define ADC_UNIPOLAR_ZERO                 0.0f
 
- /* Default measurement gains recovered from the legacy 5/6 kW design.
+ /* Default measument gains recoved from the legacy 5/6 kW design.
  * They are initialization values only; final hardware must be calibrated.*/
-#define ADC_GRID_VOLTAGE_GAIN              (912.0f / ADC_FULL_SCALE)
-#define ADC_INVERTER_VOLTAGE_GAIN          (912.0f / ADC_FULL_SCALE)
-#define ADC_DC_BUS_VOLTAGE_GAIN            (604.8f / ADC_FULL_SCALE)
-#define ADC_PV_VOLTAGE_GAIN                (604.8f / ADC_FULL_SCALE)
-#define ADC_INDUCTOR_CURRENT_GAIN          (94.716f / ADC_FULL_SCALE)
-#define ADC_PV_CURRENT_GAIN                (24.0f / ADC_FULL_SCALE)
-#define ADC_GFCI_CURRENT_GAIN              (3000.0f / (ADC_FULL_SCALE * 2098.0f))
-#define ADC_INVERTER_DC_CURRENT_GAIN       0.000547f
-#define ADC_ISOLATION_VOLTAGE_GAIN         0.732f
+#define ADC_GRID_VOLT_GAIN              (912.0f / ADC_FULL_SCALE)
+#define ADC_INVERT_VOLT_GAIN          (912.0f / ADC_FULL_SCALE)
+#define ADC_DC_BUS_VOLT_GAIN            (604.8f / ADC_FULL_SCALE)
+#define ADC_PV_VOLT_GAIN                (604.8f / ADC_FULL_SCALE)
+#define ADC_INDUCT_CURR_GAIN          (94.716f / ADC_FULL_SCALE)
+#define ADC_PV_CURR_GAIN                (24.0f / ADC_FULL_SCALE)
+#define ADC_GFCI_CURR_GAIN              (3000.0f / (ADC_FULL_SCALE * 2098.0f))
+#define ADC_INVERT_DC_CURR_GAIN       0.000547f
+#define ADC_INSUL_VOLT_GAIN         0.732f
 
 #endif

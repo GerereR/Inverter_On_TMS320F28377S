@@ -35,8 +35,8 @@ void Task_Reactive(void)
     /* 输入：测量层发布的电网量。 */
     float gridActivePower   = gMachineData.powerData.gridActivePower;
     float gridFreqHz        = (float)gMachineData.pllFreqCent * 0.01f;
-    float vgridRms          = gMachineData.realRms.gridVoltage;
-    float igridRms          = gMachineData.realRms.inductorCurrent;
+    float vgridRms          = gMachineData.realRms.gridVolt;
+    float igridRms          = gMachineData.realRms.inductCurr;
     Uint16 mode              = gReactiveData.mode;
     float setValue           = gReactiveData.setValue;
 

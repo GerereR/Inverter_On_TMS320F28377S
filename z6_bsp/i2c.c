@@ -15,7 +15,7 @@
 //F2837xS I2CTxFIFO固定为16字节
 #define I2C_TX_FIFO_DEPTH        16U
 //降到半满时批量补充,给高优先级ISR留余量
-#define I2C_TX_FIFO_REFILL_LEVEL 8U
+#define I2C_TX_FIFO_REFILL_LV 8U
 
 //把现实时间换算成CPU轮询次数；只作为总线异常时的退出兜底。
 //因为I2C对接的是UI任务,对于实时性要求没这么高,就不需要精准计算
@@ -46,7 +46,7 @@ static Uint16 I2C_GetErrorStatus(void)
 {
     if(I2caRegs.I2CSTR.bit.ARBL != 0U)
     {
-        return I2C_STATUS_ARBITRATION_LOST;
+        return I2C_STATUS_ARBIT_LOST;
     }
     if(I2caRegs.I2CSTR.bit.NACK != 0U)
     {
@@ -72,7 +72,7 @@ static void I2C_ReportFrameDrop(Uint16 status, Uint16 frameActive)
     //报丢帧警告
     if((frameActive != 0U) && (status != I2C_STATUS_OK))
     {
-        gSysProblem.warning |= WARNING_I2C_FRAME_DROPPED;
+        gSysProblem.warning |= WARNING_I2C_FRAME_DROP;
     }
 }
 
@@ -173,7 +173,7 @@ void I2C_Config(void)
  *   2. START前预装最多16字节；
  *   3. FIFO降至半满时按空余槽位批量补充；
  *   4. 等待FIFO、移位器和总线全部空闲后返回。*/
-Uint16 I2C_MasterTransfer
+Uint16 I2C_MasterWrite
 (
     //从机地址
     Uint16 slaveAddr7,
@@ -186,7 +186,7 @@ Uint16 I2C_MasterTransfer
 )
 {
     //记录这一帧已传字节数
-    Uint16 index;
+    Uint16 idx;
     Uint16 status;
     //当前FIFO已经用了多少
     Uint16 fifoUsed;
@@ -197,11 +197,11 @@ Uint16 I2C_MasterTransfer
     //非法地址,非法数据,非法长度,非法设定时间就返回错误
     if(slaveAddr7 > 0x7FU)
     {
-        return I2C_STATUS_BAD_PARAMETER;
+        return I2C_STATUS_BAD_PARAM;
     } 
     if((length > 0U) && (data == 0))
     {
-        return I2C_STATUS_BAD_PARAMETER;
+        return I2C_STATUS_BAD_PARAM;
     }
     if(timeoutUs == 0U)
     {
@@ -247,26 +247,26 @@ Uint16 I2C_MasterTransfer
     I2C_ResetTxFifo();
 
     // 预填（length==0 时不执行）
-    index = 0U;
+    idx = 0U;
     //把数据填充至发送FIFO,这里暗示了我们一次最多传16个16位数据
     //一直填充,直到填完或者填满
-    while((index < length) && (index < I2C_TX_FIFO_DEPTH))
+    while((idx < length) && (idx < I2C_TX_FIFO_DEPTH))
     {
-        I2caRegs.I2CDXR.bit.DATA = data[index];
-        index++;
+        I2caRegs.I2CDXR.bit.DATA = data[idx];
+        idx++;
     }
     //给总线一个START标志位,代表我已经开始发送了
     I2caRegs.I2CMDR.bit.STT = 1U;
 
 
     // 续填（length==0 时不执行）
-    //下面的代码是应对(index < I2C_TX_FIFO_DEPTH)的情况,也就是之前的数据没全放到FIFO的情况
-    while(index < length)
+    //下面的代码是应对(idx < I2C_TX_FIFO_DEPTH)的情况,也就是之前的数据没全放到FIFO的情况
+    while(idx < length)
     {
         //每轮续填前，重新算一次等待上限，作为本轮的超时预算
         waitLoops = I2C_WaitLoopsFromUs(timeoutUs);
         //等待直到FIFO空间足够,超过8字节
-        while(I2caRegs.I2CFFTX.bit.TXFFST > I2C_TX_FIFO_REFILL_LEVEL)
+        while(I2caRegs.I2CFFTX.bit.TXFFST > I2C_TX_FIFO_REFILL_LV)
         {
             //检查这几次传输有没有问题
             status = I2C_WaitPoll(&waitLoops, (length != 0U) ? 1U : 0U);
@@ -286,12 +286,12 @@ Uint16 I2C_MasterTransfer
         //统计当前FIFO使用情况
         fifoUsed = I2caRegs.I2CFFTX.bit.TXFFST;
         fifoFree = I2C_TX_FIFO_DEPTH - fifoUsed;
-        while((fifoFree > 0U) && (index < length))
+        while((fifoFree > 0U) && (idx < length))
         {
             //空间够的话就是一直填充,直到没有空位或者数据发完
             //下次如果再发送的话就得等到FIFO还剩下8字节了
-            I2caRegs.I2CDXR.bit.DATA = data[index];
-            index++;
+            I2caRegs.I2CDXR.bit.DATA = data[idx];
+            idx++;
             fifoFree--;
         }
     }
@@ -334,7 +334,7 @@ Uint16 I2C_MasterRead
 (
     //从机地址
     Uint16 slaveAddr7,  
-    //Rx Buffer
+    //Rx Buf
     Uint16 *data, 
     //要读取的字节数
     Uint16 length,    
@@ -342,13 +342,13 @@ Uint16 I2C_MasterRead
     Uint16 timeoutUs
 )
 {
-    Uint16 index;
+    Uint16 idx;
     Uint16 status;
     Uint32 waitLoops;
     //检查参数是否正确
     if((data == 0) || (length == 0U) || (slaveAddr7 > 0x7FU))
     {
-        return I2C_STATUS_BAD_PARAMETER;
+        return I2C_STATUS_BAD_PARAM;
     }
     if(timeoutUs == 0U)
     {
@@ -392,7 +392,7 @@ Uint16 I2C_MasterRead
     //具体参见数据手册
     I2caRegs.I2CMDR.bit.STT = 1U;
     //逐字节读取
-    for(index = 0U; index < length; index++)
+    for(idx = 0U; idx < length; idx++)
     {
         //注意,这里的超时是直接放在循环内部的,说明接收会比发送慢
         waitLoops = I2C_WaitLoopsFromUs(timeoutUs);
@@ -406,8 +406,8 @@ Uint16 I2C_MasterRead
                 return status;
             }
         }
-        //将数据存入Buffer里面
-        data[index] = (Uint16)I2caRegs.I2CDRR.bit.DATA;
+        //将数据存入Buf里面
+        data[idx] = (Uint16)I2caRegs.I2CDRR.bit.DATA;
     }
     //等待最后一个数据都读取完毕,进入收尾状态
     waitLoops = I2C_WaitLoopsFromUs(timeoutUs);
@@ -444,7 +444,7 @@ Uint16 I2C_MasterWriteRead
     Uint16 timeoutUs
 )
 {
-    Uint16 index;
+    Uint16 idx;
     Uint16 status;
     Uint32 waitLoops;
     //错误参数识别
@@ -458,7 +458,7 @@ Uint16 I2C_MasterWriteRead
         (slaveAddr7 > 0x7FU)
     )
     {
-        return I2C_STATUS_BAD_PARAMETER;
+        return I2C_STATUS_BAD_PARAM;
     }
     if(timeoutUs == 0U)
     {
@@ -497,9 +497,9 @@ Uint16 I2C_MasterWriteRead
     //释放Tx FIFO复位,启动
     I2caRegs.I2CFFTX.bit.TXFFRST = 1U;
     //逐字节填充Tx FIFO
-    for(index = 0U; index < writeLength; index++)
+    for(idx = 0U; idx < writeLength; idx++)
     {
-        I2caRegs.I2CDXR.bit.DATA = writeData[index];
+        I2caRegs.I2CDXR.bit.DATA = writeData[idx];
     }
     //填充完毕,给总线发送START,开始传输
     I2caRegs.I2CMDR.bit.STT = 1U;
@@ -536,7 +536,7 @@ Uint16 I2C_MasterWriteRead
     //正式接收
     I2caRegs.I2CMDR.bit.STT = 1U;
     //循环读取数据
-    for(index = 0U; index < readLength; index++)
+    for(idx = 0U; idx < readLength; idx++)
     {
         waitLoops = I2C_WaitLoopsFromUs(timeoutUs);
         //一直等,等到有数据,且IIC表示"可以接收数据"
@@ -549,7 +549,7 @@ Uint16 I2C_MasterWriteRead
             }
         }
         //放置到buffer里面
-        readData[index] = (Uint16)I2caRegs.I2CDRR.bit.DATA;
+        readData[idx] = (Uint16)I2caRegs.I2CDRR.bit.DATA;
     }
 
     //这个时候才等总线空闲,总线空闲代表着这一次的读写彻底完成,进行收尾工作

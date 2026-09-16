@@ -9,34 +9,34 @@
 //根据波特率需求配置BRR寄存器, 数据手册都有的
 #define SCI_BRR_VALUE       ((SCI_LSPCLK_HZ / (SCI_BAUDRATE * 8UL)) - 1UL)
 //软件环形buffer大小
-#define SCI_RX_BUFFER_SIZE  512U
-#define SCI_TX_BUFFER_SIZE  256U
+#define SCI_RX_BUF_SIZE  512U
+#define SCI_TX_BUF_SIZE  256U
 
 //创建 SCI 软件环形缓冲区。
-static volatile Uint16 SCI_RxSwBuf[SCI_RX_BUFFER_SIZE];
-static volatile Uint16 SCI_TxSwBuf[SCI_TX_BUFFER_SIZE];
+static volatile Uint16 SCI_RxSwBuf[SCI_RX_BUF_SIZE];
+static volatile Uint16 SCI_TxSwBuf[SCI_TX_BUF_SIZE];
 
 
 //对于发送和接收软件buffer来说,都有两个指针进行管理
 //之所以要配备两个指针,是因为软件buffer同时进行生产和消费
-//对于RxBuffer: 上游生产者肯定是FIFO传入的,在软件里表现为SCI中断函数,所以是写指针
+//对于RxBuf: 上游生产者肯定是FIFO传入的,在软件里表现为SCI中断函数,所以是写指针
 //              下游的消费者肯定是CPU进行处理,在软件里表现为SCI通讯接收任务,所以是读指针
-//对于TxBuffer: 上游生产者肯定是CPU的请求,在软件里表现为SCI通讯发送任务,所以是写指针
+//对于TxBuf: 上游生产者肯定是CPU的请求,在软件里表现为SCI通讯发送任务,所以是写指针
 //              下游的消费者肯定是FIFO传出,在软件里表现为FIFO填充函数,所以是读指针
 
 //RX软件环形缓冲区写指针，由接收 ISR 更新
-static volatile Uint16 SCI_RxSwBufWriteIndex = 0U;
+static volatile Uint16 SCI_RxSwBufWriteIdx = 0U;
 //RX软件环形缓冲区读指针，由通信任务调用 SCI_ReadByte() 更新
-static volatile Uint16 SCI_RxSwBufReadIndex = 0U;
+static volatile Uint16 SCI_RxSwBufReadIdx = 0U;
 //TX软件环形缓冲区写指针，由通信任务提交数据后更新
-static volatile Uint16 SCI_TxSwBufWriteIndex = 0U;
+static volatile Uint16 SCI_TxSwBufWriteIdx = 0U;
 //TX软件环形缓冲区读指针，由发送逻辑搬入硬件 FIFO 后更新
-static volatile Uint16 SCI_TxSwBufReadIndex = 0U;
+static volatile Uint16 SCI_TxSwBufReadIdx = 0U;
 
 //记录软件缓冲区满时丢弃了多少字符
-static volatile Uint32 SCI_RxOverflowCount = 0UL;
+static volatile Uint32 SCI_RxOverflowCnt = 0UL;
 //队列放不下完整响应帧时的丢帧次数。
-static volatile Uint32 SCI_TxDroppedFrameCount = 0UL;
+static volatile Uint32 SCI_TxDropFrameCnt = 0UL;
 
 static void SCI_FillTxFifo(void);
 static __interrupt void SCIB_BSP_RX_ISR(void);
@@ -45,13 +45,13 @@ static __interrupt void SCIB_BSP_TX_ISR(void);
 //SCI配置
 void SCI_Config(void)
 {
-    SCI_RxSwBufWriteIndex = 0U;
-    SCI_RxSwBufReadIndex = 0U;
-    SCI_TxSwBufWriteIndex = 0U;
-    SCI_TxSwBufReadIndex = 0U;
+    SCI_RxSwBufWriteIdx = 0U;
+    SCI_RxSwBufReadIdx = 0U;
+    SCI_TxSwBufWriteIdx = 0U;
+    SCI_TxSwBufReadIdx = 0U;
 
-    SCI_RxOverflowCount = 0UL;
-    SCI_TxDroppedFrameCount = 0UL;
+    SCI_RxOverflowCnt = 0UL;
+    SCI_TxDropFrameCnt = 0UL;
 
     EALLOW;
 
@@ -128,29 +128,29 @@ void SCI_Config(void)
 Uint16 SCI_TrySend(const Uint16 *data, Uint16 length)
 {
     Uint16 interruptState;
-    Uint16 readIndex;
-    Uint16 writeIndex;
+    Uint16 readIdx;
+    Uint16 writeIdx;
     Uint16 freeSlots;
-    Uint16 index;
+    Uint16 idx;
 
     //return 0: 参数非法或者队列空间不足
-    if((data == 0) || (length == 0U) || (length >= SCI_TX_BUFFER_SIZE))
+    if((data == 0) || (length == 0U) || (length >= SCI_TX_BUF_SIZE))
     {
         return 0U;
     }
 
-    readIndex = SCI_TxSwBufReadIndex;
-    writeIndex = SCI_TxSwBufWriteIndex;
+    readIdx = SCI_TxSwBufReadIdx;
+    writeIdx = SCI_TxSwBufWriteIdx;
 
     //下面这个判断是为了算出buffer剩余可用空间,这得发挥一下想象力😓
     //第一种情况: 写指针尚未绕会队首，空闲区跨越队列尾部。
     //▯▯▯▯▯▯▯...▯▯▯▮▮▮▮▮▮▮▮▮▮▯▯▯
     //                     ↑               ↑
     //                   Read-→         Write-→
-    if(writeIndex >= readIndex)
+    if(writeIdx >= readIdx)
     {
         //由于第256故意保留一个空槽,用来区分"空"和"满",所以要减一
-        freeSlots = (SCI_TX_BUFFER_SIZE - 1U) - (writeIndex - readIndex);
+        freeSlots = (SCI_TX_BUF_SIZE - 1U) - (writeIdx - readIdx);
     }
     //第二种情况: 写指针已经绕会队首，空闲区位于读写指针之间
     //▮▮▮▮▯▯▯...▯▯▯▯▯▯▯▯▯▯▯▮▮▮▮▮
@@ -158,34 +158,34 @@ Uint16 SCI_TrySend(const Uint16 *data, Uint16 length)
     //    Write-→                       Read-→         
     else
     {
-        freeSlots = (readIndex - writeIndex) - 1U;
+        freeSlots = (readIdx - writeIdx) - 1U;
     }
 
     //剩余空间不够,说明丢帧了
     if(length > freeSlots)
     {
-        SCI_TxDroppedFrameCount++;
-        gSysProblem.warning |= WARNING_SCI_FRAME_DROPPED;
+        SCI_TxDropFrameCnt++;
+        gSysProblem.warning |= WARNING_SCI_FRAME_DROP;
         return 0U;
     }
 
     //如果剩余空间足够,那就把数据一个个放在buffer里面
-    for(index = 0U; index < length; index++)
+    for(idx = 0U; idx < length; idx++)
     {
         //buffer只能存16位数据
-        SCI_TxSwBuf[writeIndex] = data[index] & 0x00FFU;
-        writeIndex++;
+        SCI_TxSwBuf[writeIdx] = data[idx] & 0x00FFU;
+        writeIdx++;
         //绕回
-        if(writeIndex >= SCI_TX_BUFFER_SIZE)
+        if(writeIdx >= SCI_TX_BUF_SIZE)
         {
-            writeIndex = 0U;
+            writeIdx = 0U;
         }
     }
 
     //禁止CPU中断
     interruptState = CPU_InterruptSaveDisable();
     //写完之后实时同步一下当前的写指针落在哪个位置
-    SCI_TxSwBufWriteIndex = writeIndex;
+    SCI_TxSwBufWriteIdx = writeIdx;
     //接下来就就交给FIFO填充函数来把数据放在FIFO里面
     SCI_FillTxFifo();
     //使能CPU中断
@@ -199,28 +199,28 @@ Uint16 SCI_TrySend(const Uint16 *data, Uint16 length)
 Uint16 SCI_ReadByte(Uint16 *data)
 {
     //接收读取是由CPU执行
-    Uint16 readIndex = SCI_RxSwBufReadIndex;
+    Uint16 readIdx = SCI_RxSwBufReadIdx;
 
     if(data == 0)
     {
         return 0U;
     }
     //如果当前FIFO还没写好,就直接返回0
-    if(readIndex == SCI_RxSwBufWriteIndex)
+    if(readIdx == SCI_RxSwBufWriteIdx)
     {
         return 0U;
     }
     //缓存区放到目标指针里面
-    *data = SCI_RxSwBuf[readIndex];
+    *data = SCI_RxSwBuf[readIdx];
     //准备读下一个缓存区数据
-    readIndex++;
+    readIdx++;
     //绕回
-    if(readIndex >= SCI_RX_BUFFER_SIZE)
+    if(readIdx >= SCI_RX_BUF_SIZE)
     {
-        readIndex = 0U;
+        readIdx = 0U;
     }
     //全局读指针更新
-    SCI_RxSwBufReadIndex = readIndex;
+    SCI_RxSwBufReadIdx = readIdx;
 
     return 1U;
 }
@@ -229,33 +229,33 @@ Uint16 SCI_ReadByte(Uint16 *data)
 Uint16 SCI_HasRxData(void)
 {
     //判断的标准就是读指针追上了写指针
-    return (SCI_RxSwBufReadIndex != SCI_RxSwBufWriteIndex) ? 1U : 0U;
+    return (SCI_RxSwBufReadIdx != SCI_RxSwBufWriteIdx) ? 1U : 0U;
 }
 
 //FIFO填充函数,这是发送函数的主体
 static void SCI_FillTxFifo(void)
 {
     //发送读指针,就是FIFO的要取的数据的指针
-    Uint16 readIndex = SCI_TxSwBufReadIndex;
-    //如果软件Buffer还有数据,且硬件FIFO还有空位(哪怕只有一个)
-    while((readIndex != SCI_TxSwBufWriteIndex) && (ScibRegs.SCIFFTX.bit.TXFFST < 16U))
+    Uint16 readIdx = SCI_TxSwBufReadIdx;
+    //如果软件Buf还有数据,且硬件FIFO还有空位(哪怕只有一个)
+    while((readIdx != SCI_TxSwBufWriteIdx) && (ScibRegs.SCIFFTX.bit.TXFFST < 16U))
     {
         //将软件buffer里面数据推进FIFO里面
-        ScibRegs.SCITXBUF.bit.TXDT = SCI_TxSwBuf[readIndex];
-        readIndex++;
+        ScibRegs.SCITXBUF.bit.TXDT = SCI_TxSwBuf[readIdx];
+        readIdx++;
         //绕回
-        if(readIndex >= SCI_TX_BUFFER_SIZE)
+        if(readIdx >= SCI_TX_BUF_SIZE)
         {
-            readIndex = 0U;
+            readIdx = 0U;
         }
     }
 
     //更新全局发送读指针
-    SCI_TxSwBufReadIndex = readIndex;
+    SCI_TxSwBufReadIdx = readIdx;
     //清除TxFIFO中断标志
     ScibRegs.SCIFFTX.bit.TXFFINTCLR = 1U;
     //很巧妙的一点,当软件buffer没有数据了,就不再需要发送中断了
-    ScibRegs.SCIFFTX.bit.TXFFIENA = (readIndex != SCI_TxSwBufWriteIndex) ? 1U : 0U;
+    ScibRegs.SCIFFTX.bit.TXFFIENA = (readIdx != SCI_TxSwBufWriteIdx) ? 1U : 0U;
 }
 
 //SCI接收中断条件:FIFO内有一字节数据
@@ -264,7 +264,7 @@ static __interrupt void SCIB_BSP_RX_ISR(void)
     //临时保存数据
     Uint16 data;
     //索引
-    Uint16 nextIndex;
+    Uint16 nextIdx;
 
     //搬运直到FIFO彻底空
     while(ScibRegs.SCIFFRX.bit.RXFFST != 0U)
@@ -272,24 +272,24 @@ static __interrupt void SCIB_BSP_RX_ISR(void)
         //直接读取FIFO硬件数据
         data = ScibRegs.SCIRXBUF.bit.SAR;
         //这个指针是CPU通讯任务写进去的
-        nextIndex = SCI_RxSwBufWriteIndex + 1U;
+        nextIdx = SCI_RxSwBufWriteIdx + 1U;
 
         //环形缓冲的实现
-        if(nextIndex >= SCI_RX_BUFFER_SIZE)
+        if(nextIdx >= SCI_RX_BUF_SIZE)
         {
-            nextIndex = 0U;
+            nextIdx = 0U;
         }
         //软件FIFO是不是满了?
-        if(nextIndex != SCI_RxSwBufReadIndex)    
+        if(nextIdx != SCI_RxSwBufReadIdx)    
         {
-            SCI_RxSwBuf[SCI_RxSwBufWriteIndex] = data;  
-            SCI_RxSwBufWriteIndex = nextIndex;
+            SCI_RxSwBuf[SCI_RxSwBufWriteIdx] = data;  
+            SCI_RxSwBufWriteIdx = nextIdx;
         }
         //满了的话就记录当前丢失了多少次
         else
         {
-            SCI_RxOverflowCount++;
-            gSysProblem.warning |= WARNING_SCI_FRAME_DROPPED;
+            SCI_RxOverflowCnt++;
+            gSysProblem.warning |= WARNING_SCI_FRAME_DROP;
         }
     }
 
@@ -297,8 +297,8 @@ static __interrupt void SCIB_BSP_RX_ISR(void)
     //这是硬件级的溢出检测
     if(ScibRegs.SCIFFRX.bit.RXFFOVF != 0U)
     {
-        SCI_RxOverflowCount++;
-        gSysProblem.warning |= WARNING_SCI_FRAME_DROPPED;
+        SCI_RxOverflowCnt++;
+        gSysProblem.warning |= WARNING_SCI_FRAME_DROP;
     }
 
     //清除中断溢出标志

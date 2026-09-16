@@ -1,14 +1,14 @@
 #include "F28x_Project.h"
 #include "bsp.h"
 #include "variable.h"
-#include "scheduler.h"
+#include "sched.h"
 #include "task.h"
 
 //四个ADC模块配置函数
 
 void ADC_Config(void)
 {
-    Uint16 offsetTrim;
+    Uint16 OffsetTrim;
 
     EALLOW;
 
@@ -31,17 +31,17 @@ void ADC_Config(void)
     if(*((Uint16 *)GetAdcOffsetTrimOTP) != 0xFFFFU)
     {
         //读取 ADCA 偏移微调值，参数 0b0000 选择 ADCA
-        offsetTrim = (*GetAdcOffsetTrimOTP)(0U);
-        if(offsetTrim != 0U) { AdcaRegs.ADCOFFTRIM.all = offsetTrim; }
+        OffsetTrim = (*GetAdcOffsetTrimOTP)(0U);
+        if(OffsetTrim != 0U) { AdcaRegs.ADCOFFTRIM.all = OffsetTrim; }
         //读取 ADCB 偏移微调值，参数 0b0100 选择 ADCB
-        offsetTrim = (*GetAdcOffsetTrimOTP)(4U);
-        if(offsetTrim != 0U) { AdcbRegs.ADCOFFTRIM.all = offsetTrim; }
+        OffsetTrim = (*GetAdcOffsetTrimOTP)(4U);
+        if(OffsetTrim != 0U) { AdcbRegs.ADCOFFTRIM.all = OffsetTrim; }
         //读取 ADCC 偏移微调值，参数 0b1000 选择 ADCC
-        offsetTrim = (*GetAdcOffsetTrimOTP)(8U);
-        if(offsetTrim != 0U) { AdccRegs.ADCOFFTRIM.all = offsetTrim; }
+        OffsetTrim = (*GetAdcOffsetTrimOTP)(8U);
+        if(OffsetTrim != 0U) { AdccRegs.ADCOFFTRIM.all = OffsetTrim; }
         //读取 ADCD 偏移微调值，参数 0b1100 选择 ADCD
-        offsetTrim = (*GetAdcOffsetTrimOTP)(12U);
-        if(offsetTrim != 0U) {  AdcdRegs.ADCOFFTRIM.all = offsetTrim; }
+        OffsetTrim = (*GetAdcOffsetTrimOTP)(12U);
+        if(OffsetTrim != 0U) {  AdcdRegs.ADCOFFTRIM.all = OffsetTrim; }
     }
 
     //四个ADC模块都设置为12bit
@@ -224,18 +224,18 @@ __interrupt void ADCA1_CPU_ISR(void)
     Uint16 ctrlEvents;
     AC_CtrlRawInput rawInput;
     //其实它的任务很简单,就是统计当前"我采了多少次电流环数据"
-    DMA_NotifyFastFrameEoc();
+    DMA_NoteFastFrameEoc();
     //电流环只要这三个的数据, 分别是电感电流, 电网电压, 母线电压
-    rawInput.inductorCurrent = AdcaResultRegs.ADCRESULT0;
-    rawInput.gridVoltage = AdcaResultRegs.ADCRESULT1;
-    rawInput.dcBusVoltage = AdcaResultRegs.ADCRESULT3;
+    rawInput.inductCurr = AdcaResultRegs.ADCRESULT0;
+    rawInput.gridVolt = AdcaResultRegs.ADCRESULT1;
+    rawInput.dcBusVolt = AdcaResultRegs.ADCRESULT3;
     //实际上,电流环任务是"假任务"它由ADC中断直接调度,不接受调度器调度
     ctrlEvents = Task_AC_Ctrl(&rawInput);
     //如果电流环检测到峰值事件, 通知调度器电网到达峰值
     if((ctrlEvents & FAST_EVENT_GRID_PEAK) != 0U)
     {
         //直接通知调度器可以进行峰值任务,也就是限幅任务
-        Scheduler_NotifyGridPeak();
+        Sched_NoteGridPeak();
     }
     //清除ADCA1的中断标志位和溢出标志位
     if(AdcaRegs.ADCINTOVF.bit.ADCINT1 != 0U)

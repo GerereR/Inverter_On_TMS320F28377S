@@ -3,7 +3,7 @@
 #include "task.h"
 #include "bsp.h"
 #include "variable.h"
-#include "inverter.h"
+#include "invert.h"
 
 /* --- 母线环 / Boost 环私有常量（原 constant.h 迁入） --- */
 /* Initial DC-bus outer-loop settings. The gains are bring-up values and
@@ -13,7 +13,7 @@
 #define BUS_PI_KP                        0.002f
 #define BUS_PI_KI                        0.02f
 
-/* Initial PV-voltage Boost-loop settings. The loop runs at the grid-peak
+/* Initial PV-volt Boost-loop settings. The loop runs at the grid-peak
  * control event rate (approximately 100 Hz for a 50 Hz grid). */
 #define BOOST_CTRL_PERIOD_S              0.01f
 #define BOOST_PI_KP                      0.0005f
@@ -32,25 +32,25 @@
 #define GRID_RMS_TO_PEAK               1.414f  /* 电网 RMS → 峰值 */
 
 /* 母线/PV 保护滤波计数（峰值触发约 10ms 一拍）。 */
-#define BUS_OV_FILTER_COUNT              100U    /* 母线过压连续判定（约 1s） */
-#define BUS_UV_FILTER_COUNT              500U    /* 母线欠压连续判定（约 5s，仅并网态） */
-#define PV_OV_FILTER_COUNT                30U    /* PV 过压连续判定（约 300ms） */
-#define PV_OV_RECOVER_COUNT               30U    /* PV 过压恢复连续正常 */
+#define BUS_OV_FILTER_CNT              100U    /* 母线过压连续判定（约 1s） */
+#define BUS_UV_FILTER_CNT              500U    /* 母线欠压连续判定（约 5s，仅并网态） */
+#define PV_OV_FILTER_CNT                30U    /* PV 过压连续判定（约 300ms） */
+#define PV_OV_RECOV_CNT               30U    /* PV 过压恢复连续正常 */
 
-static void DC_Ctrl_BoostResetChannels(void);
+static void DC_Ctrl_BoostResetChs(void);
 
 /* One coherent input snapshot for the DC-control task. The producers are
  * cooperative tasks today; keeping this snapshot local also makes the control
  * decision independent of later global updates during the same invocation. */
 typedef struct
 {
-    float busVoltage;
-    float pv1Voltage;
-    float pv2Voltage;
-    float pv1VoltageRef;
-    float pv2VoltageRef;
-    float currentAmpLimit;
-    float gridVoltageRms;
+    float busVolt;
+    float pv1Volt;
+    float pv2Volt;
+    float pv1VoltRef;
+    float pv2VoltRef;
+    float currAmpLim;
+    float gridVoltRms;
     Uint16 pv1Enabled;
     Uint16 pv2Enabled;
 } DC_CtrlInput;
@@ -106,17 +106,17 @@ static void BusVoltRef_Adapt(const DC_CtrlInput *input)
     float stableRef;
 
     /* 电网峰值 = RMS × √2 */
-    gridPeak = input->gridVoltageRms * GRID_RMS_TO_PEAK;
+    gridPeak = input->gridVoltRms * GRID_RMS_TO_PEAK;
 
     /* 母线目标下限：跟随电网峰值 + 余量，clamp 370~430V */
     standVolt = gridPeak + BUS_VOLT_GRID_MARGIN_V;
-    standVolt = Inverter_Clamp(standVolt, DC_BUS_MIN_V, DC_BUS_MAX_V);
+    standVolt = Invert_Clamp(standVolt, DC_BUS_MIN_V, DC_BUS_MAX_V);
 
     /* MPPT 目标 PV 电压（取两路较大者）+ 余量 → 至少一路 Boost 直通 */
-    mpptTarget = input->pv1VoltageRef;
-    if (input->pv2VoltageRef > mpptTarget)
+    mpptTarget = input->pv1VoltRef;
+    if (input->pv2VoltRef > mpptTarget)
     {
-        mpptTarget = input->pv2VoltageRef;
+        mpptTarget = input->pv2VoltRef;
     }
     mpptTarget += BUS_VOLT_MPPT_MARGIN_V;
 
@@ -126,7 +126,7 @@ static void BusVoltRef_Adapt(const DC_CtrlInput *input)
     {
         stableRef = mpptTarget;
     }
-    stableRef = Inverter_Clamp(stableRef, DC_BUS_MIN_V, DC_BUS_MAX_V);
+    stableRef = Invert_Clamp(stableRef, DC_BUS_MIN_V, DC_BUS_MAX_V);
 
     gBusCtrlData.stableVoltRef = stableRef;
 }
@@ -136,42 +136,42 @@ static void DC_Ctrl_BusRun(const DC_CtrlInput *input)
 {
     float proportional;
     float candidate;
-    float currentAmpLimit;
+    float currAmpLim;
 
     if(DC_State.bus.initialized == 0U)
     {
         gBusCtrlData.stableVoltRef = BUS_VOLT_REF_V;
         DC_State.bus.integral = 0.0f;
         DC_State.bus.output = 0.0f;
-        gBusCtrlData.currentAmpRef = 0.0f;
+        gBusCtrlData.currAmpRef = 0.0f;
         DC_State.bus.initialized = 1U;
     }
 
-    currentAmpLimit = Inverter_Clamp(input->currentAmpLimit, BUS_CURRENT_AMP_MIN_NORM, BUS_CURRENT_AMP_MAX_NORM);
+    currAmpLim = Invert_Clamp(input->currAmpLim, BUS_CURR_AMP_MIN_NORM, BUS_CURR_AMP_MAX_NORM);
 
-    proportional = BUS_PI_KP * (input->busVoltage - gBusCtrlData.stableVoltRef);
+    proportional = BUS_PI_KP * (input->busVolt - gBusCtrlData.stableVoltRef);
 
     // 积分反算抗饱和算法
     // 说人话就是在积分项提前加上积分值
-    DC_State.bus.integral += BUS_PI_KI * BUS_CTRL_PERIOD_S * (input->busVoltage - gBusCtrlData.stableVoltRef);
+    DC_State.bus.integral += BUS_PI_KI * BUS_CTRL_PERIOD_S * (input->busVolt - gBusCtrlData.stableVoltRef);
 
     candidate = proportional + DC_State.bus.integral;
-    DC_State.bus.output = Inverter_Clamp(candidate, BUS_CURRENT_AMP_MIN_NORM, currentAmpLimit);
+    DC_State.bus.output = Invert_Clamp(candidate, BUS_CURR_AMP_MIN_NORM, currAmpLim);
 
     /* 反算：piIntegral = clamp后输出 - 比例项，锚定到限幅处。 */
     DC_State.bus.integral = DC_State.bus.output - proportional;
 
-    gBusCtrlData.currentAmpRef = DC_State.bus.output;
+    gBusCtrlData.currAmpRef = DC_State.bus.output;
 }
 
-/* --- Boost 环（原 Ctrl_BoostUpdateChannel / Ctrl_BoostRun） --- */
+/* --- Boost 环（原 Ctrl_BoostUpdateCh / Ctrl_BoostRun） --- */
 /* 单路 Boost PI：让 PV 电压跟踪目标电压（MPPT 参考），占空比写入 ch->duty。
- * ch 指向该通道状态（boost1/boost2），pvVoltage 实测、pvVoltageRef 目标。 */
-static void DC_Ctrl_BoostUpdateChannel
+ * ch 指向该通道状态（boost1/boost2），pvVolt 实测、pvVoltRef 目标。 */
+static void DC_Ctrl_BoostUpdateCh
 (
     DC_BoostLoopState *channel,
-    float pvVoltage,
-    float pvVoltageRef
+    float pvVolt,
+    float pvVoltRef
 )
 {
     float error;
@@ -179,7 +179,7 @@ static void DC_Ctrl_BoostUpdateChannel
     float candidate;
 
     /* PV 电压误差：实际 - 目标（Boost 升压，误差正 → 占空比↑ → 抽更多 → 电压回落） */
-    error = pvVoltage - pvVoltageRef;
+    error = pvVolt - pvVoltRef;
     proportional = BOOST_PI_KP * error;
     candidate = proportional + channel->integral;
 
@@ -191,7 +191,7 @@ static void DC_Ctrl_BoostUpdateChannel
     }
 
     candidate = proportional + channel->integral;
-    channel->duty = Inverter_Clamp(candidate, BOOST_DUTY_MIN, BOOST_DUTY_MAX);
+    channel->duty = Invert_Clamp(candidate, BOOST_DUTY_MIN, BOOST_DUTY_MAX);
 }
 
 /* 双路 Boost 环编排：逐路判断（使能 + 电压有效 + 目标有效），跑 PI 或复位该通道。 */
@@ -200,14 +200,14 @@ static void DC_Ctrl_BoostRun(const DC_CtrlInput *input)
     /* 两路都没使能：全部复位 */
     if((input->pv1Enabled == 0U) && (input->pv2Enabled == 0U))
     {
-        DC_Ctrl_BoostResetChannels();
+        DC_Ctrl_BoostResetChs();
         return;
     }
 
     /* 每路独立：使能 && 电压有效 && 目标有效 → 跑 PI；否则复位该通道 */
-    if((input->pv1Enabled != 0U) && (input->pv1Voltage > 0.0f) && (input->pv1VoltageRef >= PV_PRESENT_MIN_V))
+    if((input->pv1Enabled != 0U) && (input->pv1Volt > 0.0f) && (input->pv1VoltRef >= PV_PRESENT_MIN_V))
     {
-        DC_Ctrl_BoostUpdateChannel(&DC_State.boost1, input->pv1Voltage, input->pv1VoltageRef);
+        DC_Ctrl_BoostUpdateCh(&DC_State.boost1, input->pv1Volt, input->pv1VoltRef);
     }
     else
     {
@@ -215,9 +215,9 @@ static void DC_Ctrl_BoostRun(const DC_CtrlInput *input)
         DC_State.boost1.duty = 0.0f;
     }
 
-    if((input->pv2Enabled != 0U) && (input->pv2Voltage > 0.0f) && (input->pv2VoltageRef >= PV_PRESENT_MIN_V))
+    if((input->pv2Enabled != 0U) && (input->pv2Volt > 0.0f) && (input->pv2VoltRef >= PV_PRESENT_MIN_V))
     {
-        DC_Ctrl_BoostUpdateChannel(&DC_State.boost2, input->pv2Voltage, input->pv2VoltageRef);
+        DC_Ctrl_BoostUpdateCh(&DC_State.boost2, input->pv2Volt, input->pv2VoltRef);
     }
     else
     {
@@ -227,7 +227,7 @@ static void DC_Ctrl_BoostRun(const DC_CtrlInput *input)
 }
 
 /* 复位双路 Boost 环的积分与占空比（通道禁用/故障时清零）。 */
-static void DC_Ctrl_BoostResetChannels(void)
+static void DC_Ctrl_BoostResetChs(void)
 {
     DC_State.boost1.integral = 0.0f;
     DC_State.boost1.duty = 0.0f;
@@ -245,8 +245,8 @@ void DC_Ctrl_Reset(void)
     DC_State.bus.output = 0.0f;
     DC_State.bus.initialized = 0U;
     DC_State.softStartActive = 0U;
-    gBusCtrlData.currentAmpRef = 0.0f;
-    DC_Ctrl_BoostResetChannels();
+    gBusCtrlData.currAmpRef = 0.0f;
+    DC_Ctrl_BoostResetChs();
     DC_Ctrl_ApplyBoostDuty();
 }
 
@@ -266,7 +266,7 @@ static void DC_Ctrl_BoostSoftStart(const DC_CtrlInput *input)
     }
 
     /* 只对已接入 PV 的通道爬占空比，未接通道保持 0（单路调试场景）。 */
-    if (input->pv1Voltage >= PV_PRESENT_MIN_V)
+    if (input->pv1Volt >= PV_PRESENT_MIN_V)
     {
         DC_State.boost1.duty += BOOST_SOFT_START_STEP;
         if (DC_State.boost1.duty > BOOST_DUTY_MAX)
@@ -275,7 +275,7 @@ static void DC_Ctrl_BoostSoftStart(const DC_CtrlInput *input)
         }
     }
 
-    if (input->pv2Voltage >= PV_PRESENT_MIN_V)
+    if (input->pv2Volt >= PV_PRESENT_MIN_V)
     {
         DC_State.boost2.duty += BOOST_SOFT_START_STEP;
         if (DC_State.boost2.duty > BOOST_DUTY_MAX)
@@ -285,27 +285,27 @@ static void DC_Ctrl_BoostSoftStart(const DC_CtrlInput *input)
     }
 
     //我自己加的5V,保险一点
-    if (input->busVoltage >= DC_BUS_MIN_V + 5.0f)
+    if (input->busVolt >= DC_BUS_MIN_V + 5.0f)
     {
         DC_State.softStartActive = 0U;
     }
 }
 
 /* 母线过压保护（原 VBUSCheck 过压）+ 母线欠压打嗝：
- * 过压任何态判、置 permanent 故障（Boost 失控/硬件损坏不可恢复）；
+ * 过压任何态判、置 perma 故障（Boost 失控/硬件损坏不可恢复）；
  * 欠压仅并网态判、置打嗝标志（reloadFlag，重新软启动，不停机）。 */
 static void DC_Ctrl_CheckBus(const DC_CtrlInput *input)
 {
     static Uint16 busOvpFilter = 0U;
     static Uint16 busUvpFilter = 0U;
 
-    if (input->busVoltage > DC_BUS_OV_TRIP_V)
+    if (input->busVolt > DC_BUS_OV_TRIP_V)
     {
         busOvpFilter++;
-        if (busOvpFilter >= BUS_OV_FILTER_COUNT)
+        if (busOvpFilter >= BUS_OV_FILTER_CNT)
         {
             busOvpFilter = 0U;
-            gSysProblem.permanentFault |= PERMANENT_DC_BUS_OVER_VOLT;
+            gSysProblem.permaFault |= PERMA_DC_BUS_OVER_VOLT;
         }
     }
     else
@@ -315,10 +315,10 @@ static void DC_Ctrl_CheckBus(const DC_CtrlInput *input)
 
     if (gSysData.state == SYS_STATE_NORMAL)
     {
-        if ((input->busVoltage < DC_BUS_MIN_V) && (input->busVoltage > 0.0f))
+        if ((input->busVolt < DC_BUS_MIN_V) && (input->busVolt > 0.0f))
         {
             busUvpFilter++;
-            if (busUvpFilter >= BUS_UV_FILTER_COUNT)
+            if (busUvpFilter >= BUS_UV_FILTER_CNT)
             {
                 busUvpFilter = 0U;
                 gSysData.reloadFlag = 1U;   /* 母线欠压：打嗝（重新软启动），不停机 */
@@ -343,13 +343,13 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
     static Uint16 pv1OvpBackFilter = 0U;
     static Uint16 pv2OvpBackFilter = 0U;
 
-    if (input->pv1Voltage > PV_OV_TRIP_V)
+    if (input->pv1Volt > PV_OV_TRIP_V)
     {
         pv1OvpFilter++;
-        if (pv1OvpFilter >= PV_OV_FILTER_COUNT)
+        if (pv1OvpFilter >= PV_OV_FILTER_CNT)
         {
             pv1OvpFilter = 0U;
-            gSysProblem.recoverFault |= RECOVER_PV1_OVER_VOLT;
+            gSysProblem.recovFault |= RECOV_PV1_OVER_VOLT;
         }
     }
     else
@@ -358,13 +358,13 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
     }
 
 
-    if (input->pv2Voltage > PV_OV_TRIP_V)
+    if (input->pv2Volt > PV_OV_TRIP_V)
     {
         pv2OvpFilter++;
-        if (pv2OvpFilter >= PV_OV_FILTER_COUNT)
+        if (pv2OvpFilter >= PV_OV_FILTER_CNT)
         {
             pv2OvpFilter = 0U;
-            gSysProblem.recoverFault |= RECOVER_PV2_OVER_VOLT;
+            gSysProblem.recovFault |= RECOV_PV2_OVER_VOLT;
         }
     }
     else
@@ -372,15 +372,15 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
         pv2OvpFilter = 0U;
     }
 
-    if ((gSysProblem.recoverFault & RECOVER_PV1_OVER_VOLT) != 0UL)
+    if ((gSysProblem.recovFault & RECOV_PV1_OVER_VOLT) != 0UL)
     {
-        if (input->pv1Voltage < PV_OV_RECOVER_V)
+        if (input->pv1Volt < PV_OV_RECOV_V)
         {
             pv1OvpBackFilter++;
-            if (pv1OvpBackFilter >= PV_OV_RECOVER_COUNT)
+            if (pv1OvpBackFilter >= PV_OV_RECOV_CNT)
             {
                 pv1OvpBackFilter = 0U;
-                gSysProblem.recoverFault &=~ RECOVER_PV1_OVER_VOLT;
+                gSysProblem.recovFault &=~ RECOV_PV1_OVER_VOLT;
             }
         }
         else
@@ -389,15 +389,15 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
         }
     }
 
-    if ((gSysProblem.recoverFault & RECOVER_PV2_OVER_VOLT) != 0UL)
+    if ((gSysProblem.recovFault & RECOV_PV2_OVER_VOLT) != 0UL)
     {
-        if (input->pv2Voltage < PV_OV_RECOVER_V)
+        if (input->pv2Volt < PV_OV_RECOV_V)
         {
             pv2OvpBackFilter++;
-            if (pv2OvpBackFilter >= PV_OV_RECOVER_COUNT)
+            if (pv2OvpBackFilter >= PV_OV_RECOV_CNT)
             {
                 pv2OvpBackFilter = 0U;
-                gSysProblem.recoverFault &=~ RECOVER_PV2_OVER_VOLT;
+                gSysProblem.recovFault &=~ RECOV_PV2_OVER_VOLT;
             }
         }
         else
@@ -412,15 +412,15 @@ void Task_DC_Ctrl(void)
 {
     DC_CtrlInput input;
 
-    input.busVoltage = gMachineData.realAvg.dcBusVoltage;
-    input.pv1Voltage = gMachineData.realAvg.pv1Voltage;
-    input.pv2Voltage = gMachineData.realAvg.pv2Voltage;
-    input.pv1VoltageRef = gMpptData.pv1.voltRef;
-    input.pv2VoltageRef = gMpptData.pv2.voltRef;
+    input.busVolt = gMachineData.realAvg.dcBusVolt;
+    input.pv1Volt = gMachineData.realAvg.pv1Volt;
+    input.pv2Volt = gMachineData.realAvg.pv2Volt;
+    input.pv1VoltRef = gMpptData.pv1.voltRef;
+    input.pv2VoltRef = gMpptData.pv2.voltRef;
     input.pv1Enabled = gMpptData.pv1.enabled;
     input.pv2Enabled = gMpptData.pv2.enabled;
-    input.currentAmpLimit = gPowerLimitData.currentAmpLimit;
-    input.gridVoltageRms = gMachineData.realRms.gridVoltage;
+    input.currAmpLim = gPowerLimData.currAmpLim;
+    input.gridVoltRms = gMachineData.realRms.gridVolt;
 
     /* 保护判定前置：置位故障后本周期即封波。 */
     DC_Ctrl_CheckBus(&input);
@@ -429,9 +429,9 @@ void Task_DC_Ctrl(void)
     /* 存在故障或母线电压无效时，复位并封波。 */
     if
     (
-        (gSysProblem.recoverFault != 0UL) ||
-        (gSysProblem.permanentFault != 0UL) ||
-        (input.busVoltage <= 0.0f)
+        (gSysProblem.recovFault != 0UL) ||
+        (gSysProblem.permaFault != 0UL) ||
+        (input.busVolt <= 0.0f)
     )
     {
         DC_Ctrl_Reset();
@@ -456,7 +456,7 @@ void Task_DC_Ctrl(void)
     }
     else
     {
-        /* WAIT/FAULT/PERMANENT：复位封波。 */
+        /* WAIT/FAULT/PERMA：复位封波。 */
         DC_Ctrl_Reset();
         AC_Ctrl_Disable();
     }

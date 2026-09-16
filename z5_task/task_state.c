@@ -1,8 +1,8 @@
 #include "F28x_Project.h"
 #include "task.h"
 #include "bsp.h"
-#include "inverter.h"
-#include "scheduler.h"
+#include "invert.h"
+#include "sched.h"
 
 typedef struct
 {
@@ -17,7 +17,7 @@ static RelayState gRelayData = {0};
 #include "variable.h"
 
 /* 电网丢失（过零看门狗）连续计数阈值，约 50 × 10ms = 500ms。 */
-#define GRID_LOST_COUNT_THRESHOLD  50U
+#define GRID_LOST_CNT_THRESHOLD  50U
 
 /* 继电器自检时序（ms）。原工程 2ms 一拍（wWaitTime），此处按 1 拍 = 2ms 换算，独立于调度周期。 */
 #define RELAY_SEQ_STEP1_MS          100U    /* 原 50 拍    合 relay1 */
@@ -82,7 +82,7 @@ void Task_State_Init(void)
     gSysData.busReady = 0U;
     gSysData.sourceStableMs = 0UL;
     gSysData.gridStableMs = 0UL;
-    Inverter_EnterSafeOutput();
+    Invert_EnterSafeOutput();
 }
 
 void Task_State(void)
@@ -101,8 +101,8 @@ void Task_State(void)
         case SYS_STATE_CHECK:       State_RunCheck();       break;
         case SYS_STATE_NORMAL:      State_RunNormal();      break;
         case SYS_STATE_FAULT:       State_RunFault();       break;
-        case SYS_STATE_PERMANENT:   State_RunPermanent();   break;
-        default:                    State_Enter(SYS_STATE_PERMANENT); break;
+        case SYS_STATE_PERMA:   State_RunPermanent();   break;
+        default:                    State_Enter(SYS_STATE_PERMA); break;
     }
 }
 
@@ -112,9 +112,9 @@ static Uint16 State_IsPresent_DC(void)
 {
     return 
         (
-            (gMachineData.realAvg.pv1Voltage >= PV_PRESENT_MIN_V) ||
-            (gMachineData.realAvg.pv2Voltage >= PV_PRESENT_MIN_V) ||
-            (gMachineData.realAvg.dcBusVoltage >= DC_BUS_MIN_V)
+            (gMachineData.realAvg.pv1Volt >= PV_PRESENT_MIN_V) ||
+            (gMachineData.realAvg.pv2Volt >= PV_PRESENT_MIN_V) ||
+            (gMachineData.realAvg.dcBusVolt >= DC_BUS_MIN_V)
         ) ? 1U : 0U;
 }
 
@@ -124,10 +124,10 @@ static Uint16 State_IsReady_DC(void)
 {
     Uint16 valid;
 
-    valid = ((gMachineData.realAvg.pv1Voltage >= PV_START_V) ||
-             (gMachineData.realAvg.pv2Voltage >= PV_START_V) ||
-             ((gMachineData.realAvg.dcBusVoltage >= DC_BUS_MIN_V) &&
-              (gMachineData.realAvg.dcBusVoltage <= DC_BUS_MAX_V))) ? 1U : 0U;
+    valid = ((gMachineData.realAvg.pv1Volt >= PV_START_V) ||
+             (gMachineData.realAvg.pv2Volt >= PV_START_V) ||
+             ((gMachineData.realAvg.dcBusVolt >= DC_BUS_MIN_V) &&
+              (gMachineData.realAvg.dcBusVolt <= DC_BUS_MAX_V))) ? 1U : 0U;
 
     if(valid != 0U)
     {
@@ -149,15 +149,15 @@ static Uint16 State_IsReady_DC(void)
     return gSysData.sourceReady;
 }
 
-/* The current framework does not start Boost. Therefore CHECK only accepts
+/* The curr framework does not start Boost. Therefore CHECK only accepts
  * a bus that is already inside the normal operating window. */
 static Uint16 State_IsReady_BUS(void)
 {
-    float busVoltage;
+    float busVolt;
 
-    busVoltage = gMachineData.realAvg.dcBusVoltage;
-    gSysData.busReady = ((busVoltage >= DC_BUS_MIN_V) &&
-                         (busVoltage <= DC_BUS_MAX_V)) ? 1U : 0U;
+    busVolt = gMachineData.realAvg.dcBusVolt;
+    gSysData.busReady = ((busVolt >= DC_BUS_MIN_V) &&
+                         (busVolt <= DC_BUS_MAX_V)) ? 1U : 0U;
     return gSysData.busReady;
 }
 
@@ -165,26 +165,26 @@ static Uint16 State_IsReady_BUS(void)
 static Uint16 State_IsPresent_AC(void)
 {
     float gridFreqHz;
-    float gridVoltageRms;
-    Uint16 voltageValid;
+    float gridVoltRms;
+    Uint16 voltValid;
     Uint16 freqValid;
 
     gridFreqHz = (float)gMachineData.ecapFreqCent * 0.01f;
-    gridVoltageRms = gMachineData.realRms.gridVoltage;
+    gridVoltRms = gMachineData.realRms.gridVolt;
 
-    voltageValid =
-        ((gridVoltageRms >= gGridSafety.reconnMinVolt) &&
-         (gridVoltageRms <= gGridSafety.reconnMaxVolt)) ? 1U : 0U;
+    voltValid =
+        ((gridVoltRms >= gGridSafety.reconnMinVolt) &&
+         (gridVoltRms <= gGridSafety.reconnMaxVolt)) ? 1U : 0U;
     freqValid =
         ((gridFreqHz >= gGridSafety.reconnMinFreq) &&
          (gridFreqHz <= gGridSafety.reconnMaxFreq)) ? 1U : 0U;
-    return ((voltageValid != 0U) &&
+    return ((voltValid != 0U) &&
          (freqValid != 0U) &&
          (gGridData.fastPresent != 0U)) ? 1U : 0U;
 }
 
 /* Reconnect timing belongs to CHECK only. The timer is reset whenever either
- * voltage or frequency leaves the permitted window. */
+ * volt or frequency leaves the permitted window. */
 static Uint16 State_IsReady_AC(void)
 {
     if(State_IsPresent_AC() != 0U)
@@ -210,36 +210,36 @@ static Uint16 State_IsReady_AC(void)
 
 static Uint16 State_HasRecoverFault(void)
 {
-    return (gSysProblem.recoverFault != 0UL) ? 1U : 0U;
+    return (gSysProblem.recovFault != 0UL) ? 1U : 0U;
 }
 
 static Uint16 State_HasPermanentFault(void)
 {
-    return (gSysProblem.permanentFault != 0UL) ? 1U : 0U;
+    return (gSysProblem.permaFault != 0UL) ? 1U : 0U;
 }
 
-/* Reset only startup/control runtime values. Measurement history and active
+/* Reset only startup/control runtime values. Measument history and active
  * protection bits remain owned by their producer modules. */
 static void State_ResetStartupData(void)
 {
     /* 重新校准 ADC 运行时零漂（开机/重连时信号本应为 0）。 */
-    gAdcOffsetCal.adInitial = 1U;
-    gAdcOffsetCal.checkCount = 0U;
-    gAdcOffsetCal.offset.inductorCurrent = 0.0f;
-    gAdcOffsetCal.offset.gridVoltage = 0.0f;
-    gAdcOffsetCal.offset.gfciCurrent = 0.0f;
-    gAdcOffsetCal.offset.gridDcCurrent = 0.0f;
-    gAdcOffsetCal.sum.inductorCurrent = 0.0f;
-    gAdcOffsetCal.sum.gridVoltage = 0.0f;
-    gAdcOffsetCal.sum.gfciCurrent = 0.0f;
-    gAdcOffsetCal.sum.gridDcCurrent = 0.0f;
+    gAdcBiasCal.adInitial = 1U;
+    gAdcBiasCal.checkCnt = 0U;
+    gAdcBiasCal.Bias.inductCurr = 0.0f;
+    gAdcBiasCal.Bias.gridVolt = 0.0f;
+    gAdcBiasCal.Bias.gfciCurr = 0.0f;
+    gAdcBiasCal.Bias.gridDcCurr = 0.0f;
+    gAdcBiasCal.sum.inductCurr = 0.0f;
+    gAdcBiasCal.sum.gridVolt = 0.0f;
+    gAdcBiasCal.sum.gfciCurr = 0.0f;
+    gAdcBiasCal.sum.gridDcCurr = 0.0f;
 
     gSysData.busReady = 0U;
     State_RelaySelfTestInit();
 
     /* 启动 GFCI 自检（并网前注入 50mA 验证硬件 + 静态/注入检测） */
     gGfciData.selfTestActive = 1U;
-    gGfciData.selfTestIndex = 0U;
+    gGfciData.selfTestIdx = 0U;
     gGfciData.deviceFilter1 = 0U;
     gGfciData.deviceFilter2 = 0U;
     GFCI_CHECK_OFF();
@@ -259,9 +259,9 @@ static void State_Enter(SysState nextState)
 
     if((nextState == SYS_STATE_WAIT) ||
        (nextState == SYS_STATE_FAULT) ||
-       (nextState == SYS_STATE_PERMANENT))
+       (nextState == SYS_STATE_PERMA))
     {
-        Inverter_EnterSafeOutput();
+        Invert_EnterSafeOutput();
         gSysData.sourceReady = 0U;
         gSysData.gridReady = 0U;
         gSysData.busReady = 0U;
@@ -272,7 +272,7 @@ static void State_Enter(SysState nextState)
     {
         /* Safe output once on entry; the RELAY stage drives the grid relays
          * during self-test, so it must not be re-asserted every cycle. */
-        Inverter_EnterSafeOutput();
+        Invert_EnterSafeOutput();
         gSysData.checkStage = SYS_CHECK_RESET;
         gSysData.gridReady = 0U;
         gSysData.gridStableMs = 0UL;
@@ -283,11 +283,11 @@ static void State_Enter(SysState nextState)
 
 static void State_RunWait(void)
 {
-    Inverter_EnterSafeOutput();
+    Invert_EnterSafeOutput();
 
     if(State_HasPermanentFault() != 0U)
     {
-        State_Enter(SYS_STATE_PERMANENT);
+        State_Enter(SYS_STATE_PERMA);
     }
     else if(State_HasRecoverFault() != 0U)
     {
@@ -309,7 +309,7 @@ static void State_RunCheck(void)
 {
     if(State_HasPermanentFault() != 0U)
     {
-        State_Enter(SYS_STATE_PERMANENT);
+        State_Enter(SYS_STATE_PERMA);
         return;
     }
     if(State_HasRecoverFault() != 0U)
@@ -408,7 +408,7 @@ static void State_RunCheck(void)
             break;
 
         default:
-            State_Enter(SYS_STATE_PERMANENT);
+            State_Enter(SYS_STATE_PERMA);
             break;
     }
 }
@@ -416,9 +416,9 @@ static void State_RunCheck(void)
 static void State_RunNormal(void)
 {
     /* 过零看门狗：快速掉网计数超阈值 → 电网丢失，进 FAULT（会全断输出） */
-    if (gGridData.noGridCount > GRID_LOST_COUNT_THRESHOLD)
+    if (gGridData.noGridCnt > GRID_LOST_CNT_THRESHOLD)
     {
-        gSysProblem.recoverFault |= RECOVER_NO_UTILITY;
+        gSysProblem.recovFault |= RECOV_NO_UTILITY;
         State_Enter(SYS_STATE_FAULT);
         return;
     }
@@ -426,10 +426,10 @@ static void State_RunNormal(void)
     /* 打嗝保护恢复：reloadFlag 由快速层（ISR）置位，此处计数到 300ms 后重新软启动。 */
     if(gSysData.reloadFlag != 0U)
     {
-        gSysData.reloadCount++;
-        if(gSysData.reloadCount > 150U)   /* 150 × 2ms = 300ms */
+        gSysData.reloadCnt++;
+        if(gSysData.reloadCnt > 150U)   /* 150 × 2ms = 300ms */
         {
-            gSysData.reloadCount = 0U;
+            gSysData.reloadCnt = 0U;
             gSysData.reloadFlag = 0U;
             DC_Ctrl_Reset();
             if(EPWM_Enable() != 0U)
@@ -440,12 +440,12 @@ static void State_RunNormal(void)
     }
     else
     {
-        gSysData.reloadCount = 0U;
+        gSysData.reloadCnt = 0U;
     }
 
     if(State_HasPermanentFault() != 0U)
     {
-        State_Enter(SYS_STATE_PERMANENT);
+        State_Enter(SYS_STATE_PERMA);
     }
     else if(State_HasRecoverFault() != 0U)
     {
@@ -463,11 +463,11 @@ static void State_RunNormal(void)
 
 static void State_RunFault(void)
 {
-    Inverter_EnterSafeOutput();
+    Invert_EnterSafeOutput();
 
     if(State_HasPermanentFault() != 0U)
     {
-        State_Enter(SYS_STATE_PERMANENT);
+        State_Enter(SYS_STATE_PERMA);
     }
     else if(State_HasRecoverFault() == 0U)
     {
@@ -477,7 +477,7 @@ static void State_RunFault(void)
 
 static void State_RunPermanent(void)
 {
-    Inverter_EnterSafeOutput();
+    Invert_EnterSafeOutput();
 }
 
 /*============================================================================
@@ -568,7 +568,7 @@ static void State_RelaySelfTest(Uint16 deltaMs)
     }
 
     /* --- 粘连/失效检测（原 sRelayCheck，方案A：电压差） --- */
-    deltaV = gMachineData.realRms.gridVoltage - gMachineData.realRms.inverterVoltage;
+    deltaV = gMachineData.realRms.gridVolt - gMachineData.realRms.invertVolt;
     deltaVAbs = (deltaV < 0.0f) ? (-deltaV) : deltaV;
 
     if (State_RelayInWindow(gRelayData.timerMs, RELAY_WIN_A_MIN_MS, RELAY_WIN_A_MAX_MS) ||

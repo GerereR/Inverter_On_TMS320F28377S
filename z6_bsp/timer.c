@@ -1,25 +1,25 @@
 #include "F28x_Project.h"
 
 #include "bsp.h"
-#include "scheduler.h"
+#include "sched.h"
 
 //配置timer0时间,1ms
 #define TIMER0_PERIOD_US       1000UL
-#define TIMER0_PERIOD_COUNTS   (SYSCLK_CYCLES_PER_US * TIMER0_PERIOD_US)
+#define TIMER0_PERIOD_CNT   (SYSCLK_CYCLE_PER_US * TIMER0_PERIOD_US)
 
 //定时器1的周期,分到100Hz
-#define TIMER1_ADC_PERIOD_COUNTS  2000000UL
+#define TIMER1_ADC_PERIOD_CNT  2000000UL
 
 static __interrupt void Timer0_BSP_ISR(void);
 
-void Timer0_Init(void)
+void Timer0_Config(void)
 {
     //失能timer0和它的中断
     CpuTimer0Regs.TCR.bit.TSS = 1U;
     CpuTimer0Regs.TCR.bit.TIE = 0U;
     EALLOW;
     //计数器记完代表1ms时间
-    CpuTimer0Regs.PRD.all = TIMER0_PERIOD_COUNTS - 1UL;
+    CpuTimer0Regs.PRD.all = TIMER0_PERIOD_CNT - 1UL;
     //手动清零
     CpuTimer0Regs.TPR.all = 0U;
     CpuTimer0Regs.TPRH.all = 0U;
@@ -42,12 +42,12 @@ void Timer0_Init(void)
     CpuTimer0Regs.TCR.bit.TSS = 0U;
 }
 
-void Timer1_Init(void)
+void Timer1_Config(void)
 {
     //失能timer1
     CpuTimer1Regs.TCR.bit.TSS = 1U;
     //配置周期
-    CpuTimer1Regs.PRD.all = TIMER1_ADC_PERIOD_COUNTS - 1UL;
+    CpuTimer1Regs.PRD.all = TIMER1_ADC_PERIOD_CNT - 1UL;
     //配置预分频,不分频
     CpuTimer1Regs.TPR.all = 0U;
     CpuTimer1Regs.TPRH.all = 0U;
@@ -61,7 +61,7 @@ void Timer1_Init(void)
     CpuTimer1Regs.TCR.bit.TSS = 0U;
 }
 
-void Timer2_Init(void)
+void Timer2_Config(void)
 {
     //失能timer2
     CpuTimer2Regs.TCR.bit.TSS = 1U;
@@ -88,7 +88,7 @@ void Timer2_Init(void)
     CpuTimer2Regs.TCR.bit.TSS = 0U;
 }
 
-Uint32 Timer2_GetCount(void)
+Uint32 Timer2_GetCnt(void)
 {
     //读取计数器
     return CpuTimer2Regs.TIM.all;
@@ -97,7 +97,7 @@ Uint32 Timer2_GetCount(void)
 static __interrupt void Timer0_BSP_ISR(void)
 {
     //给调度器一个1ms节拍
-    Scheduler_Tick1ms();
+    Sched_Tick1ms();
     //清除寄存器中断
     CpuTimer0Regs.TCR.bit.TIF = 1U;
     //清除PIE中断

@@ -3,3 +3,6 @@
 4. 我把DMA_HaltFastBlock(void)内联进了DMA_GridCycleBoundary
 5. 我把DMA_RestartFastBlock内联进了DMA_GridCycleBoundary
 3. 添加DMA快环冻结失败警告
+
+*.c, *.h
+/z2_driver, /f2837xs, /Debug, /PCtools, /New_Master, /New_Slave, /z1_cmd

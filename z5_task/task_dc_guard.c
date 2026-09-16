@@ -1,12 +1,12 @@
 /*============================================================================
- * task_dc_monitor.c —— DC 侧监测任务（占位，仅为与 task_ac_monitor.c 对称）
+ * task_dc_Guard.c —— DC 侧监测任务（占位，仅为与 task_ac_Guard.c 对称）
  *
  * 说明：DC 侧监测目前并未独立成任务，而是随 DC 控制一起放在 task_dc_ctrl.c 里。
  *
  * 原因：
  *   1. DC 侧监测量级小（母线过压、PV 过压、母线电压有效性等 2~3 个判断），
  *      单独成模块/任务的文件开销不值；
- *   2. 监测与控制共享同一份输入快照（gMachineData.realAvg.dcBusVoltage/pvVoltage）
+ *   2. 监测与控制共享同一份输入快照（gMachineData.realAvg.dcBusVolt/pvVolt）
  *      和同一运行节奏（峰值触发），拆开反而要约定"谁先跑、读什么"，增加协调成本。
  *
  * 边界纪律（在 task_dc_ctrl.c 内）：

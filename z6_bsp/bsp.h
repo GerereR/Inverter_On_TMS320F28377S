@@ -13,28 +13,28 @@
 //而PV电压电流等数据是需要参与到未来的控制的,所以才160个大小,快环反而450个大小
 #define ADC_ACQUISITION_WINDOW      14U
 #define ADC_FAST_SAMPLE_FREQ_HZ     20000.0f
-#define ADC_FAST_BLOCK_MAX_BURSTS   450U
-#define ADC_PV_BLOCK_BURSTS         160U    /* 8 ms at 20 kHz */
-#define ADC_ISO_BLOCK_BURSTS        10U     /* 100 ms at 100 Hz */
-#define ADC_TEMP_BLOCK_BURSTS       20U     /* 200 ms at 100 Hz */
+#define ADC_FAST_BLOCK_MAX_BURST   450U
+#define ADC_PV_BLOCK_BURST         160U    /* 8 ms at 20 kHz */
+#define ADC_INSUL_BLOCK_BURST        10U     /* 100 ms at 100 Hz */
+#define ADC_TEMP_BLOCK_BURST       20U     /* 200 ms at 100 Hz */
 
-/* DMA block groups reported to Task_Measure after buffer processing. */
+/* DMA block groups reported to Task_Measu after buf processing. */
 #define DMA_UPDATE_FAST          0x0001U
 #define DMA_UPDATE_PV            0x0002U
-#define DMA_UPDATE_ISOLATION     0x0004U
+#define DMA_UPDATE_INSUL     0x0004U
 #define DMA_UPDATE_TEMP          0x0008U
 #define DMA_UPDATE_ALL           (DMA_UPDATE_FAST | DMA_UPDATE_PV | \
-                                  DMA_UPDATE_ISOLATION | DMA_UPDATE_TEMP)
+                                  DMA_UPDATE_INSUL | DMA_UPDATE_TEMP)
 
 void GPIO_Config(void);
 void CPU_InterruptInit(void);
 void CPU_InterruptEnable(void);
 Uint16 CPU_InterruptSaveDisable(void);
 void CPU_InterruptRestore(Uint16 interruptState);
-void Timer0_Init(void);
-void Timer1_Init(void);
-void Timer2_Init(void);
-Uint32 Timer2_GetCount(void);
+void Timer0_Config(void);
+void Timer1_Config(void);
+void Timer2_Config(void);
+Uint32 Timer2_GetCnt(void);
 
 /* Board digital inputs. These macros expose logical states, not GPIO numbers. */
 #define POWER_SW1()        ((GpioDataRegs.GPCDAT.bit.GPIO82 == 0U) ? 1U : 0U)
@@ -79,8 +79,8 @@ Uint16 GPIO_GetKeyEvents(void);
 #define GRID_RELAY_ALL_OFF()    (GpioDataRegs.GPACLEAR.bit.GPIO11 = 1U)
 #define GRID_RELAY_ALL_ON()     (GpioDataRegs.GPASET.bit.GPIO11 = 1U)
 
-#define INVERTER_OFF()          (GpioDataRegs.GPCCLEAR.bit.GPIO89 = 1U)
-#define INVERTER_ON()           (GpioDataRegs.GPCSET.bit.GPIO89 = 1U)
+#define INVERT_OFF()          (GpioDataRegs.GPCCLEAR.bit.GPIO89 = 1U)
+#define INVERT_ON()           (GpioDataRegs.GPCSET.bit.GPIO89 = 1U)
 
 #define BOOST_OFF()             (GpioDataRegs.GPCCLEAR.bit.GPIO88 = 1U)
 #define BOOST_ON()              (GpioDataRegs.GPCSET.bit.GPIO88 = 1U)
@@ -102,18 +102,18 @@ Uint16 EPWM_Enable(void);
 void EPWM_TripZoneForce(void);
 Uint16 EPWM_TripZoneClear(void);
 void EPWM_Disable(void);
-void EPWM_SetInverterMode(float modulation);
+void EPWM_SetInvertMode(float modulate);
 void EPWM_SetBoostDuty(float boost1Duty, float boost2Duty);
 
 void ADC_Config(void);
 void DMA_Config(void);
-void DMA_NotifyFastFrameEoc(void);
-void DMA_GridCycleBoundary(void);
+void DMA_NoteFastFrameEoc(void);
+void DMA_GridCycleBound(void);
 Uint16 DMA_ProcessBlocks
 (
     ADC_UintData *rawAvg,
     ADC_FloatData *rawMeanSq,
-    float *gridVoltCurrentMeanRaw,
+    float *gridVoltCurrMeanRaw,
     const ADC_Calibrate *cal
 );
 void ECAP_Config(void);
@@ -124,7 +124,7 @@ void I2C_Config(void);
 //传输完成、总线已释放
 #define I2C_STATUS_OK               0U
 //空指针/零长度/地址越界
-#define I2C_STATUS_BAD_PARAMETER    1U
+#define I2C_STATUS_BAD_PARAM    1U
 //等待总线空闲超时(总线上有异常 START 未结束)
 #define I2C_STATUS_BUS_BUSY         2U
 //等待 XRDY/XSMT/BB 超时(从机卡死或无响应)
@@ -132,9 +132,9 @@ void I2C_Config(void);
 //从机对地址或数据无应答(最常见:OLED 没接好/地址错)
 #define I2C_STATUS_NACK             4U
 //仲裁丢失(本设计是单主机,实际几乎不会出现)
-#define I2C_STATUS_ARBITRATION_LOST 5U
+#define I2C_STATUS_ARBIT_LOST 5U
 
-Uint16 I2C_MasterTransfer(Uint16 slaveAddr7, const Uint16 *data, Uint16 length, Uint16 timeoutUs);
+Uint16 I2C_MasterWrite(Uint16 slaveAddr7, const Uint16 *data, Uint16 length, Uint16 timeoutUs);
 Uint16 I2C_MasterRead( Uint16 slaveAddr7, Uint16 *data, Uint16 length, Uint16 timeoutUs);
 Uint16 I2C_MasterWriteRead
 (

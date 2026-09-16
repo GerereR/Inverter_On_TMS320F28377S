@@ -1,20 +1,20 @@
 #include "F28x_Project.h"
 
-#include "inverter.h"
+#include "invert.h"
 #include "bsp.h"
 #include "task.h"
 
-static void Inverter_ForceHardwareSafe(void);
+static void Invert_ForceHwSafe(void);
 
 //限幅器
-float Inverter_Clamp(float value, float minimum, float maximum)
+float Invert_Clamp(float value, float minimum, float maximum)
 {
     return ((value != value) || (minimum != minimum) || (maximum != maximum) || (minimum > maximum)) ? 0.0f :
     (value > maximum) ? maximum : (value < minimum) ? minimum : value;
 }
 
 //逆变器初始化
-void Inverter_Init(void)
+void Invert_Init(void)
 {
     //SYSTEM配置
     InitSysCtrl();
@@ -26,9 +26,9 @@ void Inverter_Init(void)
     //BSP配置
     EPWM_Config();
     GPIO_Config();
-    Inverter_ForceHardwareSafe();
+    Invert_ForceHwSafe();
     ADC_Config();
-    Timer1_Init();
+    Timer1_Config();
     DMA_Config();
     ECAP_Config();
     SCI_Config();
@@ -36,18 +36,18 @@ void Inverter_Init(void)
 }
 
 //软件强制保护
-void Inverter_EnterSafeOutput(void)
+void Invert_EnterSafeOutput(void)
 {
-    Inverter_ForceHardwareSafe();
+    Invert_ForceHwSafe();
     AC_Ctrl_Disable();
 }
 
 //硬件强制保护
-static void Inverter_ForceHardwareSafe(void)
+static void Invert_ForceHwSafe(void)
 {
     EPWM_Disable();
     BOOST_OFF();
-    INVERTER_OFF();
+    INVERT_OFF();
     
     ISO_RELAY1_OFF();
     ISO_RELAY2_OFF();

@@ -15,9 +15,9 @@ void DC_Ctrl_StartSoftStart(void);
 
 typedef struct
 {
-    Uint16 inductorCurrent;
-    Uint16 gridVoltage;
-    Uint16 dcBusVoltage;
+    Uint16 inductCurr;
+    Uint16 gridVolt;
+    Uint16 dcBusVolt;
 } AC_CtrlRawInput;
 
 void AC_Ctrl_Init(void);
@@ -26,9 +26,9 @@ void CheckGridPresence(Uint16 gridVoltRaw);
 void AC_Ctrl_Enable(void);
 void AC_Ctrl_Disable(void);
 
-void Task_Measure(void);
+void Task_Measu(void);
 
-void Task_AC_Monitor(void);
+void Task_AC_Guard(void);
 
 void Task_MPPT_Init(void);
 void Task_MPPT(void);

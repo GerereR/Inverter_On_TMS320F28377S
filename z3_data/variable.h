@@ -9,125 +9,125 @@
  */
 typedef struct
 {
-    Uint16 gridVoltage;
-    Uint16 inductorCurrent;
-    Uint16 gfciCurrent;
-    Uint16 dcBusVoltage;
-    Uint16 gridDcCurrent;
-    Uint16 inverterVoltage;
-    Uint16 pv1Current;
-    Uint16 pv2Current;
-    Uint16 pv1Voltage;
-    Uint16 pv2Voltage;
-    Uint16 pv1Isolation;
-    Uint16 pv2Isolation;
-    Uint16 inverterTemperature;
-    Uint16 boostTemperature;
+    Uint16 gridVolt;
+    Uint16 inductCurr;
+    Uint16 gfciCurr;
+    Uint16 dcBusVolt;
+    Uint16 gridDcCurr;
+    Uint16 invertVolt;
+    Uint16 pv1Curr;
+    Uint16 pv2Curr;
+    Uint16 pv1Volt;
+    Uint16 pv2Volt;
+    Uint16 pv1Insul;
+    Uint16 pv2Insul;
+    Uint16 invertTemp;
+    Uint16 boostTemp;
 } ADC_UintData;
 
 /* Converted values use volts, amperes and degrees Celsius. */
 typedef struct
 {
-    float gridVoltage;
-    float inductorCurrent;
-    float gfciCurrent;
-    float dcBusVoltage;
-    float gridDcCurrent;
-    float inverterVoltage;
-    float pv1Current;
-    float pv2Current;
-    float pv1Voltage;
-    float pv2Voltage;
-    float pv1Isolation;
-    float pv2Isolation;
-    float inverterTemperature;
-    float boostTemperature;
+    float gridVolt;
+    float inductCurr;
+    float gfciCurr;
+    float dcBusVolt;
+    float gridDcCurr;
+    float invertVolt;
+    float pv1Curr;
+    float pv2Curr;
+    float pv1Volt;
+    float pv2Volt;
+    float pv1Insul;
+    float pv2Insul;
+    float invertTemp;
+    float boostTemp;
 } ADC_FloatData;
 
 /* Each linear channel owns an independently adjustable zero and gain. */
 typedef struct
 {
-    float offset;
+    float Bias;
     float gain;
 } ADC_CalParam;
 
 typedef struct
 {
-    ADC_CalParam gridVoltage;
-    ADC_CalParam inductorCurrent;
-    ADC_CalParam gfciCurrent;
-    ADC_CalParam dcBusVoltage;
-    ADC_CalParam gridDcCurrent;
-    ADC_CalParam inverterVoltage;
-    ADC_CalParam pv1Current;
-    ADC_CalParam pv2Current;
-    ADC_CalParam pv1Voltage;
-    ADC_CalParam pv2Voltage;
-    ADC_CalParam pv1Isolation;
-    ADC_CalParam pv2Isolation;
+    ADC_CalParam gridVolt;
+    ADC_CalParam inductCurr;
+    ADC_CalParam gfciCurr;
+    ADC_CalParam dcBusVolt;
+    ADC_CalParam gridDcCurr;
+    ADC_CalParam invertVolt;
+    ADC_CalParam pv1Curr;
+    ADC_CalParam pv2Curr;
+    ADC_CalParam pv1Volt;
+    ADC_CalParam pv2Volt;
+    ADC_CalParam pv1Insul;
+    ADC_CalParam pv2Insul;
 } ADC_Calibrate;
 
 /* 运行时 ADC 零漂值（码值，采样时减去）。 */
 typedef struct
 {
-    float inductorCurrent;
-    float gridVoltage;
-    float gfciCurrent;
-    float gridDcCurrent;
-} AdcOffsetValues;
+    float inductCurr;
+    float gridVolt;
+    float gfciCurr;
+    float gridDcCurr;
+} AdcBiasValues;
 
 /* ADC 运行时零漂校准（开机/重连时采 32 组码值平均，补偿温度漂移）。 */
 typedef struct
 {
-    AdcOffsetValues offset;   /* 运行时零漂 */
-    AdcOffsetValues sum;      /* 校准累积器 */
-    Uint16 checkCount;        /* 校准采样计数 */
+    AdcBiasValues Bias;   /* 运行时零漂 */
+    AdcBiasValues sum;      /* 校准累积器 */
+    Uint16 checkCnt;        /* 校准采样计数 */
     Uint16 adInitial;         /* 校准标志：1=校准中 */
-} AdcOffsetCal;
+} AdcBiasCal;
 
 /* ADCA RESULT0 through RESULT5 form one complete 20 kHz fast frame. */
 typedef struct
 {
-    Uint16 inductorCurrent;
-    Uint16 gridVoltage;
-    Uint16 gfciCurrent;
-    Uint16 dcBusVoltage;
-    Uint16 gridDcCurrent;
-    Uint16 inverterVoltage;
+    Uint16 inductCurr;
+    Uint16 gridVolt;
+    Uint16 gfciCurr;
+    Uint16 dcBusVolt;
+    Uint16 gridDcCurr;
+    Uint16 invertVolt;
 } ADC_FastRawFrame;
 
 /* ADCD RESULT0 through RESULT3 form one synchronized PV frame. */
 typedef struct
 {
-    Uint16 pv1Voltage;
-    Uint16 pv1Current;
-    Uint16 pv2Voltage;
-    Uint16 pv2Current;
+    Uint16 pv1Volt;
+    Uint16 pv1Curr;
+    Uint16 pv2Volt;
+    Uint16 pv2Curr;
 } ADC_PvRawFrame;
 
-/* ADCB RESULT0 and RESULT1 form one slow isolation-monitoring frame. */
+/* ADCB RESULT0 and RESULT1 form one slow INSUL-Guarding frame. */
 typedef struct
 {
-    Uint16 pv1Isolation;
-    Uint16 pv2Isolation;
-} ADC_IsoRawFrame;
+    Uint16 pv1Insul;
+    Uint16 pv2Insul;
+} ADC_InsulRawFrame;
 
 /* ADCC RESULT0 and RESULT1 form one slow temperature frame. */
 typedef struct
 {
-    Uint16 inverterTemperature;
-    Uint16 boostTemperature;
+    Uint16 invertTemp;
+    Uint16 boostTemp;
 } ADC_TempRawFrame;
 
 /* Machine problems are grouped by handling policy, not compiler bitfields. */
 typedef struct
 {
     Uint32 warning;
-    Uint32 recoverFault;
-    Uint32 permanentFault;
+    Uint32 recovFault;
+    Uint32 permaFault;
 } SysProblem;
 
-/* State-machine data shared by startup, protection and supervisory tasks. */
+/* State-machine data shared by startup, protection and supervinsulry tasks. */
 typedef struct
 {
     SysState state;
@@ -140,7 +140,7 @@ typedef struct
     Uint32 sourceStableMs;
     Uint32 gridStableMs;
     Uint16 reloadFlag;    /* 打嗝保护标志：快速层(ISR)置位，状态机恢复 */
-    Uint16 reloadCount;   /* 打嗝恢复计数（NORMAL 态累加，>150 即 300ms 后恢复） */
+    Uint16 reloadCnt;   /* 打嗝恢复计数（NORMAL 态累加，>150 即 300ms 后恢复） */
 } SysData;
 
 /* MPPT result consumed by the DC-control task. */
@@ -148,13 +148,13 @@ typedef struct
 {
     float voltRef;
     Uint16 enabled;
-} MpptChannelOutput;
+} MpptChOutput;
 
 /* MPPT results consumed outside task_mppt.c. */
 typedef struct
 {
-    MpptChannelOutput pv1;
-    MpptChannelOutput pv2;
+    MpptChOutput pv1;
+    MpptChOutput pv2;
     Uint16 inputMode;
 } MpptData;
 
@@ -162,16 +162,16 @@ typedef struct
 typedef struct
 {
     float stableVoltRef;
-    float currentAmpRef;
+    float currAmpRef;
     float boost1Duty;
     float boost2Duty;
 } BusCtrlData;
 
-/* Inverter values shared with the slower AC monitor task. The current-loop
+/* Invert values shared with the slower AC Guard task. The curr-loop
  * working values remain private to task_ac_ctrl.c. */
 typedef struct
 {
-    float dcCurrentComp;
+    float dcCurrComp;
 } InvCtrlData;
 
 /* Calculated power values consumed by power limiting and MPPT. */
@@ -182,12 +182,12 @@ typedef struct
     float pv2Power;
 } PowerData;
 
-/* Output command and the limits currently constraining delivered power. */
+/* Output command and the limits currly constraining delivered power. */
 typedef struct
 {
-    float currentAmpLimit;
-    float currentAmpMax;       /* SCI 手动设置的电流上限（0..1，默认满） */
-} PowerLimitData;
+    float currAmpLim;
+    float currAmpMax;       /* SCI 手动设置的电流上限（0..1，默认满） */
+} PowerLimData;
 
 /* 无功调度公共契约。
  * mode/setValue 是未来 Scalpel 的设定入口；phaseShiftPu 是电流环唯一消费的输出。
@@ -202,15 +202,15 @@ typedef struct
 
 /*
  * Runtime machine data shared by acquisition, control and communication.
- * ADC data has two forms only: raw unsigned counts and converted
+ * ADC data has two forms only: raw unsigned cnts and converted
  * floating-point values. DMA mean-square intermediates use the same float
- * type and remain in centered ADC-count-squared units until RMS conversion.
+ * type and remain in cent ADC-cnt-squared units until RMS conversion.
  * Fields that are not meaningful for a given statistic remain zero.
  * ECAP and PLL frequencies are stored in 0.01 Hz units.
  */
 typedef struct
 {
-    Uint32 measureSeq;
+    Uint32 measuSeq;
 
     ADC_FloatData realAvg;
     ADC_FloatData realRms;
@@ -224,22 +224,22 @@ typedef struct
 /* Fast grid-presence state shared by the AC control and state tasks. */
 typedef struct
 {
-    Uint32 noGridCount;
+    Uint32 noGridCnt;
     Uint16 fastPresent;
-} GridMonitorData;
+} GridGuardData;
 
 /* 并网安规参数（集中一个数据域，便于按国标/机型配置，将来可存 EEPROM）。 */
 typedef struct
 {
-    float voltOverLevel1;      /* 一级过压(V) */
-    float voltOverLevel2;      /* 二级过压(V) */
-    float voltUnderLevel1;     /* 一级欠压(V) */
-    float voltUnderLevel2;     /* 二级欠压(V) */
+    float voltOverLV1;      /* 一级过压(V) */
+    float voltOverLV2;      /* 二级过压(V) */
+    float voltUnderLV1;     /* 一级欠压(V) */
+    float voltUnderLV2;     /* 二级欠压(V) */
 
-    float freqOverLevel1;      /* 一级过频(Hz) */
-    float freqOverLevel2;      /* 二级过频(Hz) */
-    float freqUnderLevel1;     /* 一级欠频(Hz) */
-    float freqUnderLevel2;     /* 二级欠频(Hz) */
+    float freqOverLV1;      /* 一级过频(Hz) */
+    float freqOverLV2;      /* 二级过频(Hz) */
+    float freqUnderLV1;     /* 一级欠频(Hz) */
+    float freqUnderLV2;     /* 二级欠频(Hz) */
 
     float voltOver10Min;       /* 10 分钟平均过压(V) */
 
@@ -248,9 +248,9 @@ typedef struct
     float reconnMaxFreq;       /* 重连频率上限(Hz) */
     float reconnMinFreq;       /* 重连频率下限(Hz) */
 
-    Uint16 faultFilterCount1;  /* 一级判定计数 */
-    Uint16 faultFilterCount2;  /* 二级判定计数 */
-    Uint16 backFilterCount;    /* 恢复计数 */
+    Uint16 faultFilterCnt1;  /* 一级判定计数 */
+    Uint16 faultFilterCnt2;  /* 二级判定计数 */
+    Uint16 backFilterCnt;    /* 恢复计数 */
 } GridSafetyParams;
 
 /* GFCI 漏电保护状态（自检 + 运行保护差分跳变 + 多级反时限）。 */
@@ -270,7 +270,7 @@ typedef struct
     Uint16 deviceFilter2;    /* 自检注入检测滤波（原 gfci_fault_filter2） */
     Uint16 backFilter;       /* 恢复滤波 */
     Uint16 checkDelay;       /* 自检后保护静默期计数（原 wCheckGFCIDelay） */
-    Uint16 selfTestIndex;    /* 自检计数（原 gfci_50ma_index） */
+    Uint16 selfTestIdx;    /* 自检计数（原 gfci_50ma_index） */
     Uint16 selfTestActive;   /* 自检进行中 */
 } GfciData;
 
@@ -306,13 +306,13 @@ extern volatile MachineData gMachineData;
 extern volatile SysProblem gSysProblem;
 extern volatile SysData gSysData;
 extern volatile ADC_Calibrate gAdcCal;
-extern volatile AdcOffsetCal gAdcOffsetCal;
+extern volatile AdcBiasCal gAdcBiasCal;
 extern volatile MpptData gMpptData;
 extern volatile BusCtrlData gBusCtrlData;
 extern volatile InvCtrlData gInvCtrlData;
-extern volatile PowerLimitData gPowerLimitData;
+extern volatile PowerLimData gPowerLimData;
 extern volatile ReactiveData gReactiveData;
-extern volatile GridMonitorData gGridData;
+extern volatile GridGuardData gGridData;
 extern volatile GridSafetyParams gGridSafety;
 extern volatile GfciData gGfciData;
 extern volatile PLL_Data GridPLL;

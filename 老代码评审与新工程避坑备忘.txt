@@ -120,7 +120,7 @@ bGridCnt在检测到异常时递增，但异常消失时没有清零或衰减。
 新工程必须明确区分：
 - gridPhase：PLL检测到的电网相位。
 - currentReferencePhase：参考电流使用的相位。
-- modulationPolarity：PWM换向所依据的相位或电压极性。
+- modulatePolarity：PWM换向所依据的相位或电压极性。
 
 三者之间的关系必须通过设计确定，不能随意混用。
 

@@ -4,7 +4,7 @@
 #include "constant.h"
 #include "bsp.h"
 #include "variable.h"
-#include "inverter.h"
+#include "invert.h"
 
 /* 前置声明：电网电压瞬时异常检测（定义见文件末尾）。 */
 static void CheckGridVoltAbnormal(float gridVoltAdc);
@@ -17,7 +17,7 @@ static void CheckGridVoltAbnormal(float gridVoltAdc);
 //PLL宏定义
 #define SPLL_MAX_DEVIATION_HZ       5.0f
 
-#if 0 /* Candidate algorithm retained for later SRF/SOGI comparison. */
+#if 0 /* Candidate algorithm retained for later SRF/SOGI comparinsuln. */
 #define SRF_PLL_DEFAULT_KP          60.0f
 #define SRF_PLL_DEFAULT_KI          2000.0f
 #define SRF_PLL_DEFAULT_NOTCH_B0    1.3853181f
@@ -30,7 +30,7 @@ static void CheckGridVoltAbnormal(float gridVoltAdc);
 #define SOGI_PLL_DEFAULT_KP         90.0f
 #define SOGI_PLL_DEFAULT_KI         4000.0f
 
-/* Temporary PLL lock thresholds for the current bring-up stage. */
+/* Temporary PLL lock thresholds for the curr bring-up stage. */
 #define PLL_INPUT_ABS_FILTER_COEFF       0.001f
 
 #define PLL_LOCK_INPUT_ABS_MIN           0.10f
@@ -45,10 +45,10 @@ static void CheckGridVoltAbnormal(float gridVoltAdc);
 #define PLL_LOCK_CONFIRM_SAMPLES         2000U
 #define PLL_UNLOCK_CONFIRM_SAMPLES       200U   //50us*200=10ms
 
-/* Legacy 20 kHz current-loop tuning. The PI result is normalized below, so
+/* Legacy 20 kHz curr-loop tuning. The PI result is normalized below, so
  * the present F28377S TBPRD does not change these discrete coefficients. */
-#define INV_CURRENT_KP                    300.0f
-#define INV_CURRENT_KI                     30.0f
+#define INV_CURR_KP                    300.0f
+#define INV_CURR_KI                     30.0f
 
 #define INV_LEGACY_BUS_GAIN              6935.0f
 
@@ -56,28 +56,28 @@ static void CheckGridVoltAbnormal(float gridVoltAdc);
 
 #define INV_LEGACY_PWM_PERIOD            1500.0f
 
-/* With centered raw ADC values, 1.203 is the raw-domain equivalent of the
- * legacy physical feed-forward coefficient 0.8 after the voltage gain ratio. */
+/* With cent raw ADC values, 1.203 is the raw-domain equivalent of the
+ * legacy physical feed-forward coefficient 0.8 after the volt gain ratio. */
 #define INV_GRID_FEED_FORWARD             1.203f
 
 typedef struct
 {
-    float currentRef;
-    float currentFeedback;
-    float currentErr;
-    float currentErrPrev;
+    float currRef;
+    float currFeedback;
+    float currErr;
+    float currErrPrev;
     float piOut;
     float gridVoltFeedForward;
-    float modulation;
+    float modulate;
     Uint16 enabled;
 } AC_CtrlState;
 
 static volatile AC_CtrlState AC_State = {0};
 
-#if 0 /* Candidate algorithm retained for later SRF/SOGI comparison. */
+#if 0 /* Candidate algorithm retained for later SRF/SOGI comparinsuln. */
 static void SRF_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleFreqHz)
 {
-    Uint16 index;
+    Uint16 idx;
 
     pll->input = 0.0f;
     pll->phase = 0.0f;
@@ -102,10 +102,10 @@ static void SRF_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleFr
     pll->sogiBeta = 0.0f;
     pll->sogiK = 1.41421356f;
 
-    for(index = 0U; index < 3U; index++)
+    for(idx = 0U; idx < 3U; idx++)
     {
-        pll->detHist[index] = 0.0f;
-        pll->notchHist[index] = 0.0f;
+        pll->detHist[idx] = 0.0f;
+        pll->notchHist[idx] = 0.0f;
     }
 }
 
@@ -263,7 +263,7 @@ static Uint16 DetectGridPeak(void)
 
     /* Phase scheduling is valid only after eCAP and PLL have become valid. */
     if((gMachineData.ecapFreqCent == 0U) ||
-       ((gSysProblem.recoverFault & RECOVER_PLL_FAULT) != 0UL))
+       ((gSysProblem.recovFault & RECOV_PLL_FAULT) != 0UL))
     {
         phasePrimed = 0U;
         return FAST_EVENT_NONE;
@@ -277,7 +277,7 @@ static Uint16 DetectGridPeak(void)
         return FAST_EVENT_NONE;
     }
 
-    /* Crossing pi/2 or 3*pi/2 identifies each voltage peak once. */
+    /* Crossing pi/2 or 3*pi/2 identifies each volt peak once. */
     if(phase >= phasePrev)
     {
         if
@@ -301,8 +301,8 @@ static void UpdatePllLock(float pllInput)
     float inputAbs;
     float phaseErrorAbs;
     static float inputAbsFiltered = 0.0f;
-    static Uint16 lockCounter = 0U;
-    static Uint16 unlockCounter = 0U;
+    static Uint16 lockCnter = 0U;
+    static Uint16 unlockCnter = 0U;
     Uint16 lockCondition;
     Uint16 unlockCondition;
 
@@ -324,66 +324,66 @@ static void UpdatePllLock(float pllInput)
         (GridPLL.freqHz <= (GridPLL.minFreqHz + PLL_UNLOCK_FREQ_MARGIN_HZ)) ||
         (GridPLL.freqHz >= (GridPLL.maxFreqHz - PLL_UNLOCK_FREQ_MARGIN_HZ));
 
-    if((gSysProblem.recoverFault & RECOVER_PLL_FAULT) != 0UL)
+    if((gSysProblem.recovFault & RECOV_PLL_FAULT) != 0UL)
     {
-        unlockCounter = 0U;
+        unlockCnter = 0U;
         if(lockCondition != 0U)
         {
-            if(lockCounter < PLL_LOCK_CONFIRM_SAMPLES)
+            if(lockCnter < PLL_LOCK_CONFIRM_SAMPLES)
             {
-                lockCounter++;
+                lockCnter++;
             }
-            if(lockCounter >= PLL_LOCK_CONFIRM_SAMPLES)
+            if(lockCnter >= PLL_LOCK_CONFIRM_SAMPLES)
             {
-                gSysProblem.recoverFault &=~ RECOVER_PLL_FAULT;
-                lockCounter = 0U;
+                gSysProblem.recovFault &=~ RECOV_PLL_FAULT;
+                lockCnter = 0U;
             }
         }
         else
         {
-            lockCounter = 0U;
+            lockCnter = 0U;
         }
     }
     else
     {
-        lockCounter = 0U;
+        lockCnter = 0U;
         if(unlockCondition != 0U)
         {
-            if(unlockCounter < PLL_UNLOCK_CONFIRM_SAMPLES)
+            if(unlockCnter < PLL_UNLOCK_CONFIRM_SAMPLES)
             {
-                unlockCounter++;
+                unlockCnter++;
             }
-            if(unlockCounter >= PLL_UNLOCK_CONFIRM_SAMPLES)
+            if(unlockCnter >= PLL_UNLOCK_CONFIRM_SAMPLES)
             {
-                gSysProblem.recoverFault |= RECOVER_PLL_FAULT;
-                unlockCounter = 0U;
+                gSysProblem.recovFault |= RECOV_PLL_FAULT;
+                unlockCnter = 0U;
             }
         }
         else
         {
-            unlockCounter = 0U;
+            unlockCnter = 0U;
         }
     }
 }
 
-static void AC_Ctrl_ResetCurrentLoop(void)
+static void AC_Ctrl_ResetCurrLoop(void)
 {
-    AC_State.currentRef = 0.0f;
-    AC_State.currentFeedback = 0.0f;
-    AC_State.currentErr = 0.0f;
-    AC_State.currentErrPrev = 0.0f;
+    AC_State.currRef = 0.0f;
+    AC_State.currFeedback = 0.0f;
+    AC_State.currErr = 0.0f;
+    AC_State.currErrPrev = 0.0f;
     AC_State.piOut = 0.0f;
     AC_State.gridVoltFeedForward = 0.0f;
-    AC_State.modulation = 0.0f;
+    AC_State.modulate = 0.0f;
 }
 
 void AC_Ctrl_Enable(void)
 {
     /* Establish a clean controller state before the fast ISR can use it. */
     AC_State.enabled = 0U;
-    AC_Ctrl_ResetCurrentLoop();
+    AC_Ctrl_ResetCurrLoop();
     
-    EPWM_SetInverterMode(0.0f);
+    EPWM_SetInvertMode(0.0f);
     AC_State.enabled = 1U;
 }
 
@@ -391,19 +391,19 @@ void AC_Ctrl_Disable(void)
 {
     /* Preserve the CPU command, but reset all applied loop state. */
     AC_State.enabled = 0U;
-    AC_Ctrl_ResetCurrentLoop();
+    AC_Ctrl_ResetCurrLoop();
 }
 
 /* 快速电网存在性检测（原 adc.c 的 ADC_CheckGridPresence，迁入快速层）。
  * 在 20kHz ISR 里对电网电压做峰值窗口判断，给出快速掉网指示。
- * 正式 RMS 判定与恢复时序仍在 Task_AcMonitor()/状态机里。 */
+ * 正式 RMS 判定与恢复时序仍在 Task_AcGuard()/状态机里。 */
 void CheckGridPresence(Uint16 gridVoltRaw)
 {
     static Uint16 windowSamples = 0U;
     static float windowPeakVolt = 0.0f;
     float gridVolt;
 
-    gridVolt = ((float)gridVoltRaw - gAdcCal.gridVoltage.offset) * gAdcCal.gridVoltage.gain;
+    gridVolt = ((float)gridVoltRaw - gAdcCal.gridVolt.Bias) * gAdcCal.gridVolt.gain;
     if(gridVolt < 0.0f)
     {
         gridVolt = -gridVolt;
@@ -419,14 +419,14 @@ void CheckGridPresence(Uint16 gridVoltRaw)
         if(windowPeakVolt >= GRID_FAST_PRESENT_PEAK_V)
         {
             gGridData.fastPresent = 1U;
-            gGridData.noGridCount = 0UL;
+            gGridData.noGridCnt = 0UL;
         }
         else
         {
             gGridData.fastPresent = 0U;
-            if(gGridData.noGridCount < 0xFFFFFFFFUL)
+            if(gGridData.noGridCnt < 0xFFFFFFFFUL)
             {
-                gGridData.noGridCount++;
+                gGridData.noGridCnt++;
             }
         }
 
@@ -440,32 +440,32 @@ void CheckGridPresence(Uint16 gridVoltRaw)
  * 0.663 为母线到电网的调制比折算系数，需按实际硬件校准。 */
 static void CheckGridVoltAbnormal(float gridVoltAdc)
 {
-    static Uint16 abnormalCount = 0U;
+    static Uint16 abnormalCnt = 0U;
     float gridVoltV;
     float threshold;
 
     if((gSysData.state != SYS_STATE_NORMAL) || (gSysData.reloadFlag != 0U))
     {
-        abnormalCount = 0U;
+        abnormalCnt = 0U;
         return;
     }
 
     /* 电网电压物理值（V）；阈值 = 母线电压 × 0.663（调制比）+ 15V 裕量 */
-    gridVoltV = gridVoltAdc * gAdcCal.gridVoltage.gain;
+    gridVoltV = gridVoltAdc * gAdcCal.gridVolt.gain;
     threshold = gBusCtrlData.stableVoltRef * 0.663f + 15.0f;
 
     if((gridVoltV > threshold) || (gridVoltV < -threshold))
     {
-        abnormalCount++;
+        abnormalCnt++;
     }
     else
     {
-        abnormalCount = 0U;
+        abnormalCnt = 0U;
     }
 
-    if(abnormalCount >= 3U)
+    if(abnormalCnt >= 3U)
     {
-        abnormalCount = 0U;
+        abnormalCnt = 0U;
         gSysData.reloadFlag = 1U;
         EPWM_Disable();
     }
@@ -478,10 +478,10 @@ void AC_Ctrl_Init(void)
 
     AC_State.enabled = 0U;
     /* Until the power-limit manager is active, allow the full normalized
-     * current range. A later zero limit must remain effective. */
-    gPowerLimitData.currentAmpLimit = BUS_CURRENT_AMP_MAX_NORM;
-    gPowerLimitData.currentAmpMax = BUS_CURRENT_AMP_MAX_NORM;
-    AC_Ctrl_ResetCurrentLoop();
+     * curr range. A later zero limit must remain effective. */
+    gPowerLimData.currAmpLim = BUS_CURR_AMP_MAX_NORM;
+    gPowerLimData.currAmpMax = BUS_CURR_AMP_MAX_NORM;
+    AC_Ctrl_ResetCurrLoop();
 }
 
 /* 电流环假任务入口：由 ADC ISR 直接调用。
@@ -490,22 +490,22 @@ Uint16 Task_AC_Ctrl(const AC_CtrlRawInput *input)
 {
     Uint16 gridVoltRaw;
     float gridVoltAdc;
-    float inductorCurrentAdc;
+    float inductCurrAdc;
     float dcBusVoltAdc;
     Uint16 events;
     float gridVoltUnif;
-    float currentPhase;
-    float currentRefSine;
+    float currPhase;
+    float currRefSine;
     float phasePu;
     float phaseShiftPu;
     float refMaxCode;
     float piIncrement;
 
     /* 读取当前 ADC 帧并去除零漂（原 ISR 中的采样逻辑收进任务）。 */
-    gridVoltRaw = input->gridVoltage;
-    inductorCurrentAdc = (float)input->inductorCurrent - gAdcCal.inductorCurrent.offset - gAdcOffsetCal.offset.inductorCurrent;
-    gridVoltAdc = (float)gridVoltRaw - gAdcCal.gridVoltage.offset - gAdcOffsetCal.offset.gridVoltage;
-    dcBusVoltAdc = (float)input->dcBusVoltage - gAdcCal.dcBusVoltage.offset;//其实是否用BUS瞬时值,有待商榷,因为这样的话BUS瞬变会导致电流环不稳定
+    gridVoltRaw = input->gridVolt;
+    inductCurrAdc = (float)input->inductCurr - gAdcCal.inductCurr.Bias - gAdcBiasCal.Bias.inductCurr;
+    gridVoltAdc = (float)gridVoltRaw - gAdcCal.gridVolt.Bias - gAdcBiasCal.Bias.gridVolt;
+    dcBusVoltAdc = (float)input->dcBusVolt - gAdcCal.dcBusVolt.Bias;//其实是否用BUS瞬时值,有待商榷,因为这样的话BUS瞬变会导致电流环不稳定
 
     /* 快速电网存在性检测（快速掉网指示）。 */
     CheckGridPresence(gridVoltRaw);
@@ -513,7 +513,7 @@ Uint16 Task_AC_Ctrl(const AC_CtrlRawInput *input)
     /* 电网电压瞬时值异常 -> 打嗝保护。 */
     CheckGridVoltAbnormal(gridVoltAdc);
 
-    /* SOGI input is normalized to the centered 12-bit ADC half-range. */
+    /* SOGI input is normalized to the cent 12-bit ADC half-range. */
     gridVoltUnif = gridVoltAdc / ADC_BIPOLAR_ZERO;
 
     SOGI_PLL_Run(&GridPLL, gridVoltUnif);
@@ -522,84 +522,84 @@ Uint16 Task_AC_Ctrl(const AC_CtrlRawInput *input)
     gMachineData.pllFreqCent = (Uint16)(GridPLL.freqHz * 100.0f);
     events = DetectGridPeak();
 
-    /* Feedback remains in centered ADC-code units to match the legacy loop. */
-    AC_State.currentFeedback = inductorCurrentAdc;
+    /* Feedback remains in cent ADC-code units to match the legacy loop. */
+    AC_State.currFeedback = inductCurrAdc;
 
     /* 打嗝保护期间不输出电流环。 */
     if((AC_State.enabled != 0U) && (gSysData.reloadFlag == 0U))
     {
-        currentPhase = GridPLL.phase;
-        while(currentPhase >= MATH_TWO_PI_F)
+        currPhase = GridPLL.phase;
+        while(currPhase >= MATH_TWO_PI_F)
         {
-            currentPhase -= MATH_TWO_PI_F;
+            currPhase -= MATH_TWO_PI_F;
         }
-        while(currentPhase < 0.0f)
+        while(currPhase < 0.0f)
         {
-            currentPhase += MATH_TWO_PI_F;
+            currPhase += MATH_TWO_PI_F;
         }
         /* 电流参考：直接 sin(θ+φ)，把无功+电容补偿相移（归一化周期）加进 PLL 相位。
          * __sinpuf32 输入须在 [0,1)，加相移后 wrap 一次。 */
         phaseShiftPu = gReactiveData.phaseShiftPu;
-        phasePu = currentPhase * MATH_INV_TWO_PI_F + phaseShiftPu;
+        phasePu = currPhase * MATH_INV_TWO_PI_F + phaseShiftPu;
 
         if(phasePu >= 1.0f) phasePu -= 1.0f;
         else if(phasePu < 0.0f) phasePu += 1.0f;
 
-        currentRefSine = __sinpuf32(phasePu);
+        currRefSine = __sinpuf32(phasePu);
 
-        /* 直流分量补偿（原 DCcurrentAdj）：按实际电流参考的正负半周切换，
+        /* 直流分量补偿（原 DCcurrAdj）：按实际电流参考的正负半周切换，
          * 避免加入无功相移后在电网电压过零点产生幅值跳变。 */
-        if(currentRefSine > 0.0f)
+        if(currRefSine > 0.0f)
         {
-            refMaxCode = gBusCtrlData.currentAmpRef * ADC_BIPOLAR_ZERO - gInvCtrlData.dcCurrentComp;
+            refMaxCode = gBusCtrlData.currAmpRef * ADC_BIPOLAR_ZERO - gInvCtrlData.dcCurrComp;
         }
         else
         {
-            refMaxCode = gBusCtrlData.currentAmpRef * ADC_BIPOLAR_ZERO;
+            refMaxCode = gBusCtrlData.currAmpRef * ADC_BIPOLAR_ZERO;
         }
 
-        AC_State.currentRef = refMaxCode * currentRefSine;
+        AC_State.currRef = refMaxCode * currRefSine;
 
         /* This guard is only for a valid division denominator. Bus operating
          * range qualification belongs to the state machine. */
         if(dcBusVoltAdc > 0.0f)
         {
-            AC_State.currentErrPrev = AC_State.currentErr;
-            AC_State.currentErr = AC_State.currentRef - AC_State.currentFeedback;
+            AC_State.currErrPrev = AC_State.currErr;
+            AC_State.currErr = AC_State.currRef - AC_State.currFeedback;
 
             /* Incremental PI: scale the new increment before accumulating it. */
             piIncrement =
-                (AC_State.currentErr *
-                 (INV_CURRENT_KP + INV_CURRENT_KI) -
-                 AC_State.currentErrPrev * INV_CURRENT_KP) *
+                (AC_State.currErr *
+                 (INV_CURR_KP + INV_CURR_KI) -
+                 AC_State.currErrPrev * INV_CURR_KP) *
                 INV_LEGACY_BUS_GAIN /
                 (dcBusVoltAdc * INV_PI_BUS_SCALE *
                  INV_LEGACY_PWM_PERIOD);
-            AC_State.piOut = Inverter_Clamp(AC_State.piOut + piIncrement, -1.0f, 1.0f);
+            AC_State.piOut = Invert_Clamp(AC_State.piOut + piIncrement, -1.0f, 1.0f);
 
             AC_State.gridVoltFeedForward = INV_GRID_FEED_FORWARD * gridVoltAdc / dcBusVoltAdc;
-            AC_State.modulation = Inverter_Clamp(AC_State.piOut+AC_State.gridVoltFeedForward,-1.0f,1.0f);
+            AC_State.modulate = Invert_Clamp(AC_State.piOut+AC_State.gridVoltFeedForward,-1.0f,1.0f);
         }
         else
         {
             /* Do not let an invalid denominator produce a PWM command. */
-            AC_State.currentErr = 0.0f;
-            AC_State.currentErrPrev = 0.0f;
+            AC_State.currErr = 0.0f;
+            AC_State.currErrPrev = 0.0f;
             AC_State.piOut = 0.0f;
             AC_State.gridVoltFeedForward = 0.0f;
-            AC_State.modulation = 0.0f;
+            AC_State.modulate = 0.0f;
         }
 
-        EPWM_SetInverterMode(AC_State.modulation);
+        EPWM_SetInvertMode(AC_State.modulate);
     }
     else
     {
-        AC_State.currentRef = 0.0f;
-        AC_State.currentErr = 0.0f;
-        AC_State.currentErrPrev = 0.0f;
+        AC_State.currRef = 0.0f;
+        AC_State.currErr = 0.0f;
+        AC_State.currErrPrev = 0.0f;
         AC_State.piOut = 0.0f;
         AC_State.gridVoltFeedForward = 0.0f;
-        AC_State.modulation = 0.0f;
+        AC_State.modulate = 0.0f;
     }
 
     return events;
