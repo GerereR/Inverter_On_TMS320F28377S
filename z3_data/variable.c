@@ -18,7 +18,7 @@ volatile SysData gSysData =
 };
 
 /* Defaults are named in constant.h so the active grid code has no magic values. */
-volatile GridSafetyParams gGridSafety =
+volatile GridSafetyParam gGridSafety =
 {
     .voltOverLV1 =   GRID_VOLT_OVER_LV1_V,
     .voltOverLV2 =   GRID_VOLT_OVER_LV2_V,
@@ -33,13 +33,13 @@ volatile GridSafetyParams gGridSafety =
     .reconnMinVolt =    GRID_RECONN_MIN_V,
     .reconnMaxFreq =    GRID_RECONN_MAX_FREQ_HZ,
     .reconnMinFreq =    GRID_RECONN_MIN_FREQ_HZ,
-    .faultFilterCnt1 = GRID_FAULT_FILTER_CNT_LV1,
-    .faultFilterCnt2 = GRID_FAULT_FILTER_CNT_LV2,
-    .backFilterCnt =  GRID_FAULT_BACK_FILTER_CNT
+    .faultFiltCnt1 = GRID_FAULT_FILT_CNT_LV1,
+    .faultFiltCnt2 = GRID_FAULT_FILT_CNT_LV2,
+    .backFiltCnt =  GRID_FAULT_BACK_FILT_CNT
 };
 
 //存放理论的偏置和增益
-volatile ADC_Calibrate gAdcCal =
+volatile AdcCal gAdcCal =
 {
     .gridVolt =      {ADC_BIPOLAR_ZERO, ADC_GRID_VOLT_GAIN},
     .inductCurr =  {ADC_BIPOLAR_ZERO, ADC_INDUCT_CURR_GAIN},
@@ -56,13 +56,13 @@ volatile ADC_Calibrate gAdcCal =
 };
 
 
-volatile AdcBiasCal   gAdcBiasCal = {0}; //存放零漂校准值
+volatile AdcDrift       gAdcDrift = {0}; //存放零漂校准值
 volatile GfciData       gGfciData = {0};
-volatile PLL_Data       GridPLL = {0};
+volatile PllData        gPllData = {0};
 volatile MachineData    gMachineData = {0};
 volatile MpptData       gMpptData = {0};
 volatile BusCtrlData    gBusCtrlData = {0};
 volatile InvCtrlData    gInvCtrlData = {0};
-volatile PowerLimData gPowerLimData = {0};
+volatile PowerLimData   gPowerLimData = {0};
 volatile ReactiveData   gReactiveData = {0};
-volatile GridGuardData gGridData = {0};
+volatile GridGuardData  gGridData = {0};

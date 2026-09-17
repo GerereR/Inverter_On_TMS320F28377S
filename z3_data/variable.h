@@ -3,10 +3,7 @@
 
 #include "constant.h"
 
-/*
- * Raw ADC values use signal names rather than ADC module/channel names.
- * This keeps the control and communication layers independent of pin routing.
- */
+//Uint16数据, 主要用来记录ADC码值数据
 typedef struct
 {
     Uint16 gridVolt;
@@ -25,7 +22,7 @@ typedef struct
     Uint16 boostTemp;
 } ADC_UintData;
 
-/* Converted values use volts, amperes and degrees Celsius. */
+//Float数据, 主要用来记录信号真实数据
 typedef struct
 {
     float gridVolt;
@@ -47,43 +44,44 @@ typedef struct
 /* Each linear channel owns an independently adjustable zero and gain. */
 typedef struct
 {
-    float Bias;
+    float bias;
     float gain;
-} ADC_CalParam;
+} AdcCalParam;
 
+//ADC各信号调理值
 typedef struct
 {
-    ADC_CalParam gridVolt;
-    ADC_CalParam inductCurr;
-    ADC_CalParam gfciCurr;
-    ADC_CalParam dcBusVolt;
-    ADC_CalParam gridDcCurr;
-    ADC_CalParam invertVolt;
-    ADC_CalParam pv1Curr;
-    ADC_CalParam pv2Curr;
-    ADC_CalParam pv1Volt;
-    ADC_CalParam pv2Volt;
-    ADC_CalParam pv1Insul;
-    ADC_CalParam pv2Insul;
-} ADC_Calibrate;
+    AdcCalParam gridVolt;
+    AdcCalParam inductCurr;
+    AdcCalParam gfciCurr;
+    AdcCalParam dcBusVolt;
+    AdcCalParam gridDcCurr;
+    AdcCalParam invertVolt;
+    AdcCalParam pv1Curr;
+    AdcCalParam pv2Curr;
+    AdcCalParam pv1Volt;
+    AdcCalParam pv2Volt;
+    AdcCalParam pv1Insul;
+    AdcCalParam pv2Insul;
+} AdcCal;
 
-/* 运行时 ADC 零漂值（码值，采样时减去）。 */
+//ADC交流信号零漂值
 typedef struct
 {
     float inductCurr;
     float gridVolt;
     float gfciCurr;
     float gridDcCurr;
-} AdcBiasValues;
+} AdcDriftParam;
 
-/* ADC 运行时零漂校准（开机/重连时采 32 组码值平均，补偿温度漂移）。 */
+//ADC 运行时零漂校准（开机/重连时采 32 组码值平均，补偿温度漂移）
 typedef struct
 {
-    AdcBiasValues Bias;   /* 运行时零漂 */
-    AdcBiasValues sum;      /* 校准累积器 */
+    AdcDriftParam drift;    /* 运行时零漂 */
+    AdcDriftParam sum;      /* 校准累积器 */
     Uint16 checkCnt;        /* 校准采样计数 */
-    Uint16 adInitial;         /* 校准标志：1=校准中 */
-} AdcBiasCal;
+    Uint16 adjInit;         /* 校准标志：1=校准中 */
+} AdcDrift;
 
 /* ADCA RESULT0 through RESULT5 form one complete 20 kHz fast frame. */
 typedef struct
@@ -133,14 +131,14 @@ typedef struct
     SysState state;
     Uint16 model;
     SysCheckStage checkStage;
-    Uint16 startRequest;
+    Uint16 startReq;
     Uint16 sourceReady;
     Uint16 gridReady;
     Uint16 busReady;
     Uint32 sourceStableMs;
     Uint32 gridStableMs;
     Uint16 reloadFlag;    /* 打嗝保护标志：快速层(ISR)置位，状态机恢复 */
-    Uint16 reloadCnt;   /* 打嗝恢复计数（NORMAL 态累加，>150 即 300ms 后恢复） */
+    Uint16 reloadCnt;   /* 打嗝恢复计数（NORMAL 态按状态任务周期累加） */
 } SysData;
 
 /* MPPT result consumed by the DC-control task. */
@@ -174,10 +172,13 @@ typedef struct
     float dcCurrComp;
 } InvCtrlData;
 
-/* Calculated power values consumed by power limiting and MPPT. */
+/* Cal power values consumed by power limiting and MPPT. */
 typedef struct
 {
     float gridActivePower;
+    float gridReactivePower;
+    float gridApparPower;
+    float gridPF;
     float pv1Power;
     float pv2Power;
 } PowerData;
@@ -210,6 +211,7 @@ typedef struct
  */
 typedef struct
 {
+    //测量任务心跳, 说明数据是否更新, 或者漏掉
     Uint32 measuSeq;
 
     ADC_FloatData realAvg;
@@ -248,10 +250,10 @@ typedef struct
     float reconnMaxFreq;       /* 重连频率上限(Hz) */
     float reconnMinFreq;       /* 重连频率下限(Hz) */
 
-    Uint16 faultFilterCnt1;  /* 一级判定计数 */
-    Uint16 faultFilterCnt2;  /* 二级判定计数 */
-    Uint16 backFilterCnt;    /* 恢复计数 */
-} GridSafetyParams;
+    Uint16 faultFiltCnt1;  /* 一级判定计数 */
+    Uint16 faultFiltCnt2;  /* 二级判定计数 */
+    Uint16 backFiltCnt;    /* 恢复计数 */
+} GridSafetyParam;
 
 /* GFCI 漏电保护状态（自检 + 运行保护差分跳变 + 多级反时限）。 */
 typedef struct
@@ -263,12 +265,12 @@ typedef struct
     Uint16 breakFlag;        /* 突变标志（原 ubBreakFlag） */
     Uint16 breakSwFlag;      /* 突变基准锁定（bit0=30mA档, bit1=60mA档） */
     Uint16 noBreakCnt;       /* 无突变计数（原 gfci_cnt） */
-    Uint16 filter30ma;       /* 30mA 档滤波 */
-    Uint16 filter60ma;       /* 60mA 档滤波 */
-    Uint16 filter300ma;      /* 300mA 档滤波 */
-    Uint16 deviceFilter1;    /* 自检静态检测滤波（原 gfci_fault_filter1） */
-    Uint16 deviceFilter2;    /* 自检注入检测滤波（原 gfci_fault_filter2） */
-    Uint16 backFilter;       /* 恢复滤波 */
+    Uint16 filt30ma;       /* 30mA 档滤波 */
+    Uint16 filt60ma;       /* 60mA 档滤波 */
+    Uint16 filt300ma;      /* 300mA 档滤波 */
+    Uint16 deviceFilt1;    /* 自检静态检测滤波（原 gfci_fault_filt1） */
+    Uint16 deviceFilt2;    /* 自检注入检测滤波（原 gfci_fault_filt2） */
+    Uint16 backFilt;       /* 恢复滤波 */
     Uint16 checkDelay;       /* 自检后保护静默期计数（原 wCheckGFCIDelay） */
     Uint16 selfTestIdx;    /* 自检计数（原 gfci_50ma_index） */
     Uint16 selfTestActive;   /* 自检进行中 */
@@ -300,21 +302,21 @@ typedef struct
     float sogiK;
     float detHist[3];
     float notchHist[3];
-} PLL_Data;
+} PllData;
 
-extern volatile MachineData gMachineData;
-extern volatile SysProblem gSysProblem;
-extern volatile SysData gSysData;
-extern volatile ADC_Calibrate gAdcCal;
-extern volatile AdcBiasCal gAdcBiasCal;
-extern volatile MpptData gMpptData;
-extern volatile BusCtrlData gBusCtrlData;
-extern volatile InvCtrlData gInvCtrlData;
-extern volatile PowerLimData gPowerLimData;
-extern volatile ReactiveData gReactiveData;
-extern volatile GridGuardData gGridData;
-extern volatile GridSafetyParams gGridSafety;
-extern volatile GfciData gGfciData;
-extern volatile PLL_Data GridPLL;
+extern volatile MachineData     gMachineData;
+extern volatile SysProblem      gSysProblem;
+extern volatile SysData         gSysData;
+extern volatile AdcCal          gAdcCal;
+extern volatile AdcDrift        gAdcDrift;
+extern volatile MpptData        gMpptData;
+extern volatile BusCtrlData     gBusCtrlData;
+extern volatile InvCtrlData     gInvCtrlData;
+extern volatile PowerLimData    gPowerLimData;
+extern volatile ReactiveData    gReactiveData;
+extern volatile GridGuardData   gGridData;
+extern volatile GridSafetyParam gGridSafety;
+extern volatile GfciData        gGfciData;
+extern volatile PllData         gPllData;
 
 #endif

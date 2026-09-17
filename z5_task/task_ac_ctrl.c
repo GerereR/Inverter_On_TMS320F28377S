@@ -17,7 +17,7 @@ static void CheckGridVoltAbnormal(float gridVoltAdc);
 //PLL宏定义
 #define SPLL_MAX_DEVIATION_HZ       5.0f
 
-#if 0 /* Candidate algorithm retained for later SRF/SOGI comparinsuln. */
+#if 0
 #define SRF_PLL_DEFAULT_KP          60.0f
 #define SRF_PLL_DEFAULT_KI          2000.0f
 #define SRF_PLL_DEFAULT_NOTCH_B0    1.3853181f
@@ -31,7 +31,7 @@ static void CheckGridVoltAbnormal(float gridVoltAdc);
 #define SOGI_PLL_DEFAULT_KI         4000.0f
 
 /* Temporary PLL lock thresholds for the curr bring-up stage. */
-#define PLL_INPUT_ABS_FILTER_COEFF       0.001f
+#define PLL_INPUT_ABS_FILT_COEFF       0.001f
 
 #define PLL_LOCK_INPUT_ABS_MIN           0.10f
 #define PLL_UNLOCK_INPUT_ABS_MIN         0.05f
@@ -75,7 +75,7 @@ typedef struct
 static volatile AC_CtrlState AC_State = {0};
 
 #if 0 /* Candidate algorithm retained for later SRF/SOGI comparinsuln. */
-static void SRF_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleFreqHz)
+static void SRF_PLL_Init(volatile PllData *pll, float nomFreqHz, float sampleFreqHz)
 {
     Uint16 idx;
 
@@ -109,7 +109,7 @@ static void SRF_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleFr
     }
 }
 
-static void SRF_PLL_Run(volatile PLL_Data *pll, float input)
+static void SRF_PLL_Run(volatile PllData *pll, float input)
 {
     float omega;
     float maxCorrection;
@@ -171,7 +171,7 @@ static void SRF_PLL_Run(volatile PLL_Data *pll, float input)
 }
 #endif
 
-static void SOGI_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleFreqHz)
+static void SOGI_PLL_Init(volatile PllData *pll, float nomFreqHz, float sampleFreqHz)
 {
     pll->input = 0.0f;
     pll->phase = 0.0f;
@@ -191,7 +191,7 @@ static void SOGI_PLL_Init(volatile PLL_Data *pll, float nomFreqHz, float sampleF
     pll->sogiK = 1.41421356f;
 }
 
-static void SOGI_PLL_Run(volatile PLL_Data *pll, float input)
+static void SOGI_PLL_Run(volatile PllData *pll, float input)
 {
     float omega;
     float error;
@@ -269,7 +269,7 @@ static Uint16 DetectGridPeak(void)
         return FAST_EVENT_NONE;
     }
 
-    phase = GridPLL.phase;
+    phase = gPllData.phase;
     if(phasePrimed == 0U)
     {
         phasePrev = phase;
@@ -300,7 +300,7 @@ static void UpdatePllLock(float pllInput)
 {
     float inputAbs;
     float phaseErrorAbs;
-    static float inputAbsFiltered = 0.0f;
+    static float inputAbsFilted = 0.0f;
     static Uint16 lockCnter = 0U;
     static Uint16 unlockCnter = 0U;
     Uint16 lockCondition;
@@ -309,20 +309,20 @@ static void UpdatePllLock(float pllInput)
     inputAbs = (pllInput >= 0.0f) ? pllInput : -pllInput;
 
     /* SOGI-PLL stores its q-axis phase error in phaseDet. */
-    phaseErrorAbs = (GridPLL.phaseDet >= 0.0f) ? GridPLL.phaseDet : -GridPLL.phaseDet;
-    inputAbsFiltered += PLL_INPUT_ABS_FILTER_COEFF * (inputAbs - inputAbsFiltered);
+    phaseErrorAbs = (gPllData.phaseDet >= 0.0f) ? gPllData.phaseDet : -gPllData.phaseDet;
+    inputAbsFilted += PLL_INPUT_ABS_FILT_COEFF * (inputAbs - inputAbsFilted);
 
     lockCondition =
-        (inputAbsFiltered >= PLL_LOCK_INPUT_ABS_MIN) &&
+        (inputAbsFilted >= PLL_LOCK_INPUT_ABS_MIN) &&
         (phaseErrorAbs <= PLL_LOCK_PHASE_ERROR_MAX) &&
-        (GridPLL.freqHz > (GridPLL.minFreqHz + PLL_LOCK_FREQ_MARGIN_HZ)) &&
-        (GridPLL.freqHz < (GridPLL.maxFreqHz - PLL_LOCK_FREQ_MARGIN_HZ));
+        (gPllData.freqHz > (gPllData.minFreqHz + PLL_LOCK_FREQ_MARGIN_HZ)) &&
+        (gPllData.freqHz < (gPllData.maxFreqHz - PLL_LOCK_FREQ_MARGIN_HZ));
 
     unlockCondition =
-        (inputAbsFiltered < PLL_UNLOCK_INPUT_ABS_MIN) ||
+        (inputAbsFilted < PLL_UNLOCK_INPUT_ABS_MIN) ||
         (phaseErrorAbs > PLL_UNLOCK_PHASE_ERROR_MAX) ||
-        (GridPLL.freqHz <= (GridPLL.minFreqHz + PLL_UNLOCK_FREQ_MARGIN_HZ)) ||
-        (GridPLL.freqHz >= (GridPLL.maxFreqHz - PLL_UNLOCK_FREQ_MARGIN_HZ));
+        (gPllData.freqHz <= (gPllData.minFreqHz + PLL_UNLOCK_FREQ_MARGIN_HZ)) ||
+        (gPllData.freqHz >= (gPllData.maxFreqHz - PLL_UNLOCK_FREQ_MARGIN_HZ));
 
     if((gSysProblem.recovFault & RECOV_PLL_FAULT) != 0UL)
     {
@@ -403,7 +403,7 @@ void CheckGridPresence(Uint16 gridVoltRaw)
     static float windowPeakVolt = 0.0f;
     float gridVolt;
 
-    gridVolt = ((float)gridVoltRaw - gAdcCal.gridVolt.Bias) * gAdcCal.gridVolt.gain;
+    gridVolt = ((float)gridVoltRaw - gAdcCal.gridVolt.bias) * gAdcCal.gridVolt.gain;
     if(gridVolt < 0.0f)
     {
         gridVolt = -gridVolt;
@@ -474,7 +474,7 @@ static void CheckGridVoltAbnormal(float gridVoltAdc)
 void AC_Ctrl_Init(void)
 {
     /* PLL 初始化收进电流环假任务，main 不再直接接触 PLL。 */
-    SOGI_PLL_Init(&GridPLL, 50.0f, 20000.0f);
+    SOGI_PLL_Init(&gPllData, 50.0f, 20000.0f);
 
     AC_State.enabled = 0U;
     /* Until the power-limit manager is active, allow the full normalized
@@ -503,9 +503,9 @@ Uint16 Task_AC_Ctrl(const AC_CtrlRawInput *input)
 
     /* 读取当前 ADC 帧并去除零漂（原 ISR 中的采样逻辑收进任务）。 */
     gridVoltRaw = input->gridVolt;
-    inductCurrAdc = (float)input->inductCurr - gAdcCal.inductCurr.Bias - gAdcBiasCal.Bias.inductCurr;
-    gridVoltAdc = (float)gridVoltRaw - gAdcCal.gridVolt.Bias - gAdcBiasCal.Bias.gridVolt;
-    dcBusVoltAdc = (float)input->dcBusVolt - gAdcCal.dcBusVolt.Bias;//其实是否用BUS瞬时值,有待商榷,因为这样的话BUS瞬变会导致电流环不稳定
+    inductCurrAdc = (float)input->inductCurr - gAdcCal.inductCurr.bias - gAdcDrift.drift.inductCurr;
+    gridVoltAdc = (float)gridVoltRaw - gAdcCal.gridVolt.bias - gAdcDrift.drift.gridVolt;
+    dcBusVoltAdc = (float)input->dcBusVolt - gAdcCal.dcBusVolt.bias;//其实是否用BUS瞬时值,有待商榷,因为这样的话BUS瞬变会导致电流环不稳定
 
     /* 快速电网存在性检测（快速掉网指示）。 */
     CheckGridPresence(gridVoltRaw);
@@ -516,10 +516,10 @@ Uint16 Task_AC_Ctrl(const AC_CtrlRawInput *input)
     /* SOGI input is normalized to the cent 12-bit ADC half-range. */
     gridVoltUnif = gridVoltAdc / ADC_BIPOLAR_ZERO;
 
-    SOGI_PLL_Run(&GridPLL, gridVoltUnif);
+    SOGI_PLL_Run(&gPllData, gridVoltUnif);
     UpdatePllLock(gridVoltUnif);
 
-    gMachineData.pllFreqCent = (Uint16)(GridPLL.freqHz * 100.0f);
+    gMachineData.pllFreqCent = (Uint16)(gPllData.freqHz * 100.0f);
     events = DetectGridPeak();
 
     /* Feedback remains in cent ADC-code units to match the legacy loop. */
@@ -528,7 +528,7 @@ Uint16 Task_AC_Ctrl(const AC_CtrlRawInput *input)
     /* 打嗝保护期间不输出电流环。 */
     if((AC_State.enabled != 0U) && (gSysData.reloadFlag == 0U))
     {
-        currPhase = GridPLL.phase;
+        currPhase = gPllData.phase;
         while(currPhase >= MATH_TWO_PI_F)
         {
             currPhase -= MATH_TWO_PI_F;

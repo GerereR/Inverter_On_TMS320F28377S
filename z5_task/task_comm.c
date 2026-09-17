@@ -3,113 +3,84 @@
 #include "task.h"
 #include "bsp.h"
 #include "variable.h"
-#include "task.h"
 
-/*
- * SCI communication uses a compact binary frame so that the protocol is
- * independent of the physical SCI pins and easy to port to another MCU.
- *
- * Frame format:
- *   0xAA 0x55 CMD SEQ LEN_L LEN_H PAYLOAD CRC_L CRC_H
- *
- * The CRC16 covers CMD, SEQ, LEN_L, LEN_H, and every payload byte.
- */
-#define SCI_FRAME_SOF1             0xAAU//帧头
-#define SCI_FRAME_SOF2             0x55U
+/* Frame: AA 55 CMD SEQ LEN_L LEN_H PAYLOAD CRC_L CRC_H.
+ * CRC-16/MODBUS covers CMD through the final payload byte. */
+#define SCI_FRAME_SOF1                  0xAAU
+#define SCI_FRAME_SOF2                  0x55U
+#define SCI_FRAME_MAX_PAYLOAD           64U
+#define SCI_FRAME_OVERHEAD              8U
+#define SCI_TASK_MAX_RX_BYTES           512U
 
-#define SCI_FRAME_MAX_PAYLOAD      64U//最大响应Payload为64字节
-#define SCI_FRAME_OVERHEAD         8U
-#define SCI_TASK_MAX_RX_BYTES      512U//通讯任务处理字节上限
+/* Read-only protocol commands. MachineData is split to stay below 64 bytes. */
+#define SCI_CMD_READ_MACHINE_AVG        0x02U
+#define SCI_CMD_READ_SYS_PROBLEM        0x04U
+#define SCI_CMD_READ_MACHINE_RMS        0x05U
+#define SCI_CMD_READ_MACHINE_POWER      0x07U
+#define SCI_CMD_READ_SYSTEM_STATE       0x08U
+#define SCI_CMD_READ_VERSION            0x30U
 
-/* Commands sent by the host computer. */
-//命令宏
-#define SCI_CMD_READ_REAL          0x02U
-#define SCI_CMD_READ_PLL_STATUS    0x03U
-#define SCI_CMD_READ_FAULT_STATUS  0x04U
-#define SCI_CMD_READ_RMS                0x05U
-#define SCI_CMD_READ_CONTROL_STATUS     0x06U
-#define SCI_CMD_SET_INDUCT_CUR_AMP       0x10U
-#define SCI_CMD_CLEAR_FAULT        0x20U
-#define SCI_CMD_READ_VERSION       0x30U
+#define SCI_STATUS_OK                   0x00U
+#define SCI_STATUS_BAD_LENG             0x01U
+#define SCI_STATUS_BAD_CMD              0x02U
 
-/* Response status values placed at payload[0]. */
-//状态宏
-#define SCI_STATUS_OK              0x00U
-#define SCI_STATUS_BAD_LENGTH      0x01U
-#define SCI_STATUS_BAD_COMMAND     0x02U
-#define SCI_STATUS_BAD_PARAM   0x03U
-
-//数据帧接收窗口
 typedef enum
 {
     SCI_PARSE_WAIT_SOF1 = 0U,
     SCI_PARSE_WAIT_SOF2,
-    SCI_PARSE_COMMAND,
-    SCI_PARSE_SEQUENCE,
-    SCI_PARSE_LENGTH_LOW,
-    SCI_PARSE_LENGTH_HIGH,
+    SCI_PARSE_CMD,
+    SCI_PARSE_SEQ,
+    SCI_PARSE_LENG_LOW,
+    SCI_PARSE_LENG_HIGH,
     SCI_PARSE_PAYLOAD,
     SCI_PARSE_CRC_LOW,
     SCI_PARSE_CRC_HIGH
 } SCI_ParseState;
 
 static SCI_ParseState SCI_ParseStateCurr = SCI_PARSE_WAIT_SOF1;
-static Uint16 SCI_ReceivedCommand = 0U;
-static Uint16 SCI_ReceivedSequence = 0U;
-static Uint16 SCI_ReceivedLength = 0U;
-static Uint16 SCI_ReceivedPayload[SCI_FRAME_MAX_PAYLOAD];
+static Uint16 SCI_RecevCmd = 0U;
+static Uint16 SCI_RecevSeq = 0U;
+static Uint16 SCI_RecevLeng = 0U;
+static Uint16 SCI_RecevPayloadIdx = 0U;
+static Uint16 SCI_RecevCrc = 0U;
+static Uint16 SCI_CalCrc = 0xFFFFU;
 static Uint16 SCI_TxFrame[SCI_FRAME_MAX_PAYLOAD + SCI_FRAME_OVERHEAD];
-static Uint16 SCI_ReceivedPayloadIdx = 0U;
-static Uint16 SCI_ReceivedCrc = 0U;
-static Uint16 SCI_CalculatedCrc = 0xFFFFU;
 
-/* Protocol diagnostics are owned by this task and remain visible to CCS. */
-static volatile Uint32 SCI_ProtocolCrcErrorCnt = 0UL;
-static volatile Uint32 SCI_ProtocolFormatErrorCnt = 0UL;
-static volatile Uint32 SCI_ProtocolFrameCnt = 0UL;
+static volatile Uint32 SCI_ProtocCrcErrorCnt = 0UL;
+static volatile Uint32 SCI_ProtocFormatErrorCnt = 0UL;
+static volatile Uint32 SCI_ProtocFrameCnt = 0UL;
 
-/* Forward declarations keep the public task entry points near the top. */
-static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data);//使用一个新字节更新 CRC16 校验值。
-static void SCI_PutWordLE(Uint16 *payload, Uint16 *idx, Uint16 value);//把一个 16 位数据按小端格式写入响应数据数组，并自动移动数组下标。
-static void SCI_PutFloatLE(Uint16 *payload, Uint16 *idx, float value);
-
-//组装并发送完整协议响应帧，包括：
-static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payload, Uint16 payloadLength);
+static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data);
+static void SCI_PutWordLE(Uint16 *payload, Uint16 *idx, Uint16 value);
 static void SCI_PutDwordLE(Uint16 *payload, Uint16 *idx, Uint32 value);
-
-static void SCI_HandleCommand(void);//处理一帧已经完成 CRC 校验的命令，根据命令号执行相应操作并发送响应。
-static void SCI_ResetParser(void);//复位协议解析器
-static void SCI_ParseByte(Uint16 receivedByte);//协议状态机的核心函数
+static void SCI_PutFloatLE(Uint16 *payload, Uint16 *idx, float value);
+static void SCI_SendRespon(Uint16 command, Uint16 sequence,
+                             const Uint16 *payload, Uint16 payloadLeng);
+static void SCI_HandleCmd(void);
+static void SCI_ResetParser(void);
+static void SCI_ParseByte(Uint16 recevByte);
 
 void Task_Comm_Init(void)
 {
     SCI_ResetParser();
-    SCI_ProtocolCrcErrorCnt = 0UL;
-    SCI_ProtocolFormatErrorCnt = 0UL;
-    SCI_ProtocolFrameCnt = 0UL;
+    SCI_ProtocCrcErrorCnt = 0UL;
+    SCI_ProtocFormatErrorCnt = 0UL;
+    SCI_ProtocFrameCnt = 0UL;
 }
 
 void Task_Comm(void)
 {
-    Uint16 receivedByte;
-    Uint16 processedBytes = 0U;
+    Uint16 recevByte;
+    Uint16 doneBytes = 0U;
 
-    /* The RX ISR buffers bytes; protocol work runs at the slow task rate. */
-    if(SCI_HasRxData() == 0U)//检查是否有数据
+    while((doneBytes < SCI_TASK_MAX_RX_BYTES) &&
+          (SCI_ReadByte(&recevByte) != 0U))
     {
-        return;
-    }
-
-    /* Bound the work per scheduler tick so communication cannot starve control. */
-    //本次处理量没有超过限制值,且成功从软件环形缓冲区读出一个字节(多少不重要)
-    while((processedBytes < SCI_TASK_MAX_RX_BYTES) && SCI_ReadByte(&receivedByte) != 0U)
-    {
-        SCI_ParseByte(receivedByte);//分析每一个八位数据(解析)
-        processedBytes++;
+        SCI_ParseByte(recevByte);
+        doneBytes++;
     }
 }
 
-//计算 CRC, CRC-16/MODBUS 算法
 static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data)
 {
     Uint16 bitIdx;
@@ -117,85 +88,62 @@ static Uint16 SCI_Crc16Update(Uint16 crc, Uint16 data)
     crc ^= data & 0x00FFU;
     for(bitIdx = 0U; bitIdx < 8U; bitIdx++)
     {
-        if((crc & 0x0001U) != 0U)
-        {
-            crc = (crc >> 1U) ^ 0xA001U;
-        }
-        else
-        {
-            crc >>= 1U;
-        }
+        crc = ((crc & 0x0001U) != 0U) ?
+              (Uint16)((crc >> 1U) ^ 0xA001U) : (Uint16)(crc >> 1U);
     }
     return crc;
 }
 
-//因为SCI是八位的,为得把16位数据拆开
 static void SCI_PutWordLE(Uint16 *payload, Uint16 *idx, Uint16 value)
 {
-    payload[*idx] = value & 0x00FFU;
-    (*idx)++;
-    payload[*idx] = (value >> 8U) & 0x00FFU;
-    (*idx)++;
+    payload[(*idx)++] = value & 0x00FFU;
+    payload[(*idx)++] = (value >> 8U) & 0x00FFU;
 }
 
-/* Serialize an IEEE-754 float as four little-endian payload bytes. */
+static void SCI_PutDwordLE(Uint16 *payload, Uint16 *idx, Uint32 value)
+{
+    payload[(*idx)++] = (Uint16)(value & 0x000000FFUL);
+    payload[(*idx)++] = (Uint16)((value >> 8U) & 0x000000FFUL);
+    payload[(*idx)++] = (Uint16)((value >> 16U) & 0x000000FFUL);
+    payload[(*idx)++] = (Uint16)((value >> 24U) & 0x000000FFUL);
+}
+
 static void SCI_PutFloatLE(Uint16 *payload, Uint16 *idx, float value)
 {
     union
     {
         float floatValue;
-        Uint32 integerValue;
+        Uint32 uintValue;
     } bits;
 
     bits.floatValue = value;
-    payload[*idx] = (Uint16)(bits.integerValue & 0x000000FFUL);
-    (*idx)++;
-    payload[*idx] = (Uint16)((bits.integerValue >> 8U) & 0x000000FFUL);
-    (*idx)++;
-    payload[*idx] = (Uint16)((bits.integerValue >> 16U) & 0x000000FFUL);
-    (*idx)++;
-    payload[*idx] = (Uint16)((bits.integerValue >> 24U) & 0x000000FFUL);
-    (*idx)++;
+    SCI_PutDwordLE(payload, idx, bits.uintValue);
 }
 
-//把执行结果重新组装成带帧头、命令、序号、长度和 CRC16 的响应帧发送给上位机
-static void SCI_PutDwordLE(Uint16 *payload, Uint16 *idx, Uint32 value)
-{
-    payload[*idx] = (Uint16)(value & 0x000000FFUL);
-    (*idx)++;
-    payload[*idx] = (Uint16)((value >> 8U) & 0x000000FFUL);
-    (*idx)++;
-    payload[*idx] = (Uint16)((value >> 16U) & 0x000000FFUL);
-    (*idx)++;
-    payload[*idx] = (Uint16)((value >> 24U) & 0x000000FFUL);
-    (*idx)++;
-}
-
-static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payload, Uint16 payloadLength)
+static void SCI_SendRespon(Uint16 cmd, Uint16 seq, const Uint16 *payload, Uint16 payloadLeng)
 {
     Uint16 idx;
     Uint16 frameIdx = 0U;
     Uint16 crc = 0xFFFFU;
-    Uint16 responseCommand = command | 0x0080U;
+    Uint16 responCmd = cmd | 0x0080U;
 
-    if(payloadLength > SCI_FRAME_MAX_PAYLOAD)
+    if(payloadLeng > SCI_FRAME_MAX_PAYLOAD)
     {
-        payloadLength = 1U;
+        return;
     }
 
     SCI_TxFrame[frameIdx++] = SCI_FRAME_SOF1;
     SCI_TxFrame[frameIdx++] = SCI_FRAME_SOF2;
+    SCI_TxFrame[frameIdx++] = responCmd;
+    crc = SCI_Crc16Update(crc, responCmd);
+    SCI_TxFrame[frameIdx++] = seq;
+    crc = SCI_Crc16Update(crc, seq);
+    SCI_TxFrame[frameIdx++] = payloadLeng & 0x00FFU;
+    crc = SCI_Crc16Update(crc, payloadLeng & 0x00FFU);
+    SCI_TxFrame[frameIdx++] = (payloadLeng >> 8U) & 0x00FFU;
+    crc = SCI_Crc16Update(crc, (payloadLeng >> 8U) & 0x00FFU);
 
-    SCI_TxFrame[frameIdx++] = responseCommand;
-    crc = SCI_Crc16Update(crc, responseCommand);
-    SCI_TxFrame[frameIdx++] = sequence;
-    crc = SCI_Crc16Update(crc, sequence);
-    SCI_TxFrame[frameIdx++] = payloadLength & 0x00FFU;
-    crc = SCI_Crc16Update(crc, payloadLength & 0x00FFU);
-    SCI_TxFrame[frameIdx++] = (payloadLength >> 8U) & 0x00FFU;
-    crc = SCI_Crc16Update(crc, (payloadLength >> 8U) & 0x00FFU);
-
-    for(idx = 0U; idx < payloadLength; idx++)
+    for(idx = 0U; idx < payloadLeng; idx++)
     {
         SCI_TxFrame[frameIdx++] = payload[idx];
         crc = SCI_Crc16Update(crc, payload[idx]);
@@ -206,265 +154,209 @@ static void SCI_SendResponse(Uint16 command, Uint16 sequence, const Uint16 *payl
     (void)SCI_TrySend(SCI_TxFrame, frameIdx);
 }
 
-//执行上位机的命令
-static void SCI_HandleCommand(void)
+static void SCI_HandleCmd(void)
 {
-    Uint16 responsePayload[SCI_FRAME_MAX_PAYLOAD];
-    Uint16 responseLength = 1U;
-    Uint16 requestedAmp;
-    Uint16 responseIdx;
+    Uint16 respon[SCI_FRAME_MAX_PAYLOAD];
+    Uint16 responLeng = 1U;
+    Uint16 idx;
 
-    responsePayload[0] = SCI_STATUS_OK;
-
-    switch(SCI_ReceivedCommand)
+    respon[0] = SCI_STATUS_OK;
+    if(SCI_RecevLeng != 0U)
     {
-        case SCI_CMD_READ_REAL:
-            /* Return calibrated average values, frequencies and reference. */
-            responseIdx = 1U;
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.gridVolt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.inductCurr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.gfciCurr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.dcBusVolt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.gridDcCurr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.invertVolt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.pv1Curr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.pv2Curr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.pv1Volt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.pv2Volt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.pv1Insul);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.pv2Insul);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.invertTemp);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realAvg.boostTemp);
-            SCI_PutWordLE(responsePayload, &responseIdx, gMachineData.ecapFreqCent);
-            SCI_PutWordLE(responsePayload, &responseIdx, gMachineData.pllFreqCent);
-            SCI_PutWordLE(responsePayload, &responseIdx,
-                          (Uint16)(gBusCtrlData.currAmpRef * 4096.0f));
-            responseLength = responseIdx;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
+        respon[0] = SCI_STATUS_BAD_LENG;
+        SCI_SendRespon(SCI_RecevCmd, SCI_RecevSeq,
+                         respon, responLeng);
+        return;
+    }
+
+    idx = 1U;
+    switch(SCI_RecevCmd)
+    {
+        case SCI_CMD_READ_MACHINE_AVG:
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.gridVolt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.inductCurr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.gfciCurr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.dcBusVolt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.gridDcCurr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.invertVolt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.pv1Curr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.pv2Curr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.pv1Volt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.pv2Volt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.pv1Insul);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.pv2Insul);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.invertTemp);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realAvg.boostTemp);
+            responLeng = idx;
             break;
 
-        case SCI_CMD_READ_RMS:
-            /* Return calibrated RMS values for all linear ADC channels. */
-            responseIdx = 1U;
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.gridVolt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.inductCurr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.gfciCurr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.dcBusVolt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.gridDcCurr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.invertVolt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.pv1Curr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.pv2Curr);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.pv1Volt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.pv2Volt);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.pv1Insul);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gMachineData.realRms.pv2Insul);
-            responseLength = responseIdx;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
+        case SCI_CMD_READ_MACHINE_RMS:
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.gridVolt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.inductCurr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.gfciCurr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.dcBusVolt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.gridDcCurr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.invertVolt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.pv1Curr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.pv2Curr);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.pv1Volt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.pv2Volt);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.pv1Insul);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.pv2Insul);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.invertTemp);
+            SCI_PutFloatLE(respon, &idx, gMachineData.realRms.boostTemp);
+            responLeng = idx;
             break;
 
-        case SCI_CMD_READ_PLL_STATUS:
-            responseIdx = 1U;
-            SCI_PutWordLE(responsePayload, &responseIdx, gMachineData.ecapFreqCent);
-            SCI_PutWordLE(responsePayload, &responseIdx, gMachineData.pllFreqCent);
-            responsePayload[responseIdx] =
-                ((gSysProblem.recovFault & RECOV_PLL_FAULT) == 0UL) ? 1U : 0U;
-            responseIdx++;
-            responseLength = responseIdx;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
+        case SCI_CMD_READ_MACHINE_POWER:
+            SCI_PutFloatLE(respon, &idx, gMachineData.powerData.gridActivePower);
+            SCI_PutFloatLE(respon, &idx, gMachineData.powerData.gridReactivePower);
+            SCI_PutFloatLE(respon, &idx, gMachineData.powerData.gridApparPower);
+            SCI_PutFloatLE(respon, &idx, gMachineData.powerData.gridPF);
+            SCI_PutFloatLE(respon, &idx, gMachineData.powerData.pv1Power);
+            SCI_PutFloatLE(respon, &idx, gMachineData.powerData.pv2Power);
+            SCI_PutWordLE(respon, &idx, gMachineData.ecapFreqCent);
+            SCI_PutWordLE(respon, &idx, gMachineData.pllFreqCent);
+            SCI_PutDwordLE(respon, &idx, gMachineData.measuSeq);
+            responLeng = idx;
             break;
 
-        case SCI_CMD_READ_CONTROL_STATUS:
-            /* One snapshot for control commands, loop diagnostics and state. */
-            responseIdx = 1U;
-            SCI_PutFloatLE(responsePayload, &responseIdx, gBusCtrlData.stableVoltRef);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gBusCtrlData.currAmpRef);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gBusCtrlData.boost1Duty);
-            SCI_PutFloatLE(responsePayload, &responseIdx, gBusCtrlData.boost2Duty);
-            SCI_PutWordLE(responsePayload, &responseIdx, (Uint16)gSysData.state);
-            SCI_PutWordLE(responsePayload, &responseIdx, gMpptData.inputMode);
-            SCI_PutWordLE(responsePayload, &responseIdx,
-                          ((gSysProblem.recovFault & RECOV_PLL_FAULT) == 0UL) ? 1U : 0U);
-            SCI_PutWordLE(responsePayload, &responseIdx,
-                          (gSysProblem.recovFault & RECOV_TZ_FAULT) != 0UL);
-            SCI_PutDwordLE(responsePayload, &responseIdx, gSysProblem.recovFault);
-            SCI_PutDwordLE(responsePayload, &responseIdx, gSysProblem.permaFault);
-            SCI_PutDwordLE(responsePayload, &responseIdx, gMachineData.measuSeq);
-            responseLength = responseIdx;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
+        case SCI_CMD_READ_SYS_PROBLEM:
+            SCI_PutDwordLE(respon, &idx, gSysProblem.warning);
+            SCI_PutDwordLE(respon, &idx, gSysProblem.recovFault);
+            SCI_PutDwordLE(respon, &idx, gSysProblem.permaFault);
+            responLeng = idx;
             break;
 
-        case SCI_CMD_READ_FAULT_STATUS:
-            responseLength = 2U;
-            responsePayload[1] = (gSysProblem.recovFault & RECOV_TZ_FAULT) != 0UL;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
-            break;
-
-        case SCI_CMD_SET_INDUCT_CUR_AMP:
-            if(SCI_ReceivedLength != 2U)
-            {
-                responsePayload[0] = SCI_STATUS_BAD_LENGTH;
-            }
-            else
-            {
-                requestedAmp = SCI_ReceivedPayload[0] |
-                               (SCI_ReceivedPayload[1] << 8U);
-                if(requestedAmp > 4096U)
-                {
-                    responsePayload[0] = SCI_STATUS_BAD_PARAM;
-                }
-                else
-                {
-                    /* Q12: 4096 represents a normalized amplitude of 1.0.
-                     * 手动电流上限：写 currAmpMax，由 Task_Power 最终判断执行。 */
-                    gPowerLimData.currAmpMax = (float)requestedAmp / 4096.0f;
-                    responsePayload[1] = requestedAmp & 0x00FFU;
-                    responsePayload[2] = (requestedAmp >> 8U) & 0x00FFU;
-                    responseLength = 3U;
-                }
-            }
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
-            break;
-
-        case SCI_CMD_CLEAR_FAULT:
-            if(SCI_ReceivedLength != 0U)
-            {
-                responsePayload[0] = SCI_STATUS_BAD_LENGTH;
-            }
-            else
-            {
-                EPWM_TripZoneClear();
-            }
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
+        case SCI_CMD_READ_SYSTEM_STATE:
+            SCI_PutWordLE(respon, &idx, (Uint16)gSysData.state);
+            SCI_PutWordLE(respon, &idx, (Uint16)gSysData.checkStage);
+            SCI_PutWordLE(respon, &idx, gSysData.startReq);
+            SCI_PutWordLE(respon, &idx, gSysData.sourceReady);
+            SCI_PutWordLE(respon, &idx, gSysData.gridReady);
+            SCI_PutWordLE(respon, &idx, gSysData.busReady);
+            SCI_PutWordLE(respon, &idx, gSysData.reloadFlag);
+            SCI_PutWordLE(respon, &idx, gSysData.reloadCnt);
+            responLeng = idx;
             break;
 
         case SCI_CMD_READ_VERSION:
-            responseLength = 3U;
-            responsePayload[1] = 2U; /* Protocol major version. */
-            responsePayload[2] = 0U; /* Protocol minor version. */
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence,
-                             responsePayload, responseLength);
+            respon[idx++] = 3U;
+            respon[idx++] = 0U;
+            responLeng = idx;
             break;
 
         default:
-            responsePayload[0] = SCI_STATUS_BAD_COMMAND;
-            SCI_SendResponse(SCI_ReceivedCommand, SCI_ReceivedSequence, responsePayload, responseLength);
+            respon[0] = SCI_STATUS_BAD_CMD;
             break;
     }
+
+    SCI_SendRespon(SCI_RecevCmd, SCI_RecevSeq, respon, responLeng);
 }
 
 static void SCI_ResetParser(void)
 {
     SCI_ParseStateCurr = SCI_PARSE_WAIT_SOF1;
-    SCI_ReceivedCommand = 0U;
-    SCI_ReceivedSequence = 0U;
-    SCI_ReceivedLength = 0U;
-    SCI_ReceivedPayloadIdx = 0U;
-    SCI_ReceivedCrc = 0U;
-    SCI_CalculatedCrc = 0xFFFFU;
+    SCI_RecevCmd = 0U;
+    SCI_RecevSeq = 0U;
+    SCI_RecevLeng = 0U;
+    SCI_RecevPayloadIdx = 0U;
+    SCI_RecevCrc = 0U;
+    SCI_CalCrc = 0xFFFFU;
 }
 
-//使用状态机依次识别 AA 55 命令 序号 长度 数据 CRC16,也就是数据帧接收
-static void SCI_ParseByte(Uint16 receivedByte)
+static void SCI_ParseByte(Uint16 recevByte)
 {
-    receivedByte &= 0x00FFU;
+    recevByte &= 0x00FFU;
 
-    //其实这里是滑动的窗口
     switch(SCI_ParseStateCurr)
     {
-
-        //其实0xAA55就是1010 1010 0101 0101
-        case SCI_PARSE_WAIT_SOF1://窗口滑动到帧头1
-            if(receivedByte == SCI_FRAME_SOF1)
+        case SCI_PARSE_WAIT_SOF1:
+            if(recevByte == SCI_FRAME_SOF1)
             {
-                SCI_ParseStateCurr = SCI_PARSE_WAIT_SOF2;//滑动窗口到帧头2
+                SCI_ParseStateCurr = SCI_PARSE_WAIT_SOF2;
             }
             break;
 
-        case SCI_PARSE_WAIT_SOF2://..
-            if(receivedByte == SCI_FRAME_SOF2)
+        case SCI_PARSE_WAIT_SOF2:
+            if(recevByte == SCI_FRAME_SOF2)
             {
-                SCI_ParseStateCurr = SCI_PARSE_COMMAND;//继续滑动...
-                SCI_CalculatedCrc = 0xFFFFU;
+                SCI_CalCrc = 0xFFFFU;
+                SCI_ParseStateCurr = SCI_PARSE_CMD;
             }
-            else if(receivedByte != SCI_FRAME_SOF1)//如果已经是在帧头2了,但还是持续接收到帧头1,没关系,说明上位机多次尝试通讯,可以忍受
+            else if(recevByte != SCI_FRAME_SOF1)
             {
-                
-                SCI_ResetParser();//如果已经是在帧头2了,接下来即收不到帧头1,也收不到帧头2,那就说明是偶发的
-            }
-            break;
-
-        case SCI_PARSE_COMMAND:
-            SCI_ReceivedCommand = receivedByte;//保存
-            SCI_CalculatedCrc = SCI_Crc16Update(SCI_CalculatedCrc, receivedByte);//校验计算
-            SCI_ParseStateCurr = SCI_PARSE_SEQUENCE;//滑动
-            break;
-
-        case SCI_PARSE_SEQUENCE:
-            SCI_ReceivedSequence = receivedByte;
-            SCI_CalculatedCrc = SCI_Crc16Update(SCI_CalculatedCrc, receivedByte);
-            SCI_ParseStateCurr = SCI_PARSE_LENGTH_LOW;
-            break;
-
-        case SCI_PARSE_LENGTH_LOW:
-            SCI_ReceivedLength = receivedByte;
-            SCI_CalculatedCrc = SCI_Crc16Update(SCI_CalculatedCrc, receivedByte);
-            SCI_ParseStateCurr = SCI_PARSE_LENGTH_HIGH;
-            break;
-
-        case SCI_PARSE_LENGTH_HIGH:
-            SCI_ReceivedLength |= receivedByte << 8U;
-            SCI_CalculatedCrc = SCI_Crc16Update(SCI_CalculatedCrc, receivedByte);
-            if(SCI_ReceivedLength > SCI_FRAME_MAX_PAYLOAD)
-            {
-                SCI_ProtocolFormatErrorCnt++;
                 SCI_ResetParser();
             }
-            else if(SCI_ReceivedLength == 0U)//如果长度为零，就跳过 PAYLOAD，直接接收 CRC
+            break;
+
+        case SCI_PARSE_CMD:
+            SCI_RecevCmd = recevByte;
+            SCI_CalCrc = SCI_Crc16Update(SCI_CalCrc, recevByte);
+            SCI_ParseStateCurr = SCI_PARSE_SEQ;
+            break;
+
+        case SCI_PARSE_SEQ:
+            SCI_RecevSeq = recevByte;
+            SCI_CalCrc = SCI_Crc16Update(SCI_CalCrc, recevByte);
+            SCI_ParseStateCurr = SCI_PARSE_LENG_LOW;
+            break;
+
+        case SCI_PARSE_LENG_LOW:
+            SCI_RecevLeng = recevByte;
+            SCI_CalCrc = SCI_Crc16Update(SCI_CalCrc, recevByte);
+            SCI_ParseStateCurr = SCI_PARSE_LENG_HIGH;
+            break;
+
+        case SCI_PARSE_LENG_HIGH:
+            SCI_RecevLeng |= recevByte << 8U;
+            SCI_CalCrc = SCI_Crc16Update(SCI_CalCrc, recevByte);
+            if(SCI_RecevLeng > SCI_FRAME_MAX_PAYLOAD)
             {
-                SCI_ParseStateCurr = SCI_PARSE_CRC_LOW;//滑动到CRC
+                SCI_ProtocFormatErrorCnt++;
+                SCI_ResetParser();
+            }
+            else if(SCI_RecevLeng == 0U)
+            {
+                SCI_ParseStateCurr = SCI_PARSE_CRC_LOW;
             }
             else
             {
-                SCI_ReceivedPayloadIdx = 0U;//知悉接下来会有多少数据了,准备接收
-                SCI_ParseStateCurr = SCI_PARSE_PAYLOAD;//滑动到接收窗口
+                SCI_RecevPayloadIdx = 0U;
+                SCI_ParseStateCurr = SCI_PARSE_PAYLOAD;
             }
             break;
 
         case SCI_PARSE_PAYLOAD:
-            SCI_ReceivedPayload[SCI_ReceivedPayloadIdx] = receivedByte;
-            SCI_ReceivedPayloadIdx++;
-            SCI_CalculatedCrc = SCI_Crc16Update(SCI_CalculatedCrc, receivedByte);
-            if(SCI_ReceivedPayloadIdx >= SCI_ReceivedLength)
+            SCI_RecevPayloadIdx++;
+            SCI_CalCrc = SCI_Crc16Update(SCI_CalCrc, recevByte);
+            if(SCI_RecevPayloadIdx >= SCI_RecevLeng)
             {
-                SCI_ParseStateCurr = SCI_PARSE_CRC_LOW;//接收到了规定的量就进行CRC
+                SCI_ParseStateCurr = SCI_PARSE_CRC_LOW;
             }
             break;
 
         case SCI_PARSE_CRC_LOW:
-            SCI_ReceivedCrc = receivedByte;
+            SCI_RecevCrc = recevByte;
             SCI_ParseStateCurr = SCI_PARSE_CRC_HIGH;
             break;
 
         case SCI_PARSE_CRC_HIGH:
-            SCI_ReceivedCrc |= receivedByte << 8U;
-            if(SCI_ReceivedCrc == SCI_CalculatedCrc)
+            SCI_RecevCrc |= recevByte << 8U;
+            if(SCI_RecevCrc == SCI_CalCrc)
             {
-                SCI_ProtocolFrameCnt++;//正确次数加一
-                SCI_HandleCommand();//给出回应
+                SCI_ProtocFrameCnt++;
+                SCI_HandleCmd();
             }
             else
             {
-                SCI_ProtocolCrcErrorCnt++;//错误次数加一
+                SCI_ProtocCrcErrorCnt++;
             }
-            SCI_ResetParser();//无论成功失败都准备下一次接收数据帧了
+            SCI_ResetParser();
             break;
 
         default:
+            SCI_ProtocFormatErrorCnt++;
             SCI_ResetParser();
             break;
     }

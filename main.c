@@ -26,9 +26,12 @@ int main(void)
     Task_MPPT_Init();
     Task_Reactive_Init();
     Task_Power_Init();
+#if (TASK_UI_ENABLE != 0U)
     Task_UI_Init();
+#endif
     
-    //EPWM使能,也意味着ADC开始采用
+    //EPWM使能,也意味着ADC开始采集
+    //但是并不代表EPWM开始发波!
     EPWM_Start();
 
     //调度器初始化
@@ -123,12 +126,14 @@ int main(void)
         }
         
         //UI显示任务
+#if (TASK_UI_ENABLE != 0U)
         if(schedFlags & TASK_UI_FLAG)          // 2s, 
         {
             SCHED_SLICE_BEGIN(taskStartCycle);
             Task_UI();
             SCHED_SLICE_TASK_END(SCHED_TASK_UI, taskStartCycle);
         }
+#endif
 
         //计算一次while循环耗时
         SCHED_SLICE_BATCH_END(batchStartCycle);

@@ -426,15 +426,16 @@ static Uint16 DMA_ClaimBuf(volatile DMA_BlockState *state, Uint16 *doneBuf, Uint
     return blockReady;
 }
 
+//被measure任务调用, 先把码值数据进行简单的累加, 复杂的浮点计算任务放在测量任务
+//但是本质上, 他就是任务层, 是底层和中层的桥梁
+//其返回值是当前已经完成处理的block
 Uint16 DMA_ProcessBlocks
 (
     //同时输出码值平均值和码值均方值
     ADC_UintData *rawAvg,
     ADC_FloatData *rawMeanSq,
-    //输出有功功率原始量
-    float *gridVoltCurrMeanRaw,
-    //各个信号的运放调理值
-    const ADC_Calibrate *cal
+    //输出完整电网周期内的有功/无功原始统计量
+    DMA_GridPowerRaw *gridPowerRaw
 )
 {
     //冻结后的, 刚完成的是哪个 buffer?
@@ -444,7 +445,7 @@ Uint16 DMA_ProcessBlocks
     //通用下表
     Uint16 sampleIdx;
     //记录当前有哪些DMA的数据块更新, 返回给测量任务
-    Uint16 updated = 0U;
+    Uint16 update = 0U;
     //临时累加器
     Uint32 sum0;
     Uint32 sum1;
@@ -455,17 +456,23 @@ Uint16 DMA_ProcessBlocks
     float sqSum0;
     float sqSum1;
     float sqSum2;
-    float sqSum3;
-    float sqSum4;
+    //float sqSum3;
+    //float sqSum4;
     float sqSum5;
-    //电网电压 × 电感电流 的累加和
-    float gridVoltCurrSum;  
+    //电网功率原始累加量
+    float gridActiveSum;
+    float gridReactiveSum;
     //各种临时变量
     float centSample;
     //电网电压去偏置值，用于功率计算
     float centGridVolt;
     //电感电流去偏置值，用于功率计算
     float centInductCurr;
+    //约四分之一周期后的电网电压样本，用于构造正交电压
+    Uint16 orthIdx;
+    //orthIdx对应下的Burst, 也就是滞后90°的Burst
+    Uint16 quartCycleBurst;
+    float orthGridVolt;
 
     //以下就是轮询5个DMA通道的状态,看是否有数据更新
 
@@ -483,10 +490,13 @@ Uint16 DMA_ProcessBlocks
         sqSum0 = 0.0f;
         sqSum1 = 0.0f;
         sqSum2 = 0.0f;
-        sqSum3 = 0.0f;
-        sqSum4 = 0.0f;
+        //sqSum3 = 0.0f;
+        //sqSum4 = 0.0f;
         sqSum5 = 0.0f;
-        gridVoltCurrSum = 0.0f;
+        gridActiveSum = 0.0f;
+        gridReactiveSum = 0.0f;
+        //这一步加上2再除以4, 你可以想一想是为什么🤨
+        quartCycleBurst = (fastBlockBurst + 2U) / 4U;
         //快环的burst是不固定的
         for(sampleIdx = 0U; sampleIdx < fastBlockBurst; sampleIdx++)
         {
@@ -498,22 +508,34 @@ Uint16 DMA_ProcessBlocks
             sum4 += buf[sampleIdx].gridDcCurr;
             sum5 += buf[sampleIdx].invertVolt;
             //累加减去偏置的码值平方
-            centSample = (float)buf[sampleIdx].inductCurr - cal->inductCurr.Bias;
+            centSample = (float)buf[sampleIdx].inductCurr - gAdcCal.inductCurr.bias;
             centInductCurr = centSample;
             sqSum0 += centSample * centSample;
-            centSample = (float)buf[sampleIdx].gridVolt - cal->gridVolt.Bias;
-            sqSum1 += centSample * centSample;
-            centSample = (float)buf[sampleIdx].gfciCurr - cal->gfciCurr.Bias;
+            centSample = (float)buf[sampleIdx].gridVolt - gAdcCal.gridVolt.bias;
             centGridVolt = centSample;
+            sqSum1 += centSample * centSample;
+            centSample = (float)buf[sampleIdx].gfciCurr - gAdcCal.gfciCurr.bias;
             sqSum2 += centSample * centSample;
-            centSample = (float)buf[sampleIdx].dcBusVolt - cal->dcBusVolt.Bias;
-            sqSum3 += centSample * centSample;
-            centSample = (float)buf[sampleIdx].gridDcCurr - cal->gridDcCurr.Bias;
-            sqSum4 += centSample * centSample;
-            centSample = (float)buf[sampleIdx].invertVolt - cal->invertVolt.Bias;
+            //centSample = (float)buf[sampleIdx].dcBusVolt - gAdcCal.dcBusVolt.bias;
+            //sqSum3 += centSample * centSample;
+            //centSample = (float)buf[sampleIdx].gridDcCurr - gAdcCal.gridDcCurr.bias;
+            //sqSum4 += centSample * centSample;
+            centSample = (float)buf[sampleIdx].invertVolt - gAdcCal.invertVolt.bias;
             sqSum5 += centSample * centSample;
-            //累加电网功率码值
-            gridVoltCurrSum += centGridVolt * centInductCurr;
+            //P = average(v * i)，暂用电感电流近似并网电流
+            //累加有功功率码值
+            gridActiveSum += centGridVolt * centInductCurr; 
+            //theta + 90deg
+            orthIdx = sampleIdx + quartCycleBurst;
+            if(orthIdx >= fastBlockBurst)
+            {
+                //绕回
+                orthIdx -= fastBlockBurst;
+            }
+            //Q = average(v(theta + 90deg) * i)，正值表示电流超前（容性）
+            orthGridVolt = (float)buf[orthIdx].gridVolt - gAdcCal.gridVolt.bias;
+            //累加无功功率码值
+            gridReactiveSum += orthGridVolt * centInductCurr;
         }
         //算码值平均值
         rawAvg->inductCurr =    (Uint16)(sum0 / fastBlockBurst);
@@ -526,11 +548,12 @@ Uint16 DMA_ProcessBlocks
         rawMeanSq->inductCurr = sqSum0 / (float)fastBlockBurst;
         rawMeanSq->gridVolt =   sqSum1 / (float)fastBlockBurst;
         rawMeanSq->gfciCurr =   sqSum2 / (float)fastBlockBurst;
-        rawMeanSq->dcBusVolt =  sqSum3 / (float)fastBlockBurst;
-        rawMeanSq->gridDcCurr = sqSum4 / (float)fastBlockBurst;
+        //rawMeanSq->dcBusVolt =  sqSum3 / (float)fastBlockBurst;
+        //rawMeanSq->gridDcCurr = sqSum4 / (float)fastBlockBurst;
         rawMeanSq->invertVolt = sqSum5 / (float)fastBlockBurst;
-        *gridVoltCurrMeanRaw =  gridVoltCurrSum / (float)fastBlockBurst;
-        updated |= DMA_UPDATE_FAST;
+        gridPowerRaw->activeMean = gridActiveSum / (float)fastBlockBurst;
+        gridPowerRaw->reactiveMean = gridReactiveSum / (float)fastBlockBurst;
+        update |= DMA_UPDATE_FAST;
     }
 
     if(DMA_ClaimBuf(&ADC_PvDmaState, &bufIdx, 0) != 0U)
@@ -540,34 +563,34 @@ Uint16 DMA_ProcessBlocks
         sum1 = 0UL;
         sum2 = 0UL;
         sum3 = 0UL;
-        sqSum0 = 0.0f;
-        sqSum1 = 0.0f;
-        sqSum2 = 0.0f;
-        sqSum3 = 0.0f;
+        //sqSum0 = 0.0f;
+        //sqSum1 = 0.0f;
+        //sqSum2 = 0.0f;
+        //sqSum3 = 0.0f;
         for(sampleIdx = 0U; sampleIdx < ADC_PV_BLOCK_BURST; sampleIdx++)
         {
             sum0 += buf[sampleIdx].pv1Volt;
             sum1 += buf[sampleIdx].pv1Curr;
             sum2 += buf[sampleIdx].pv2Volt;
             sum3 += buf[sampleIdx].pv2Curr;
-            centSample = (float)buf[sampleIdx].pv1Volt - cal->pv1Volt.Bias;
-            sqSum0 += centSample * centSample;
-            centSample = (float)buf[sampleIdx].pv1Curr - cal->pv1Curr.Bias;
-            sqSum1 += centSample * centSample;
-            centSample = (float)buf[sampleIdx].pv2Volt - cal->pv2Volt.Bias;
-            sqSum2 += centSample * centSample;
-            centSample = (float)buf[sampleIdx].pv2Curr - cal->pv2Curr.Bias;
-            sqSum3 += centSample * centSample;
+            //centSample = (float)buf[sampleIdx].pv1Volt - gAdcCal.pv1Volt.bias;
+            //sqSum0 += centSample * centSample;
+            //centSample = (float)buf[sampleIdx].pv1Curr - gAdcCal.pv1Curr.bias;
+            //sqSum1 += centSample * centSample;
+            //centSample = (float)buf[sampleIdx].pv2Volt - gAdcCal.pv2Volt.bias;
+            //sqSum2 += centSample * centSample;
+            //centSample = (float)buf[sampleIdx].pv2Curr - gAdcCal.pv2Curr.bias;
+            //sqSum3 += centSample * centSample;
         }
         rawAvg->pv1Volt = (Uint16)(sum0 / ADC_PV_BLOCK_BURST);
         rawAvg->pv1Curr = (Uint16)(sum1 / ADC_PV_BLOCK_BURST);
         rawAvg->pv2Volt = (Uint16)(sum2 / ADC_PV_BLOCK_BURST);
         rawAvg->pv2Curr = (Uint16)(sum3 / ADC_PV_BLOCK_BURST);
-        rawMeanSq->pv1Volt = sqSum0 / (float)ADC_PV_BLOCK_BURST;
-        rawMeanSq->pv1Curr = sqSum1 / (float)ADC_PV_BLOCK_BURST;
-        rawMeanSq->pv2Volt = sqSum2 / (float)ADC_PV_BLOCK_BURST;
-        rawMeanSq->pv2Curr = sqSum3 / (float)ADC_PV_BLOCK_BURST;
-        updated |= DMA_UPDATE_PV;
+        //rawMeanSq->pv1Volt = sqSum0 / (float)ADC_PV_BLOCK_BURST;
+        //rawMeanSq->pv1Curr = sqSum1 / (float)ADC_PV_BLOCK_BURST;
+        //rawMeanSq->pv2Volt = sqSum2 / (float)ADC_PV_BLOCK_BURST;
+        //rawMeanSq->pv2Curr = sqSum3 / (float)ADC_PV_BLOCK_BURST;
+        update |= DMA_UPDATE_PV;
     }
 
     if(DMA_ClaimBuf(&ADC_InsulDmaState, &bufIdx, 0) != 0U)
@@ -575,22 +598,22 @@ Uint16 DMA_ProcessBlocks
         volatile ADC_InsulRawFrame *buf = (bufIdx == 0U) ? ADC_InsulRawBuf0 : ADC_InsulRawBuf1;
         sum0 = 0UL;
         sum1 = 0UL;
-        sqSum0 = 0.0f;
-        sqSum1 = 0.0f;
+        //sqSum0 = 0.0f;
+        //sqSum1 = 0.0f;
         for(sampleIdx = 0U; sampleIdx < ADC_INSUL_BLOCK_BURST; sampleIdx++)
         {
             sum0 += buf[sampleIdx].pv1Insul;
             sum1 += buf[sampleIdx].pv2Insul;
-            centSample = (float)buf[sampleIdx].pv1Insul - cal->pv1Insul.Bias;
-            sqSum0 += centSample * centSample;
-            centSample = (float)buf[sampleIdx].pv2Insul - cal->pv2Insul.Bias;
-            sqSum1 += centSample * centSample;
+            //centSample = (float)buf[sampleIdx].pv1Insul - gAdcCal.pv1Insul.bias;
+            //sqSum0 += centSample * centSample;
+            //centSample = (float)buf[sampleIdx].pv2Insul - gAdcCal.pv2Insul.bias;
+            //sqSum1 += centSample * centSample;
         }
         rawAvg->pv1Insul = (Uint16)(sum0 / ADC_INSUL_BLOCK_BURST);
         rawAvg->pv2Insul = (Uint16)(sum1 / ADC_INSUL_BLOCK_BURST);
-        rawMeanSq->pv1Insul = sqSum0 / (float)ADC_INSUL_BLOCK_BURST;
-        rawMeanSq->pv2Insul = sqSum1 / (float)ADC_INSUL_BLOCK_BURST;
-        updated |= DMA_UPDATE_INSUL;
+        //rawMeanSq->pv1Insul = sqSum0 / (float)ADC_INSUL_BLOCK_BURST;
+        //rawMeanSq->pv2Insul = sqSum1 / (float)ADC_INSUL_BLOCK_BURST;
+        update |= DMA_UPDATE_INSUL;
     }
 
     if(DMA_ClaimBuf(&ADC_TempDmaState, &bufIdx, 0) != 0U)
@@ -605,8 +628,8 @@ Uint16 DMA_ProcessBlocks
         }
         rawAvg->invertTemp = (Uint16)(sum0 / ADC_TEMP_BLOCK_BURST);
         rawAvg->boostTemp = (Uint16)(sum1 / ADC_TEMP_BLOCK_BURST);
-        updated |= DMA_UPDATE_TEMP;
+        update |= DMA_UPDATE_TEMP;
     }
     //告诉测量任务哪些数据块更新了
-    return updated;
+    return update;
 }

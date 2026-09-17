@@ -4,27 +4,32 @@
 #include "F28x_Project.h"
 #include "variable.h"
 
-/* ADC trigger selections from the TMS320F28377S ADC trigger table. */
+//ADC触发源选择
 #define ADC_TRIGGER_CPU_TIMER1      2U
 #define ADC_TRIGGER_EPWM1_SOCA      5U
-
-//其实快环的这些数据早在电流环那块就被用了,那些快环数据当场读取当场处理了,
-//但是再怎么说逆变器还是需要告诉别人当前电压电流大小的,所以就以非常慢的速度更新了,
-//而PV电压电流等数据是需要参与到未来的控制的,所以才160个大小,快环反而450个大小
 #define ADC_ACQUISITION_WINDOW      14U
 #define ADC_FAST_SAMPLE_FREQ_HZ     20000.0f
+//其实那些快环数据当场读取当场处理了,
+//但是再怎么说逆变器还是需要告诉别人当前电压电流大小的,所以就以非常慢的速度更新了,
+//而PV电压电流等数据是需要参与到未来的控制的,所以才160个大小,快环反而450个大小
 #define ADC_FAST_BLOCK_MAX_BURST   450U
 #define ADC_PV_BLOCK_BURST         160U    /* 8 ms at 20 kHz */
-#define ADC_INSUL_BLOCK_BURST        10U     /* 100 ms at 100 Hz */
+#define ADC_INSUL_BLOCK_BURST      10U     /* 100 ms at 100 Hz */
 #define ADC_TEMP_BLOCK_BURST       20U     /* 200 ms at 100 Hz */
 
-/* DMA block groups reported to Task_Measu after buf processing. */
-#define DMA_UPDATE_FAST          0x0001U
-#define DMA_UPDATE_PV            0x0002U
-#define DMA_UPDATE_INSUL     0x0004U
-#define DMA_UPDATE_TEMP          0x0008U
-#define DMA_UPDATE_ALL           (DMA_UPDATE_FAST | DMA_UPDATE_PV | \
-                                  DMA_UPDATE_INSUL | DMA_UPDATE_TEMP)
+//DMA更新事件
+#define DMA_UPDATE_FAST         (1UL << 0U)
+#define DMA_UPDATE_PV           (1UL << 1U)
+#define DMA_UPDATE_INSUL        (1UL << 2U)
+#define DMA_UPDATE_TEMP         (1UL << 3U)
+#define DMA_UPDATE_ALL          (DMA_UPDATE_FAST | DMA_UPDATE_PV | DMA_UPDATE_INSUL | DMA_UPDATE_TEMP)
+
+/* Raw grid-power statistics accumulated over one complete grid cycle. */
+typedef struct
+{
+    float activeMean;
+    float reactiveMean;
+} DMA_GridPowerRaw;
 
 void GPIO_Config(void);
 void CPU_InterruptInit(void);
@@ -42,14 +47,14 @@ Uint32 Timer2_GetCnt(void);
 #define POWER_SW3()        ((GpioDataRegs.GPCDAT.bit.GPIO78 == 0U) ? 1U : 0U)
 
 /* Active-low user keys. GPIO numbers are intentionally hidden in gpio.c. */
-#define KEY_NUMBER_1       1U
-#define KEY_NUMBER_2       2U
-#define KEY_NUMBER_3       3U
-#define KEY_NUMBER_4       4U
-#define KEY_EVENT_1        0x0001U
-#define KEY_EVENT_2        0x0002U
-#define KEY_EVENT_3        0x0004U
-#define KEY_EVENT_4        0x0008U
+#define KEY_NUMBER_1    1U
+#define KEY_NUMBER_2    2U
+#define KEY_NUMBER_3    3U
+#define KEY_NUMBER_4    4U
+#define KEY_EVENT_1     (1UL << 0U)
+#define KEY_EVENT_2     (1UL << 1U)
+#define KEY_EVENT_3     (1UL << 2U)
+#define KEY_EVENT_4     (1UL << 3U)
 
 /* Return and clear newly confirmed key-press events after software debounce. */
 Uint16 GPIO_GetKeyEvents(void);
@@ -113,8 +118,8 @@ Uint16 DMA_ProcessBlocks
 (
     ADC_UintData *rawAvg,
     ADC_FloatData *rawMeanSq,
-    float *gridVoltCurrMeanRaw,
-    const ADC_Calibrate *cal
+    DMA_GridPowerRaw *gridPowerRaw
+
 );
 void ECAP_Config(void);
 void SCI_Config(void);
@@ -140,9 +145,9 @@ Uint16 I2C_MasterWriteRead
 (
     Uint16 slaveAddr7,
     const Uint16 *writeData,
-    Uint16 writeLength,
+    Uint16 writeLeng,
     Uint16 *readData,
-    Uint16 readLength,
+    Uint16 readLeng,
     Uint16 timeoutUs
 );
 

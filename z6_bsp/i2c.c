@@ -435,11 +435,11 @@ Uint16 I2C_MasterWriteRead
     //待写数据buffer
     const Uint16 *writeData,
     //写入字节数
-    Uint16 writeLength,
+    Uint16 writeLeng,
     //读数据buffer
     Uint16 *readData,
     //读取的字节数
-    Uint16 readLength,
+    Uint16 readLeng,
     //超时时间
     Uint16 timeoutUs
 )
@@ -452,9 +452,9 @@ Uint16 I2C_MasterWriteRead
     (
         (writeData == 0) || 
         (readData == 0) ||
-        (writeLength == 0U) || 
-        (readLength == 0U) ||
-        (writeLength > I2C_TX_FIFO_DEPTH) || 
+        (writeLeng == 0U) || 
+        (readLeng == 0U) ||
+        (writeLeng > I2C_TX_FIFO_DEPTH) || 
         (slaveAddr7 > 0x7FU)
     )
     {
@@ -481,7 +481,7 @@ Uint16 I2C_MasterWriteRead
     //设置从机地址
     I2caRegs.I2CSAR.bit.SAR = slaveAddr7;
     //设置写数据长度
-    I2caRegs.I2CCNT = writeLength;
+    I2caRegs.I2CCNT = writeLeng;
     //配置IIC控制寄存器
     I2caRegs.I2CMDR.all = 0x0000;
     //释放模块复位,启动IIC
@@ -497,7 +497,7 @@ Uint16 I2C_MasterWriteRead
     //释放Tx FIFO复位,启动
     I2caRegs.I2CFFTX.bit.TXFFRST = 1U;
     //逐字节填充Tx FIFO
-    for(idx = 0U; idx < writeLength; idx++)
+    for(idx = 0U; idx < writeLeng; idx++)
     {
         I2caRegs.I2CDXR.bit.DATA = writeData[idx];
     }
@@ -522,7 +522,7 @@ Uint16 I2C_MasterWriteRead
 
     
     //待读取数据长度
-    I2caRegs.I2CCNT = readLength;
+    I2caRegs.I2CCNT = readLeng;
     //IIC接收模式
     I2caRegs.I2CMDR.bit.TRX = 0U;
     //读取完成发一个STOP给总线,代表已经接收完成
@@ -536,7 +536,7 @@ Uint16 I2C_MasterWriteRead
     //正式接收
     I2caRegs.I2CMDR.bit.STT = 1U;
     //循环读取数据
-    for(idx = 0U; idx < readLength; idx++)
+    for(idx = 0U; idx < readLeng; idx++)
     {
         waitLoops = I2C_WaitLoopsFromUs(timeoutUs);
         //一直等,等到有数据,且IIC表示"可以接收数据"

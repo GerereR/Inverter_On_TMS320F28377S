@@ -15,37 +15,42 @@
 #define MODEL_3KW                       1U
 #define MODEL_4KW                       2U
 
-/* Recoverable machine-problem masks. */
-#define RECOV_PLL_FAULT              (1UL << 0U)
-#define RECOV_TZ_FAULT               (1UL << 1U)
-#define RECOV_GRID_OVER_VOLT         (1UL << 2U)
-#define RECOV_GRID_UNDER_VOLT        (1UL << 3U)
-#define RECOV_GRID_OVER_FREQ         (1UL << 4U)
-#define RECOV_GRID_UNDER_FREQ        (1UL << 5U)
-#define RECOV_PV1_OVER_VOLT          (1UL << 8U)
-#define RECOV_PV2_OVER_VOLT          (1UL << 9U)
-#define RECOV_PV1_OVER_CURR       (1UL << 10U)
-#define RECOV_PV2_OVER_CURR       (1UL << 11U)
-#define RECOV_INDUCT_OVER_CURR  (1UL << 12U)
-#define RECOV_GRID_DC_CURR        (1UL << 13U)
-#define RECOV_GFCI                   (1UL << 14U)
-#define RECOV_INSUL              (1UL << 15U)
-#define RECOV_NO_UTILITY             (1UL << 16U)
+/* Optional user-interface task. Keep the implementation available for later
+ * bring-up, but exclude its code and scheduler work in the current image. */
+#define TASK_UI_ENABLE                  0U
 
-/* Permanent machine-problem masks. */
-#define PERMA_INVERT_OVER_TEMP   (1UL << 0U)
-#define PERMA_BOOST_OVER_TEMP      (1UL << 1U)
-#define PERMA_ADC_FAULT            (1UL << 2U)
-#define PERMA_EEPROM_FAULT         (1UL << 3U)
-#define PERMA_GFCI_DEVICE_FAULT    (1UL << 4U)
-#define PERMA_DC_BUS_OVER_VOLT     (1UL << 5U)
+/* Recoverable machine-problem masks. */
+#define RECOV_PLL_FAULT             (1UL << 0U)
+#define RECOV_TZ_FAULT              (1UL << 1U)
+#define RECOV_GRID_OVER_VOLT        (1UL << 2U)
+#define RECOV_GRID_UNDER_VOLT       (1UL << 3U)
+#define RECOV_GRID_OVER_FREQ        (1UL << 4U)
+#define RECOV_GRID_UNDER_FREQ       (1UL << 5U)
+#define RECOV_PV1_OVER_VOLT         (1UL << 8U)
+#define RECOV_PV2_OVER_VOLT         (1UL << 9U)
+#define RECOV_PV1_OVER_CURR         (1UL << 10U)
+#define RECOV_PV2_OVER_CURR         (1UL << 11U)
+#define RECOV_INDUCT_OVER_CURR      (1UL << 12U)
+#define RECOV_GRID_DC_CURR          (1UL << 13U)
+#define RECOV_GFCI                  (1UL << 14U)
+#define RECOV_INSUL                 (1UL << 15U)
+#define RECOV_NO_UTILITY            (1UL << 16U)
+#define RECOV_RELAY_SELFTEST        (1UL << 17U)
+
+/* Perma machine-problem masks. */
+#define PERMA_INVERT_OVER_TEMP      (1UL << 0U)
+#define PERMA_BOOST_OVER_TEMP       (1UL << 1U)
+#define PERMA_ADC_FAULT             (1UL << 2U)
+#define PERMA_EEPROM_FAULT          (1UL << 3U)
+#define PERMA_GFCI_DEVICE_FAULT     (1UL << 4U)
+#define PERMA_DC_BUS_OVER_VOLT      (1UL << 5U)
 
 /* Warning masks. Warnings record diagnostic conditions without stopping output. */
-#define WARNING_MAIN_LOOP_OVERRUN           (1UL << 0U)
-#define WARNING_SCHED_PEND_OVERFLOW  (1UL << 1U)
-#define WARNING_SCI_FRAME_DROP           (1UL << 2U)
-#define WARNING_I2C_PEND_OVERFLOW        (1UL << 3U)
-#define WARNING_I2C_FRAME_DROP           (1UL << 4U)
+#define WARNING_MAIN_LOOP_OVERRUN       (1UL << 0U)
+#define WARNING_SCHED_PEND_OVERFLOW     (1UL << 1U)
+#define WARNING_SCI_FRAME_DROP          (1UL << 2U)
+#define WARNING_I2C_PEND_OVERFLOW       (1UL << 3U)
+#define WARNING_I2C_FRAME_DROP          (1UL << 4U)
 
 /* Fault mask used while waiting for the grid PLL to acquire lock. */
 
@@ -76,9 +81,9 @@
 #define GRID_RECONN_MIN_V              187.0f
 #define GRID_RECONN_MAX_FREQ_HZ         50.5f
 #define GRID_RECONN_MIN_FREQ_HZ         49.5f
-#define GRID_FAULT_FILTER_CNT_LV1  3U
-#define GRID_FAULT_FILTER_CNT_LV2  3U
-#define GRID_FAULT_BACK_FILTER_CNT  300U
+#define GRID_FAULT_FILT_CNT_LV1  3U
+#define GRID_FAULT_FILT_CNT_LV2  3U
+#define GRID_FAULT_BACK_FILT_CNT  300U
 
 /* PV input modes retained for the future topology detector. The curr
  * hardware uses two independent MPPT channels. */

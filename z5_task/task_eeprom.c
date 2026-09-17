@@ -228,7 +228,7 @@ static Uint16 EEPROM_SaveCalibration(void)
     Uint16 idx = 0U;
     Uint16 crc;
     Uint16 interruptState;
-    ADC_Calibrate cal;
+    AdcCal cal;
 
     /* Copy once so a communication command cannot change half a record. */
     interruptState = CPU_InterruptSaveDisable();
@@ -238,29 +238,29 @@ static Uint16 EEPROM_SaveCalibration(void)
     EEPROM_PutUint32(record, &idx, EEPROM_CONFIG_MAGIC);
     EEPROM_PutUint16(record, &idx, EEPROM_CONFIG_VERSION);
     EEPROM_PutUint16(record, &idx, (Uint16)EEPROM_CONFIG_BYTES);
-    EEPROM_PutFloat(record, &idx, cal.gridVolt.Bias);
+    EEPROM_PutFloat(record, &idx, cal.gridVolt.bias);
     EEPROM_PutFloat(record, &idx, cal.gridVolt.gain);
-    EEPROM_PutFloat(record, &idx, cal.inductCurr.Bias);
+    EEPROM_PutFloat(record, &idx, cal.inductCurr.bias);
     EEPROM_PutFloat(record, &idx, cal.inductCurr.gain);
-    EEPROM_PutFloat(record, &idx, cal.gfciCurr.Bias);
+    EEPROM_PutFloat(record, &idx, cal.gfciCurr.bias);
     EEPROM_PutFloat(record, &idx, cal.gfciCurr.gain);
-    EEPROM_PutFloat(record, &idx, cal.dcBusVolt.Bias);
+    EEPROM_PutFloat(record, &idx, cal.dcBusVolt.bias);
     EEPROM_PutFloat(record, &idx, cal.dcBusVolt.gain);
-    EEPROM_PutFloat(record, &idx, cal.gridDcCurr.Bias);
+    EEPROM_PutFloat(record, &idx, cal.gridDcCurr.bias);
     EEPROM_PutFloat(record, &idx, cal.gridDcCurr.gain);
-    EEPROM_PutFloat(record, &idx, cal.invertVolt.Bias);
+    EEPROM_PutFloat(record, &idx, cal.invertVolt.bias);
     EEPROM_PutFloat(record, &idx, cal.invertVolt.gain);
-    EEPROM_PutFloat(record, &idx, cal.pv1Curr.Bias);
+    EEPROM_PutFloat(record, &idx, cal.pv1Curr.bias);
     EEPROM_PutFloat(record, &idx, cal.pv1Curr.gain);
-    EEPROM_PutFloat(record, &idx, cal.pv2Curr.Bias);
+    EEPROM_PutFloat(record, &idx, cal.pv2Curr.bias);
     EEPROM_PutFloat(record, &idx, cal.pv2Curr.gain);
-    EEPROM_PutFloat(record, &idx, cal.pv1Volt.Bias);
+    EEPROM_PutFloat(record, &idx, cal.pv1Volt.bias);
     EEPROM_PutFloat(record, &idx, cal.pv1Volt.gain);
-    EEPROM_PutFloat(record, &idx, cal.pv2Volt.Bias);
+    EEPROM_PutFloat(record, &idx, cal.pv2Volt.bias);
     EEPROM_PutFloat(record, &idx, cal.pv2Volt.gain);
-    EEPROM_PutFloat(record, &idx, cal.pv1Insul.Bias);
+    EEPROM_PutFloat(record, &idx, cal.pv1Insul.bias);
     EEPROM_PutFloat(record, &idx, cal.pv1Insul.gain);
-    EEPROM_PutFloat(record, &idx, cal.pv2Insul.Bias);
+    EEPROM_PutFloat(record, &idx, cal.pv2Insul.bias);
     EEPROM_PutFloat(record, &idx, cal.pv2Insul.gain);
 
     crc = EEPROM_Crc16(record, EEPROM_CONFIG_CRC_Bias);
@@ -275,7 +275,7 @@ static Uint16 EEPROM_LoadCalibration(void)
     Uint16 length;
     Uint16 status;
     Uint16 storedCrc;
-    ADC_Calibrate cal;
+    AdcCal cal;
 
     status = EEPROM_ReadBytes(EEPROM_CONFIG_ADDRESS, record, EEPROM_CONFIG_BYTES);
     if(status != I2C_STATUS_OK)
@@ -306,29 +306,29 @@ static Uint16 EEPROM_LoadCalibration(void)
     }
 
     idx = EEPROM_CONFIG_DATA_Bias;
-    cal.gridVolt.Bias = EEPROM_GetFloat(record, &idx);
+    cal.gridVolt.bias = EEPROM_GetFloat(record, &idx);
     cal.gridVolt.gain = EEPROM_GetFloat(record, &idx);
-    cal.inductCurr.Bias = EEPROM_GetFloat(record, &idx);
+    cal.inductCurr.bias = EEPROM_GetFloat(record, &idx);
     cal.inductCurr.gain = EEPROM_GetFloat(record, &idx);
-    cal.gfciCurr.Bias = EEPROM_GetFloat(record, &idx);
+    cal.gfciCurr.bias = EEPROM_GetFloat(record, &idx);
     cal.gfciCurr.gain = EEPROM_GetFloat(record, &idx);
-    cal.dcBusVolt.Bias = EEPROM_GetFloat(record, &idx);
+    cal.dcBusVolt.bias = EEPROM_GetFloat(record, &idx);
     cal.dcBusVolt.gain = EEPROM_GetFloat(record, &idx);
-    cal.gridDcCurr.Bias = EEPROM_GetFloat(record, &idx);
+    cal.gridDcCurr.bias = EEPROM_GetFloat(record, &idx);
     cal.gridDcCurr.gain = EEPROM_GetFloat(record, &idx);
-    cal.invertVolt.Bias = EEPROM_GetFloat(record, &idx);
+    cal.invertVolt.bias = EEPROM_GetFloat(record, &idx);
     cal.invertVolt.gain = EEPROM_GetFloat(record, &idx);
-    cal.pv1Curr.Bias = EEPROM_GetFloat(record, &idx);
+    cal.pv1Curr.bias = EEPROM_GetFloat(record, &idx);
     cal.pv1Curr.gain = EEPROM_GetFloat(record, &idx);
-    cal.pv2Curr.Bias = EEPROM_GetFloat(record, &idx);
+    cal.pv2Curr.bias = EEPROM_GetFloat(record, &idx);
     cal.pv2Curr.gain = EEPROM_GetFloat(record, &idx);
-    cal.pv1Volt.Bias = EEPROM_GetFloat(record, &idx);
+    cal.pv1Volt.bias = EEPROM_GetFloat(record, &idx);
     cal.pv1Volt.gain = EEPROM_GetFloat(record, &idx);
-    cal.pv2Volt.Bias = EEPROM_GetFloat(record, &idx);
+    cal.pv2Volt.bias = EEPROM_GetFloat(record, &idx);
     cal.pv2Volt.gain = EEPROM_GetFloat(record, &idx);
-    cal.pv1Insul.Bias = EEPROM_GetFloat(record, &idx);
+    cal.pv1Insul.bias = EEPROM_GetFloat(record, &idx);
     cal.pv1Insul.gain = EEPROM_GetFloat(record, &idx);
-    cal.pv2Insul.Bias = EEPROM_GetFloat(record, &idx);
+    cal.pv2Insul.bias = EEPROM_GetFloat(record, &idx);
     cal.pv2Insul.gain = EEPROM_GetFloat(record, &idx);
 
     /* Initialization runs before main enables interrupts, so this assignment
@@ -356,7 +356,7 @@ void Task_Eeprom(void)
     }
 }
 
-void EEPROM_RequestSave(Uint16 saveGroup)
+void EEPROM_ReqSave(Uint16 saveGroup)
 {
     if(saveGroup == EEPROM_SAVE_CALIBRATION)
     {

@@ -167,7 +167,9 @@ void Sched_Tick1ms(void)
     static Uint16 cntMeasu = 0U;
     static Uint16 cntState = 0U;
     static Uint16 cntMppt = 0U;
+#if (TASK_UI_ENABLE != 0U)
     static Uint16 cntUi = 0U;
+#endif
     static Uint16 cntComm = 0U;
     static Uint16 cntEeprom = 0U;
     static Uint16 cntReactive = 0U;
@@ -192,11 +194,13 @@ void Sched_Tick1ms(void)
         Sched_PeriodFlags |= TASK_MPPT_FLAG;
     }
 
+#if (TASK_UI_ENABLE != 0U)
     if(++cntUi >= TASK_UI_PERIOD_MS)
     {
         cntUi = 0U;
         Sched_PeriodFlags |= TASK_UI_FLAG;
     }
+#endif
 
     if(++cntComm >= TASK_COMM_PERIOD_MS)
     {

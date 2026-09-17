@@ -69,7 +69,7 @@ static const Uint16 OLED_Font5x7[][5] =
 #define OLED_I2C_TIMEOUT_US      3000U
 #define OLED_SEGMENT_REMAP       0xA1U
 #define OLED_COM_SCAN            0xC8U
-#define OLED_CONTROL_COMMAND     0x00U
+#define OLED_CONTROL_CMD     0x00U
 #define OLED_CONTROL_DATA        0x40U
 #define OLED_DIRTY_ALL_PAGES     0x00FFU
 
@@ -80,7 +80,7 @@ static Uint16 OLED_CursorColumn = 0U;
 static Uint16 OLED_CursorPage = 0U;
 
 /* OLED驱动层私有函数声明。任务入口放在前面，具体实现集中放在文件后部。 */
-static Uint16 OLED_WriteCommand(Uint16 command);
+static Uint16 OLED_WriteCmd(Uint16 command);
 static void OLED_MarkPageDirty(Uint16 page);
 static void OLED_Clear(void);
 static Uint16 OLED_Init(void);
@@ -279,10 +279,10 @@ void Task_UI(void)
  * 完成初始化命令、帧缓冲绘制、脏页管理和I2C上屏。
  * 它依赖通用I2C_MasterWrite，但不再占用i2c.c的底层驱动职责。         */
 
-static Uint16 OLED_WriteCommand(Uint16 command)
+static Uint16 OLED_WriteCmd(Uint16 command)
 {
     Uint16 tx[2];
-    tx[0] = OLED_CONTROL_COMMAND;
+    tx[0] = OLED_CONTROL_CMD;
     tx[1] = command;
     return I2C_MasterWrite(OLED_I2C_ADDR_7BIT, tx, 2U, OLED_I2C_TIMEOUT_US);
 }
@@ -307,7 +307,7 @@ static void OLED_Clear(void)
 
 static Uint16 OLED_Init(void)
 {
-    static const Uint16 initCommands[] =
+    static const Uint16 initCmds[] =
     {
         0xAEU,       /* 关显示，配置期间禁止输出 */
         0xD5U, 0x80U,/* 显示时钟分频比=1，振荡频率=8 */
@@ -329,9 +329,9 @@ static Uint16 OLED_Init(void)
     Uint16 idx;
     Uint16 status;
 
-    for(idx = 0U; idx < (sizeof(initCommands) / sizeof(initCommands[0])); idx++)
+    for(idx = 0U; idx < (sizeof(initCmds) / sizeof(initCmds[0])); idx++)
     {
-        status = OLED_WriteCommand(initCommands[idx]);
+        status = OLED_WriteCmd(initCmds[idx]);
         if(status != I2C_STATUS_OK)
         {
             return status;
@@ -449,13 +449,13 @@ static Uint16 OLED_RefreshPage(Uint16 page)
         return I2C_STATUS_BAD_PARAM;
     }
 
-    status = OLED_WriteCommand((Uint16)(0xB0U | page));
+    status = OLED_WriteCmd((Uint16)(0xB0U | page));
     if(status != I2C_STATUS_OK) { return status; }
 
-    status = OLED_WriteCommand(0x00U);
+    status = OLED_WriteCmd(0x00U);
     if(status != I2C_STATUS_OK) { return status; }
 
-    status = OLED_WriteCommand(0x10U);
+    status = OLED_WriteCmd(0x10U);
     if(status != I2C_STATUS_OK) { return status; }
 
     tx[0] = OLED_CONTROL_DATA;

@@ -388,7 +388,7 @@ void EPWM_SetInvertMode(float modulate)
     //取绝对值,然后转换为CMP值
     compareValue = (Uint16)(((modulate >= 0.0f) ? modulate : -modulate) * (float)EPWM_PERIOD_TICK);
     //先一股脑给两个桥臂占空比,回头再精细控制
-    //为什么CMPA可以直接等于|modulate|,你可以思考一下😋
+    //为什么CMPA可以直接等于|modulate|,你可以思考一下
     EPwm1Regs.CMPA.bit.CMPA = compareValue;
     EPwm2Regs.CMPA.bit.CMPA = compareValue;
     //如果占空比大于零,也就是想让桥臂1控制,桥臂2置高

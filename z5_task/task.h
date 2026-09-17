@@ -1,6 +1,8 @@
 #ifndef TASK_H
 #define TASK_H
 
+#include "constant.h"
+
 // Cooperative task periods are assigned by scheduler.c.
 void Task_State_Init(void);
 void Task_State(void);
@@ -44,12 +46,14 @@ void Task_Power(void);
 void Task_Comm_Init(void);
 void Task_Comm(void);
 
+#if (TASK_UI_ENABLE != 0U)
 void Task_UI_Init(void);
 void Task_UI(void);
+#endif
 
 void Task_Eeprom_Init(void);
 void Task_Eeprom(void);
 #define EEPROM_SAVE_CALIBRATION  1U
-void EEPROM_RequestSave(Uint16 saveGroup);
+void EEPROM_ReqSave(Uint16 saveGroup);
 
 #endif

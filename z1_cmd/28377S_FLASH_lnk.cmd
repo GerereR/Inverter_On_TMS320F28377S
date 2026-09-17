@@ -126,14 +126,14 @@ SECTIONS
    .esysmem            : > RAMLS5       PAGE = 1
 
    /* DMA ping-pong buffers use dedicated GS RAM blocks. */
-   adcFastDmaBuffer0        : > RAMGS2       PAGE = 1
-   adcFastDmaBuffer1        : > RAMGS3       PAGE = 1
-   adcPvDmaBuffer0          : > RAMGS4       PAGE = 1
-   adcPvDmaBuffer1          : > RAMGS4       PAGE = 1
-   adcIsoDmaBuffer0   : > RAMGS6       PAGE = 1
-   adcIsoDmaBuffer1   : > RAMGS6       PAGE = 1
-   adcTempDmaBuffer0 : > RAMGS7       PAGE = 1
-   adcTempDmaBuffer1 : > RAMGS7       PAGE = 1
+   adcFastDmaBuf0        : > RAMGS2       PAGE = 1
+   adcFastDmaBuf1        : > RAMGS3       PAGE = 1
+   adcPvDmaBuf0          : > RAMGS4       PAGE = 1
+   adcPvDmaBuf1          : > RAMGS4       PAGE = 1
+   adcInsulDmaBuf0       : > RAMGS6       PAGE = 1
+   adcInsulDmaBuf1       : > RAMGS6       PAGE = 1
+   adcTempDmaBuf0        : > RAMGS7       PAGE = 1
+   adcTempDmaBuf1        : > RAMGS7       PAGE = 1
 
    /* Initalized sections go in Flash */
    .econst             : >> FLASHF | FLASHG | FLASHH      PAGE = 0, ALIGN(4)

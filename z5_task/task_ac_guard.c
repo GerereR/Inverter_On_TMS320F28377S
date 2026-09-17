@@ -33,11 +33,11 @@ static Uint16 GridHalfMinCnt = 0U;
 
 #define GFCI_DELTA_MIN_A                 0.001f   /* 缓慢变化最小差分（原 delta_gfi > 2 码） */
 #define GFCI_PROTECT_DELAY_CYCLE        150U     /* 自检后保护静默期（原 check_delay >= 150） */
-#define GFCI_FILTER_300MA                12U      /* 300mA 档连续判定（原 > 11） */
-#define GFCI_FILTER_60MA                 8U       /* 60mA 档连续判定 */
-#define GFCI_FILTER_30MA                 8U       /* 30mA 档连续判定 */
-#define GFCI_DEV_FILTER                  6U       /* 自检设备故障连续判定（原 > 5） */
-#define GFCI_BACK_FILTER                 276U     /* 恢复计数（原 > 275） */
+#define GFCI_FILT_300MA                12U      /* 300mA 档连续判定（原 > 11） */
+#define GFCI_FILT_60MA                 8U       /* 60mA 档连续判定 */
+#define GFCI_FILT_30MA                 8U       /* 30mA 档连续判定 */
+#define GFCI_DEV_FILT                  6U       /* 自检设备故障连续判定（原 > 5） */
+#define GFCI_BACK_FILT                 276U     /* 恢复计数（原 > 275） */
 #define GFCI_NOBREAK_CNT                 26U      /* 无突变复位计数（原 > 25） */
 #define GFCI_SELFTEST_STATIC_END         30U      /* 自检静态检测阶段结束（原 index <= 30） */
 #define GFCI_SELFTEST_INJECT_START       31U      /* 自检注入 50mA 起点（原 index == 31） */
@@ -98,8 +98,8 @@ static void DCI_Protect(void)
 {
     float dci = gMachineData.realAvg.gridDcCurr;
     float dciAbs = (dci < 0.0f) ? -dci : dci;
-    static Uint16 dciFaultFilter = 0U;
-    static Uint16 dciBackFilter = 0U;
+    static Uint16 dciFaultFilt = 0U;
+    static Uint16 dciBackFilt = 0U;
     /* DCI 超标保护：并网 + 非打嗝 + 有功率，|DCI| 连续 3 次超阈值 → 故障 */
     if 
     (
@@ -110,21 +110,21 @@ static void DCI_Protect(void)
     {
         if (dciAbs > DCI_FAULT_LIM_A)
         {
-            dciFaultFilter++;
-            if (dciFaultFilter >= 3U)
+            dciFaultFilt++;
+            if (dciFaultFilt >= 3U)
             {
-                dciFaultFilter = 0U;
+                dciFaultFilt = 0U;
                 gSysProblem.recovFault |= RECOV_GRID_DC_CURR;
             }
         }
         else
         {
-            dciFaultFilter = 0U;
+            dciFaultFilt = 0U;
         }
     }
     else
     {
-        dciFaultFilter = 0U;
+        dciFaultFilt = 0U;
     }
 
     /* DCI 恢复：|DCI| 持续低于阈值 250 周期(约 5s) → 清故障 */
@@ -132,31 +132,31 @@ static void DCI_Protect(void)
     {
         if (dciAbs < DCI_FAULT_LIM_A)
         {
-            dciBackFilter++;
-            if (dciBackFilter >= 250U)
+            dciBackFilt++;
+            if (dciBackFilt >= 250U)
             {
-                dciBackFilter = 0U;
+                dciBackFilt = 0U;
                 gSysProblem.recovFault &=~ RECOV_GRID_DC_CURR;
             }
         }
         else
         {
-            dciBackFilter = 0U;
+            dciBackFilt = 0U;
         }
     }
 }
 
 /* 电网过/欠压、过/欠频判定（一级/二级阈值 + 独立计数滤波 + 恢复确认）。
- * 判定：连续 faultFilterCnt 个电网周期超标 → 置故障；
- * 恢复：连续 backFilterCnt 个周期回到正常范围 → 清故障。
+ * 判定：连续 faultFiltCnt 个电网周期超标 → 置故障；
+ * 恢复：连续 backFiltCnt 个周期回到正常范围 → 清故障。
  * 一级/二级使用独立滤波计数器，预留反时限（不同时间窗）。 */
 static void GridVolt_Protect(void)
 {
-    static Uint16 voltOverFilter1 = 0U;   /* 一级过压滤波 */
-    static Uint16 voltOverFilter2 = 0U;   /* 二级过压滤波 */
-    static Uint16 voltUnderFilter1 = 0U;  /* 一级欠压滤波 */
-    static Uint16 voltUnderFilter2 = 0U;  /* 二级欠压滤波 */
-    static Uint16 voltBackFilter = 0U;
+    static Uint16 voltOverFilt1 = 0U;   /* 一级过压滤波 */
+    static Uint16 voltOverFilt2 = 0U;   /* 二级过压滤波 */
+    static Uint16 voltUnderFilt1 = 0U;  /* 一级欠压滤波 */
+    static Uint16 voltUnderFilt2 = 0U;  /* 二级欠压滤波 */
+    static Uint16 voltBackFilt = 0U;
     float gridVoltRms = gMachineData.realRms.gridVolt;
 
         /* --- 电压：过/欠压 --- */
@@ -165,66 +165,66 @@ static void GridVolt_Protect(void)
     {
         if (gridVoltRms > gGridSafety.voltOverLV2)          /* 二级过压 */
         {
-            voltOverFilter2++;
-            voltOverFilter1 = 0U; 
-            voltUnderFilter1 = 0U; 
-            voltUnderFilter2 = 0U;
+            voltOverFilt2++;
+            voltOverFilt1 = 0U; 
+            voltUnderFilt1 = 0U; 
+            voltUnderFilt2 = 0U;
         }
         else if (gridVoltRms < gGridSafety.voltUnderLV2)    /* 二级欠压 */
         {
-            voltUnderFilter2++;
-            voltOverFilter1 = 0U; 
-            voltOverFilter2 = 0U; 
-            voltUnderFilter1 = 0U;
+            voltUnderFilt2++;
+            voltOverFilt1 = 0U; 
+            voltOverFilt2 = 0U; 
+            voltUnderFilt1 = 0U;
         }
         else if (gridVoltRms > gGridSafety.voltOverLV1)     /* 一级过压 */
         {
-            voltOverFilter1++;
-            voltOverFilter2 = 0U; 
-            voltUnderFilter1 = 0U; 
-            voltUnderFilter2 = 0U;
+            voltOverFilt1++;
+            voltOverFilt2 = 0U; 
+            voltUnderFilt1 = 0U; 
+            voltUnderFilt2 = 0U;
         }
         else if (gridVoltRms < gGridSafety.voltUnderLV1)    /* 一级欠压 */
         {
-            voltUnderFilter1++;
-            voltOverFilter1 = 0U; 
-            voltOverFilter2 = 0U; 
-            voltUnderFilter2 = 0U;
+            voltUnderFilt1++;
+            voltOverFilt1 = 0U; 
+            voltOverFilt2 = 0U; 
+            voltUnderFilt2 = 0U;
         }
         else if (GridVoltRmsAvg10Min > gGridSafety.voltOver10Min)  /* 10 分钟长期过压，立即置故障 */
         {
             gSysProblem.recovFault |= RECOV_GRID_OVER_VOLT;
-            voltOverFilter1 = 0U; 
-            voltOverFilter2 = 0U;
-            voltUnderFilter1 = 0U; 
-            voltUnderFilter2 = 0U;
+            voltOverFilt1 = 0U; 
+            voltOverFilt2 = 0U;
+            voltUnderFilt1 = 0U; 
+            voltUnderFilt2 = 0U;
         }
         else
         {
-            voltOverFilter1 = 0U; 
-            voltOverFilter2 = 0U;
-            voltUnderFilter1 = 0U; 
-            voltUnderFilter2 = 0U;
+            voltOverFilt1 = 0U; 
+            voltOverFilt2 = 0U;
+            voltUnderFilt1 = 0U; 
+            voltUnderFilt2 = 0U;
         }
 
-        if (voltOverFilter2 >= gGridSafety.faultFilterCnt2)
+        if (voltOverFilt2 >= gGridSafety.faultFiltCnt2)
         {
-            voltOverFilter2 = 0U;
+            voltOverFilt2 = 0U;
             gSysProblem.recovFault |= RECOV_GRID_OVER_VOLT;
         }
-        if (voltOverFilter1 >= gGridSafety.faultFilterCnt1)
+        if (voltOverFilt1 >= gGridSafety.faultFiltCnt1)
         {
-            voltOverFilter1 = 0U;
+            voltOverFilt1 = 0U;
             gSysProblem.recovFault |= RECOV_GRID_OVER_VOLT;
         }
-        if (voltUnderFilter2 >= gGridSafety.faultFilterCnt2)
+        if (voltUnderFilt2 >= gGridSafety.faultFiltCnt2)
         {
-            voltUnderFilter2 = 0U;
+            voltUnderFilt2 = 0U;
             gSysProblem.recovFault |= RECOV_GRID_UNDER_VOLT;
         }
-        if (voltUnderFilter1 >= gGridSafety.faultFilterCnt1)
+        if (voltUnderFilt1 >= gGridSafety.faultFiltCnt1)
         {
-            voltUnderFilter1 = 0U;
+            voltUnderFilt1 = 0U;
             gSysProblem.recovFault |= RECOV_GRID_UNDER_VOLT;
         }
     }
@@ -232,28 +232,28 @@ static void GridVolt_Protect(void)
     {
         if ((gridVoltRms > gGridSafety.voltUnderLV1) && (gridVoltRms < gGridSafety.voltOverLV1))
         {
-            voltBackFilter++;
-            if (voltBackFilter > gGridSafety.backFilterCnt)
+            voltBackFilt++;
+            if (voltBackFilt > gGridSafety.backFiltCnt)
             {
-                voltBackFilter = 0U;
+                voltBackFilt = 0U;
                 gSysProblem.recovFault &=
                     ~(RECOV_GRID_OVER_VOLT | RECOV_GRID_UNDER_VOLT);
             }
         }
         else
         {
-            voltBackFilter = 0U;
+            voltBackFilt = 0U;
         }
     }
 }
 
 static void GridFreq_Protect(void)
 {
-    static Uint16 freqOverFilter1 = 0U;   /* 一级过频滤波 */
-    static Uint16 freqOverFilter2 = 0U;   /* 二级过频滤波 */
-    static Uint16 freqUnderFilter1 = 0U;  /* 一级欠频滤波 */
-    static Uint16 freqUnderFilter2 = 0U;  /* 二级欠频滤波 */
-    static Uint16 freqBackFilter = 0U;  
+    static Uint16 freqOverFilt1 = 0U;   /* 一级过频滤波 */
+    static Uint16 freqOverFilt2 = 0U;   /* 二级过频滤波 */
+    static Uint16 freqUnderFilt1 = 0U;  /* 一级欠频滤波 */
+    static Uint16 freqUnderFilt2 = 0U;  /* 二级欠频滤波 */
+    static Uint16 freqBackFilt = 0U;  
     float gridFreqHz = (float)gMachineData.ecapFreqCent * 0.01f;
 
     /* --- 频率：过/欠频 --- */
@@ -262,58 +262,58 @@ static void GridFreq_Protect(void)
     {
         if (gridFreqHz > gGridSafety.freqOverLV2)           /* 二级过频 */
         {
-            freqOverFilter2++;
-            freqOverFilter1 = 0U; 
-            freqUnderFilter1 = 0U; 
-            freqUnderFilter2 = 0U;
+            freqOverFilt2++;
+            freqOverFilt1 = 0U; 
+            freqUnderFilt1 = 0U; 
+            freqUnderFilt2 = 0U;
         }
         else if (gridFreqHz < gGridSafety.freqUnderLV2)     /* 二级欠频 */
         {
-            freqUnderFilter2++;
-            freqOverFilter1 = 0U; 
-            freqOverFilter2 = 0U; 
-            freqUnderFilter1 = 0U;
+            freqUnderFilt2++;
+            freqOverFilt1 = 0U; 
+            freqOverFilt2 = 0U; 
+            freqUnderFilt1 = 0U;
         }
         else if (gridFreqHz > gGridSafety.freqOverLV1)      /* 一级过频 */
         {
-            freqOverFilter1++;
-            freqOverFilter2 = 0U; 
-            freqUnderFilter1 = 0U; 
-            freqUnderFilter2 = 0U;
+            freqOverFilt1++;
+            freqOverFilt2 = 0U; 
+            freqUnderFilt1 = 0U; 
+            freqUnderFilt2 = 0U;
         }
         else if (gridFreqHz < gGridSafety.freqUnderLV1)     /* 一级欠频 */
         {
-            freqUnderFilter1++;
-            freqOverFilter1 = 0U; 
-            freqOverFilter2 = 0U; 
-            freqUnderFilter2 = 0U;
+            freqUnderFilt1++;
+            freqOverFilt1 = 0U; 
+            freqOverFilt2 = 0U; 
+            freqUnderFilt2 = 0U;
         }
         else
         {
-            freqOverFilter1 = 0U; 
-            freqOverFilter2 = 0U;
-            freqUnderFilter1 = 0U; 
-            freqUnderFilter2 = 0U;
+            freqOverFilt1 = 0U; 
+            freqOverFilt2 = 0U;
+            freqUnderFilt1 = 0U; 
+            freqUnderFilt2 = 0U;
         }
 
-        if (freqOverFilter2 >= gGridSafety.faultFilterCnt2)
+        if (freqOverFilt2 >= gGridSafety.faultFiltCnt2)
         {
-            freqOverFilter2 = 0U;
+            freqOverFilt2 = 0U;
             gSysProblem.recovFault |= RECOV_GRID_OVER_FREQ;
         }
-        if (freqOverFilter1 >= gGridSafety.faultFilterCnt1)
+        if (freqOverFilt1 >= gGridSafety.faultFiltCnt1)
         {
-            freqOverFilter1 = 0U;
+            freqOverFilt1 = 0U;
             gSysProblem.recovFault |= RECOV_GRID_OVER_FREQ;
         }
-        if (freqUnderFilter2 >= gGridSafety.faultFilterCnt2)
+        if (freqUnderFilt2 >= gGridSafety.faultFiltCnt2)
         {
-            freqUnderFilter2 = 0U;
+            freqUnderFilt2 = 0U;
             gSysProblem.recovFault |= RECOV_GRID_UNDER_FREQ;
         }
-        if (freqUnderFilter1 >= gGridSafety.faultFilterCnt1)
+        if (freqUnderFilt1 >= gGridSafety.faultFiltCnt1)
         {
-            freqUnderFilter1 = 0U;
+            freqUnderFilt1 = 0U;
             gSysProblem.recovFault |= RECOV_GRID_UNDER_FREQ;
         }
     }
@@ -321,17 +321,17 @@ static void GridFreq_Protect(void)
     {
         if ((gridFreqHz > gGridSafety.freqUnderLV1) && (gridFreqHz < gGridSafety.freqOverLV1))
         {
-            freqBackFilter++;
-            if (freqBackFilter > gGridSafety.backFilterCnt)
+            freqBackFilt++;
+            if (freqBackFilt > gGridSafety.backFiltCnt)
             {
-                freqBackFilter = 0U;
+                freqBackFilt = 0U;
                 gSysProblem.recovFault &=
                     ~(RECOV_GRID_OVER_FREQ | RECOV_GRID_UNDER_FREQ);
             }
         }
         else
         {
-            freqBackFilter = 0U;
+            freqBackFilt = 0U;
         }
     }
 }
@@ -379,16 +379,16 @@ static void Gfci_SelfTest(void)
     {
         if (gMachineData.realRms.gfciCurr > GFCI_35MA_A)
         {
-            gGfciData.deviceFilter1++;
-            if (gGfciData.deviceFilter1 >= GFCI_DEV_FILTER)
+            gGfciData.deviceFilt1++;
+            if (gGfciData.deviceFilt1 >= GFCI_DEV_FILT)
             {
                 gSysProblem.permaFault |= PERMA_GFCI_DEVICE_FAULT;
-                gGfciData.deviceFilter1 = 0U;
+                gGfciData.deviceFilt1 = 0U;
             }
         }
         else
         {
-            gGfciData.deviceFilter1 = 0U;
+            gGfciData.deviceFilt1 = 0U;
         }
     }
     else if (gGfciData.selfTestIdx == GFCI_SELFTEST_INJECT_START)
@@ -401,16 +401,16 @@ static void Gfci_SelfTest(void)
         if ((gMachineData.realRms.gfciCurr > GFCI_85MA_A) ||
             (gMachineData.realRms.gfciCurr < GFCI_15MA_A))
         {
-            gGfciData.deviceFilter2++;
-            if (gGfciData.deviceFilter2 >= GFCI_DEV_FILTER)
+            gGfciData.deviceFilt2++;
+            if (gGfciData.deviceFilt2 >= GFCI_DEV_FILT)
             {
                 gSysProblem.permaFault |= PERMA_GFCI_DEVICE_FAULT;
-                gGfciData.deviceFilter2 = 0U;
+                gGfciData.deviceFilt2 = 0U;
             }
         }
         else
         {
-            gGfciData.deviceFilter2 = 0U;
+            gGfciData.deviceFilt2 = 0U;
         }
     }
 
@@ -458,16 +458,16 @@ static void Gfci_Protect(void)
             /* 绝对大漏电流（300mA 档，未修正 250mA 档） */
             if (gfciRms > GFCI_280MA_A)
             {
-                gGfciData.filter300ma++;
-                if (gGfciData.filter300ma >= GFCI_FILTER_300MA)
+                gGfciData.filt300ma++;
+                if (gGfciData.filt300ma >= GFCI_FILT_300MA)
                 {
                     gSysProblem.recovFault |= RECOV_GFCI;
-                    gGfciData.filter300ma = 0U;
+                    gGfciData.filt300ma = 0U;
                 }
             }
             else
             {
-                gGfciData.filter300ma = 0U;
+                gGfciData.filt300ma = 0U;
             }
 
             /* 差分跳变取值：缓慢变化 or 突变基准追踪 */
@@ -495,8 +495,8 @@ static void Gfci_Protect(void)
             /* 多级反时限：150mA 立即，60mA/30mA 连续 8 周期 */
             if (diffGfciRms >= GFCI_120MA_A)
             {
-                gGfciData.filter30ma = 0U;
-                gGfciData.filter60ma = 0U;
+                gGfciData.filt30ma = 0U;
+                gGfciData.filt60ma = 0U;
 
                 gGfciData.breakFlag = 0U;
                 gGfciData.breakSwFlag = 0U;
@@ -508,7 +508,7 @@ static void Gfci_Protect(void)
             }
             else if (diffGfciAvg >= GFCI_48MA_A)
             {
-                gGfciData.filter30ma = 0U;
+                gGfciData.filt30ma = 0U;
                 gGfciData.breakFlag = 1U;
                 if ((gGfciData.breakSwFlag & 0x02U) == 0U)
                 {
@@ -517,10 +517,10 @@ static void Gfci_Protect(void)
                     gGfciData.breakSwFlag = 2U;
                 }
                 
-                gGfciData.filter60ma++;
-                if (gGfciData.filter60ma >= GFCI_FILTER_60MA)
+                gGfciData.filt60ma++;
+                if (gGfciData.filt60ma >= GFCI_FILT_60MA)
                 {
-                    gGfciData.filter60ma = 0U;
+                    gGfciData.filt60ma = 0U;
                     gGfciData.breakSwFlag = 0U;
                     gGfciData.breakFlag = 0U;
                     gGfciData.deltaBaseAvg = 0.0f;
@@ -529,7 +529,7 @@ static void Gfci_Protect(void)
             }
             else if (diffGfciAvg >= GFCI_24MA_A)
             {
-                gGfciData.filter60ma = 0U;
+                gGfciData.filt60ma = 0U;
                 gGfciData.breakFlag = 1U;
                 if ((gGfciData.breakSwFlag & 0x01U) == 0U)
                 {
@@ -537,10 +537,10 @@ static void Gfci_Protect(void)
                     gGfciData.deltaBaseRms = gGfciData.rmsBuf[0];
                     gGfciData.breakSwFlag = 1U;
                 }
-                gGfciData.filter30ma++;
-                if (gGfciData.filter30ma >= GFCI_FILTER_30MA)
+                gGfciData.filt30ma++;
+                if (gGfciData.filt30ma >= GFCI_FILT_30MA)
                 {
-                    gGfciData.filter30ma = 0U;
+                    gGfciData.filt30ma = 0U;
                     gGfciData.deltaBaseAvg = 0.0f;
                     gGfciData.breakSwFlag = 0U;
                     gSysProblem.recovFault |= RECOV_GFCI;
@@ -549,8 +549,8 @@ static void Gfci_Protect(void)
             }
             else
             {
-                gGfciData.filter30ma = 0U;
-                gGfciData.filter60ma = 0U;
+                gGfciData.filt30ma = 0U;
+                gGfciData.filt60ma = 0U;
                 gGfciData.noBreakCnt++;
                 if (gGfciData.noBreakCnt >= GFCI_NOBREAK_CNT)
                 {
@@ -574,16 +574,16 @@ static void Gfci_Protect(void)
     {
         if (gfciRms < GFCI_50MA_A)
         {
-            gGfciData.backFilter++;
-            if (gGfciData.backFilter >= GFCI_BACK_FILTER)
+            gGfciData.backFilt++;
+            if (gGfciData.backFilt >= GFCI_BACK_FILT)
             {
-                gGfciData.backFilter = 0U;
+                gGfciData.backFilt = 0U;
                 gSysProblem.recovFault &=~ RECOV_GFCI;
             }
         }
         else
         {
-            gGfciData.backFilter = 0U;
+            gGfciData.backFilt = 0U;
         }
     }
 }

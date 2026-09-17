@@ -32,9 +32,9 @@
 #define GRID_RMS_TO_PEAK               1.414f  /* 电网 RMS → 峰值 */
 
 /* 母线/PV 保护滤波计数（峰值触发约 10ms 一拍）。 */
-#define BUS_OV_FILTER_CNT              100U    /* 母线过压连续判定（约 1s） */
-#define BUS_UV_FILTER_CNT              500U    /* 母线欠压连续判定（约 5s，仅并网态） */
-#define PV_OV_FILTER_CNT                30U    /* PV 过压连续判定（约 300ms） */
+#define BUS_OV_FILT_CNT              100U    /* 母线过压连续判定（约 1s） */
+#define BUS_UV_FILT_CNT              500U    /* 母线欠压连续判定（约 5s，仅并网态） */
+#define PV_OV_FILT_CNT                30U    /* PV 过压连续判定（约 300ms） */
 #define PV_OV_RECOV_CNT               30U    /* PV 过压恢复连续正常 */
 
 static void DC_Ctrl_BoostResetChs(void);
@@ -296,96 +296,96 @@ static void DC_Ctrl_BoostSoftStart(const DC_CtrlInput *input)
  * 欠压仅并网态判、置打嗝标志（reloadFlag，重新软启动，不停机）。 */
 static void DC_Ctrl_CheckBus(const DC_CtrlInput *input)
 {
-    static Uint16 busOvpFilter = 0U;
-    static Uint16 busUvpFilter = 0U;
+    static Uint16 busOvpFilt = 0U;
+    static Uint16 busUvpFilt = 0U;
 
     if (input->busVolt > DC_BUS_OV_TRIP_V)
     {
-        busOvpFilter++;
-        if (busOvpFilter >= BUS_OV_FILTER_CNT)
+        busOvpFilt++;
+        if (busOvpFilt >= BUS_OV_FILT_CNT)
         {
-            busOvpFilter = 0U;
+            busOvpFilt = 0U;
             gSysProblem.permaFault |= PERMA_DC_BUS_OVER_VOLT;
         }
     }
     else
     {
-        busOvpFilter = 0U;
+        busOvpFilt = 0U;
     }
 
     if (gSysData.state == SYS_STATE_NORMAL)
     {
         if ((input->busVolt < DC_BUS_MIN_V) && (input->busVolt > 0.0f))
         {
-            busUvpFilter++;
-            if (busUvpFilter >= BUS_UV_FILTER_CNT)
+            busUvpFilt++;
+            if (busUvpFilt >= BUS_UV_FILT_CNT)
             {
-                busUvpFilter = 0U;
+                busUvpFilt = 0U;
                 gSysData.reloadFlag = 1U;   /* 母线欠压：打嗝（重新软启动），不停机 */
             }
         }
         else
         {
-            busUvpFilter = 0U;
+            busUvpFilt = 0U;
         }
     }
     else
     {
-        busUvpFilter = 0U;
+        busUvpFilt = 0U;
     }
 }
 
 /* PV 过压保护（原 VPVCheck）：双路独立判定 + 恢复。 */
 static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
 {
-    static Uint16 pv1OvpFilter = 0U;
-    static Uint16 pv2OvpFilter = 0U;
-    static Uint16 pv1OvpBackFilter = 0U;
-    static Uint16 pv2OvpBackFilter = 0U;
+    static Uint16 pv1OvpFilt = 0U;
+    static Uint16 pv2OvpFilt = 0U;
+    static Uint16 pv1OvpBackFilt = 0U;
+    static Uint16 pv2OvpBackFilt = 0U;
 
     if (input->pv1Volt > PV_OV_TRIP_V)
     {
-        pv1OvpFilter++;
-        if (pv1OvpFilter >= PV_OV_FILTER_CNT)
+        pv1OvpFilt++;
+        if (pv1OvpFilt >= PV_OV_FILT_CNT)
         {
-            pv1OvpFilter = 0U;
+            pv1OvpFilt = 0U;
             gSysProblem.recovFault |= RECOV_PV1_OVER_VOLT;
         }
     }
     else
     {
-        pv1OvpFilter = 0U;
+        pv1OvpFilt = 0U;
     }
 
 
     if (input->pv2Volt > PV_OV_TRIP_V)
     {
-        pv2OvpFilter++;
-        if (pv2OvpFilter >= PV_OV_FILTER_CNT)
+        pv2OvpFilt++;
+        if (pv2OvpFilt >= PV_OV_FILT_CNT)
         {
-            pv2OvpFilter = 0U;
+            pv2OvpFilt = 0U;
             gSysProblem.recovFault |= RECOV_PV2_OVER_VOLT;
         }
     }
     else
     {
-        pv2OvpFilter = 0U;
+        pv2OvpFilt = 0U;
     }
 
     if ((gSysProblem.recovFault & RECOV_PV1_OVER_VOLT) != 0UL)
     {
         if (input->pv1Volt < PV_OV_RECOV_V)
         {
-            pv1OvpBackFilter++;
-            if (pv1OvpBackFilter >= PV_OV_RECOV_CNT)
+            pv1OvpBackFilt++;
+            if (pv1OvpBackFilt >= PV_OV_RECOV_CNT)
             {
-                pv1OvpBackFilter = 0U;
+                pv1OvpBackFilt = 0U;
                 gSysProblem.recovFault &=~ RECOV_PV1_OVER_VOLT;
             }
         }
         else
         {
-            pv1OvpBackFilter = 0U;
+            pv1OvpBackFilt = 0U;
         }
     }
 
@@ -393,16 +393,16 @@ static void DC_Ctrl_CheckPv(const DC_CtrlInput *input)
     {
         if (input->pv2Volt < PV_OV_RECOV_V)
         {
-            pv2OvpBackFilter++;
-            if (pv2OvpBackFilter >= PV_OV_RECOV_CNT)
+            pv2OvpBackFilt++;
+            if (pv2OvpBackFilt >= PV_OV_RECOV_CNT)
             {
-                pv2OvpBackFilter = 0U;
+                pv2OvpBackFilt = 0U;
                 gSysProblem.recovFault &=~ RECOV_PV2_OVER_VOLT;
             }
         }
         else
         {
-            pv2OvpBackFilter = 0U;
+            pv2OvpBackFilt = 0U;
         }
     }
 }
